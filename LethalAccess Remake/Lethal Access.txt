@@ -1,0 +1,4205 @@
+CompanyNavMesh.cs
+.\CompanyNavMesh.cs
+
+﻿using BepInEx;
+using HarmonyLib;
+using System;
+using System.IO;
+using System.Linq;
+using System.Reflection;
+using UnityEngine;
+
+namespace Green.LethalAccess
+{
+    [BepInPlugin("Green.LethalAccess.NavMesh", "NavMesh", "1.0.0")]
+    public class CompanyNavMesh : BaseUnityPlugin
+    {
+        private static GameObject navPrefab;
+
+        private void Awake()
+        {
+            AssetBundle assetBundle = AssetBundle.LoadFromStream(ResourceUtils.Get(".bundle"));
+            if (assetBundle != null)
+            {
+                navPrefab = assetBundle.LoadAsset<GameObject>("CompanyNavSurface.prefab");
+                assetBundle.Unload(false);
+            }
+            else
+            {
+                Debug.LogError("Failed to load asset bundle.");
+            }
+
+            Harmony.CreateAndPatchAll(typeof(DepositItemsDeskPatch));
+        }
+
+        [HarmonyPatch(typeof(DepositItemsDesk), "Start")]
+        internal class DepositItemsDeskPatch
+        {
+            [HarmonyPostfix]
+            internal static void StartPatch(DepositItemsDesk __instance)
+            {
+                try
+                {
+                    GameObject[] outsideAINodes = GameObject.FindGameObjectsWithTag("OutsideAINode");
+                    foreach (GameObject node in outsideAINodes)
+                    {
+                        UnityEngine.Object.Destroy(node);
+                    }
+
+                    GameObject[] insideAINodes = GameObject.FindGameObjectsWithTag("AINode");
+                    foreach (GameObject node in insideAINodes)
+                    {
+                        UnityEngine.Object.Destroy(node);
+                    }
+
+                    Debug.Log("Instantiating Company Navigation!");
+                    Transform navTransform = UnityEngine.Object.Instantiate(navPrefab, __instance.transform.parent, true).transform;
+                    navTransform.position = Vector3.zero;
+                    navTransform.rotation = Quaternion.identity;
+                    navTransform.localScale = Vector3.one;
+
+                    Transform outsideNodesTransform = navTransform.GetChild(0);
+                    RoundManager.Instance.outsideAINodes = new GameObject[outsideNodesTransform.childCount];
+                    for (int i = 0; i < outsideNodesTransform.childCount; i++)
+                    {
+                        RoundManager.Instance.outsideAINodes[i] = outsideNodesTransform.GetChild(i).gameObject;
+                    }
+
+                    Transform insideNodesTransform = navTransform.GetChild(1);
+                    RoundManager.Instance.insideAINodes = new GameObject[insideNodesTransform.childCount];
+                    for (int i = 0; i < insideNodesTransform.childCount; i++)
+                    {
+                        RoundManager.Instance.insideAINodes[i] = insideNodesTransform.GetChild(i).gameObject;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogException(ex);
+                }
+            }
+        }
+    }
+
+    public static class ResourceUtils
+    {
+        public static Stream Get(string name)
+        {
+            Assembly executingAssembly = Assembly.GetExecutingAssembly();
+            string[] manifestResourceNames = executingAssembly.GetManifestResourceNames();
+            if (manifestResourceNames.Length == 0)
+            {
+                throw new FileNotFoundException("Assembly does not contain any resource stream names.");
+            }
+            string resourceName = manifestResourceNames.FirstOrDefault(n => n.EndsWith(name));
+            if (string.IsNullOrEmpty(resourceName))
+            {
+                throw new FileNotFoundException($"Assembly does not contain a resource stream ending with '{name}'");
+            }
+            return executingAssembly.GetManifestResourceStream(resourceName);
+        }
+    }
+}
+
+
+
+
+
+
+NavMenu.cs
+.\NavMenu.cs
+
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
+using UnityEngine;
+using UnityEngine.InputSystem;
+using Green.LethalAccess;
+using DunGen;
+
+namespace Green.LethalAccess
+{
+    public class NavMenu : MonoBehaviour
+    {
+        private const float ScanRadius = 80f;
+        private const string ItemsCategoryName = "Items";
+        private const string UnlabeledCategoryName = "Unlabeled Nearby Objects";
+
+        public Dictionary<string, List<string>> menuItems = new Dictionary<string, List<string>>();
+        private Dictionary<string, string> displayNames = new Dictionary<string, string>();
+        private Dictionary<string, string> sceneNames = new Dictionary<string, string>();
+        private Dictionary<string, Vector3> registeredCoordinates = new Dictionary<string, Vector3>();
+        public List<string> categories = new List<string>();
+        private Dictionary<string, bool> categoryVisibility = new Dictionary<string, bool>();
+
+        public struct CategoryItemIndices
+        {
+            public int categoryIndex;
+            public int itemIndex;
+
+            public CategoryItemIndices(int categoryIndex, int itemIndex)
+            {
+                this.categoryIndex = categoryIndex;
+                this.itemIndex = itemIndex;
+            }
+        }
+
+        public CategoryItemIndices currentIndices = new CategoryItemIndices(0, 0);
+
+        private List<string> ignoreKeywords = new List<string>
+    {
+        "Floor", "Wall", "Ceiling", "Terrain", "Collider", "collider", "scannode",
+        "cube", "plane", "trigger", "placementcollider", "volume", "outofbounds",
+        "mesh", "pipe", "hanginglight", "terrainmap", "cylinder", "bone", "elbow",
+        "arm", "thigh", "spine", "playerphysicsbox", "shin", "player", "body",
+        "placement", "tree", "road", "rock", "optimized", "wall", "container",
+        "lineofsight2", "audio", "anomaly"
+    };
+
+        public void Initialize()
+        {
+            try
+            {
+                Debug.Log("NavMenu: Initializing input actions.");
+
+                LethalAccess.Instance.RegisterKeybind("MoveToNextItem", UnityEngine.InputSystem.Key.RightBracket, MoveToNextItem);
+                LethalAccess.Instance.RegisterKeybind("MoveToPreviousItem", UnityEngine.InputSystem.Key.LeftBracket, MoveToPreviousItem);
+                LethalAccess.Instance.RegisterKeybind("MoveToNextCategory", UnityEngine.InputSystem.Key.Equals, MoveToNextCategory);
+                LethalAccess.Instance.RegisterKeybind("MoveToPreviousCategory", UnityEngine.InputSystem.Key.Minus, MoveToPreviousCategory);
+                LethalAccess.Instance.RegisterKeybind("RefreshCurrentCategory", UnityEngine.InputSystem.Key.Semicolon, RefreshCurrentCategory);
+
+                menuItems[ItemsCategoryName] = new List<string>();
+                categories.Add(ItemsCategoryName);
+                categoryVisibility[ItemsCategoryName] = true;
+
+                menuItems[UnlabeledCategoryName] = new List<string>();
+                categories.Add(UnlabeledCategoryName);
+                categoryVisibility[UnlabeledCategoryName] = true;
+
+                Debug.Log("NavMenu: Input actions are registered.");
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"NavMenu: Error during initialization: {e.Message}");
+            }
+        }
+
+        public void RemoveItem(string gameObjectName, string category)
+        {
+            if (menuItems.TryGetValue(category, out var items))
+            {
+                items.Remove(gameObjectName);
+                Debug.Log($"Removed item '{gameObjectName}' from category '{category}'");
+            }
+        }
+
+        public void RefreshMenu()
+        {
+            currentIndices.itemIndex = 0;
+            SpeakCategoryAndFirstItem();
+        }
+
+        public void RegisterMenuItem(string gameObjectName, string displayName, string category, string sceneName = "", Vector3? coordinates = null)
+        {
+            try
+            {
+                // Input validation
+                if (string.IsNullOrWhiteSpace(gameObjectName))
+                {
+                    Debug.LogError("NavMenu: gameObjectName cannot be null or empty.");
+                    return;
+                }
+                if (string.IsNullOrWhiteSpace(displayName))
+                {
+                    Debug.LogError("NavMenu: displayName cannot be null or empty.");
+                    return;
+                }
+                if (string.IsNullOrWhiteSpace(category))
+                {
+                    Debug.LogError("NavMenu: category cannot be null or empty.");
+                    return;
+                }
+
+                // Trim input strings to remove leading/trailing whitespace
+                gameObjectName = gameObjectName.Trim();
+                displayName = displayName.Trim();
+                category = category.Trim();
+
+                // Store displayName in the dictionary
+                displayNames[gameObjectName] = displayName;
+
+                // Store the scene name in the dictionary if provided
+                if (!string.IsNullOrWhiteSpace(sceneName))
+                {
+                    sceneNames[gameObjectName] = sceneName.Trim();
+                }
+
+                // Check if the category already exists in the dictionary
+                if (!menuItems.ContainsKey(category))
+                {
+                    menuItems[category] = new List<string>();
+                    if (category == UnlabeledCategoryName)
+                    {
+                        categories.Add(category);
+                    }
+                    else
+                    {
+                        int unlabeledCategoryIndex = categories.IndexOf(UnlabeledCategoryName);
+                        if (unlabeledCategoryIndex != -1)
+                        {
+                            categories.Insert(unlabeledCategoryIndex, category);
+                        }
+                        else
+                        {
+                            categories.Add(category);
+                        }
+                    }
+                    categoryVisibility[category] = true;
+                    Debug.Log($"NavMenu: Added new category: {category}");
+                }
+
+                // Check if the item already exists in the category
+                if (menuItems[category].Contains(gameObjectName))
+                {
+                    Debug.LogWarning($"NavMenu: Item '{gameObjectName}' already exists in category '{category}'. Skipping addition.");
+                    return;
+                }
+
+                // Add the game object name to the appropriate category
+                menuItems[category].Add(gameObjectName);
+
+                // If coordinates are provided, store them in the registeredCoordinates dictionary
+                if (coordinates.HasValue)
+                {
+                    registeredCoordinates[gameObjectName] = coordinates.Value;
+                    Debug.Log($"NavMenu: Registered new item '{displayName}' ({gameObjectName}) at coordinates {coordinates.Value} in category '{category}'. Total items in this category: {menuItems[category].Count}");
+                }
+                else
+                {
+                    Debug.Log($"NavMenu: Registered new item '{displayName}' ({gameObjectName}) in category '{category}'. Total items in this category: {menuItems[category].Count}");
+                }
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"NavMenu: Error registering menu item: {e.Message}");
+            }
+        }
+
+        private void MoveToNextItem()
+        {
+            if (categories.Count > 0)
+            {
+                string currentCategory = categories[currentIndices.categoryIndex];
+                List<string> items = menuItems[currentCategory];
+
+                if (items.Count > 0)
+                {
+                    currentIndices.itemIndex = (currentIndices.itemIndex + 1) % items.Count;
+                    string gameObjectName = items[currentIndices.itemIndex];
+                    UnityMainThreadDispatcher.Instance().Enqueue(() => {
+                        GameObject gameObject = FindGameObjectByName(gameObjectName);
+                        string displayName = GetDisplayNameForObject(gameObject);
+                        if (gameObject != null)
+                        {
+                            LethalAccess.currentLookTarget = gameObject;
+                            Utilities.SpeakText(displayName);
+                        }
+                        else
+                        {
+                            Utilities.SpeakText($"{gameObjectName}, Not found nearby");
+                        }
+                    });
+                }
+                else
+                {
+                    Utilities.SpeakText($"No items in category {currentCategory}");
+                }
+            }
+        }
+
+
+        private void MoveToPreviousItem()
+        {
+            if (categories.Count > 0)
+            {
+                string currentCategory = categories[currentIndices.categoryIndex];
+                List<string> items = menuItems[currentCategory];
+
+                if (items.Count > 0)
+                {
+                    currentIndices.itemIndex = (currentIndices.itemIndex - 1 + items.Count) % items.Count;
+                    string gameObjectName = items[currentIndices.itemIndex];
+                    UnityMainThreadDispatcher.Instance().Enqueue(() => {
+                        GameObject gameObject = FindGameObjectByName(gameObjectName);
+                        string displayName = GetDisplayNameForObject(gameObject);
+                        if (gameObject != null)
+                        {
+                            LethalAccess.currentLookTarget = gameObject;
+                            Utilities.SpeakText(displayName);
+                        }
+                        else
+                        {
+                            Utilities.SpeakText($"{gameObjectName}, Not found nearby");
+                        }
+                    });
+                }
+                else
+                {
+                    Utilities.SpeakText($"No items in category {currentCategory}");
+                }
+            }
+        }
+
+        private async void MoveToNextCategory()
+        {
+            if (categories.Count > 0)
+            {
+                do
+                {
+                    currentIndices.categoryIndex = (currentIndices.categoryIndex + 1) % categories.Count;
+                }
+                while (!categoryVisibility[categories[currentIndices.categoryIndex]]);
+
+                currentIndices.itemIndex = 0;
+
+                string currentCategory = categories[currentIndices.categoryIndex];
+                if (currentCategory == ItemsCategoryName || currentCategory == UnlabeledCategoryName)
+                {
+                    await RefreshCategory(currentCategory);
+                }
+
+                AnnounceCategoryAndFirstItem();
+            }
+        }
+
+        private async void MoveToPreviousCategory()
+        {
+            if (categories.Count > 0)
+            {
+                do
+                {
+                    currentIndices.categoryIndex = (currentIndices.categoryIndex - 1 + categories.Count) % categories.Count;
+                }
+                while (!categoryVisibility[categories[currentIndices.categoryIndex]]);
+
+                currentIndices.itemIndex = 0;
+
+                string currentCategory = categories[currentIndices.categoryIndex];
+                if (currentCategory == ItemsCategoryName || currentCategory == UnlabeledCategoryName)
+                {
+                    await RefreshCategory(currentCategory);
+                }
+
+                AnnounceCategoryAndFirstItem();
+            }
+        }
+
+        private void AnnounceCategoryAndFirstItem()
+        {
+            if (categories.Count > 0)
+            {
+                string currentCategory = categories[currentIndices.categoryIndex];
+                List<string> items = menuItems[currentCategory];
+
+                if (items.Count > 0)
+                {
+                    string gameObjectName = items[0];
+                    GameObject gameObject = FindGameObjectByName(gameObjectName);
+                    string displayName = GetDisplayNameForObject(gameObject);
+                    if (gameObject != null)
+                    {
+                        Utilities.SpeakText($"{currentCategory}, {displayName}");
+                        SetCurrentLookTarget(gameObject);
+                    }
+                    else
+                    {
+                        Utilities.SpeakText($"{currentCategory}, {gameObjectName}, Not found nearby");
+                    }
+                }
+                else
+                {
+                    Utilities.SpeakText($"{currentCategory}, No items");
+                }
+            }
+        }
+
+
+        private void SetCurrentLookTarget(GameObject target)
+        {
+            if (target != null)
+            {
+                LethalAccess.currentLookTarget = target;
+            }
+        }
+
+
+        private async void RefreshCurrentCategory()
+        {
+            if (categories.Count > 0)
+            {
+                string currentCategory = categories[currentIndices.categoryIndex];
+                await RefreshCategory(currentCategory);
+                currentIndices.itemIndex = 0; // Set navigation index to the first item
+                SpeakCategoryAndFirstItem();
+                SetCurrentLookTargetToFirstItem();
+            }
+        }
+
+
+        public async Task RefreshCategory(string category)
+        {
+            List<string> items = new List<string>();
+
+            if (category == ItemsCategoryName)
+            {
+                items = await ScanForItemsAsync();
+            }
+            else if (category == UnlabeledCategoryName)
+            {
+                items = await ScanForUnlabeledObjectsAsync();
+            }
+            else
+            {
+                if (menuItems.TryGetValue(category, out var existingItems))
+                {
+                    items = new List<string>(existingItems);
+                }
+            }
+
+            await UnityMainThreadDispatcher.Instance().EnqueueAsync(() =>
+            {
+                menuItems[category] = items;
+                currentIndices.itemIndex = 0; // Set navigation index to the first item
+                Debug.Log($"Refreshed category '{category}' with {items.Count} items.");
+
+                // Don't set focus or announce here, let AnnounceCategoryAndFirstItem handle it
+            });
+        }
+
+        private async Task<List<string>> ScanForItemsAsync()
+        {
+            return await Task.Run(() =>
+            {
+                List<string> items = new List<string>();
+                Collider[] colliders = Physics.OverlapSphere(LethalAccess.PlayerTransform.position, ScanRadius);
+
+                // Find the DepositItemsDesk instance
+                DepositItemsDesk depositItemsDesk = UnityEngine.Object.FindObjectOfType<DepositItemsDesk>();
+
+                List<Collider> sortedColliders = colliders
+                    .Where(c => {
+                        // Check for PhysicsProp tag
+                        if (!c.gameObject.CompareTag("PhysicsProp"))
+                            return false;
+
+                        // First try to get PhysicsProp component
+                        PhysicsProp physicsProp = c.GetComponent<PhysicsProp>();
+                        if (physicsProp != null)
+                        {
+                            return !physicsProp.isHeld &&
+                                   !physicsProp.isPocketed &&
+                                   !physicsProp.deactivated &&
+                                   (depositItemsDesk == null || !depositItemsDesk.itemsOnCounter.Contains(physicsProp));
+                        }
+
+                        // If no PhysicsProp, try ClipboardItem
+                        ClipboardItem clipboardItem = c.GetComponent<ClipboardItem>();
+                        if (clipboardItem != null)
+                        {
+                            return !clipboardItem.isHeld &&
+                                   !clipboardItem.isPocketed &&
+                                   !clipboardItem.deactivated &&
+                                   (depositItemsDesk == null || !depositItemsDesk.itemsOnCounter.Contains(clipboardItem));
+                        }
+
+                        return false;
+                    })
+                    .OrderBy(c => Vector3.Distance(LethalAccess.PlayerTransform.position, c.transform.position))
+                    .ToList();
+
+                foreach (Collider collider in sortedColliders)
+                {
+                    // Try PhysicsProp first
+                    PhysicsProp physicsProp = collider.GetComponent<PhysicsProp>();
+                    if (physicsProp != null)
+                    {
+                        string itemName = physicsProp.itemProperties.itemName;
+                        if (!string.IsNullOrEmpty(itemName))
+                        {
+                            string gameObjectName = collider.gameObject.name;
+                            items.Add(gameObjectName);
+                            UnityMainThreadDispatcher.Instance().Enqueue(() => RegisterMenuItem(gameObjectName, itemName, ItemsCategoryName));
+                        }
+                        else
+                        {
+                            items.Add(collider.gameObject.name);
+                        }
+                        continue;
+                    }
+
+                    // Try ClipboardItem if PhysicsProp wasn't found
+                    ClipboardItem clipboardItem = collider.GetComponent<ClipboardItem>();
+                    if (clipboardItem != null)
+                    {
+                        string itemName = clipboardItem.itemProperties.itemName;
+                        if (!string.IsNullOrEmpty(itemName))
+                        {
+                            string gameObjectName = collider.gameObject.name;
+                            items.Add(gameObjectName);
+                            UnityMainThreadDispatcher.Instance().Enqueue(() => RegisterMenuItem(gameObjectName, itemName, ItemsCategoryName));
+                        }
+                        else
+                        {
+                            items.Add(collider.gameObject.name);
+                        }
+                    }
+                }
+                return items;
+            });
+        }
+
+        private async Task<List<string>> ScanForUnlabeledObjectsAsync()
+        {
+            return await Task.Run(() =>
+            {
+                List<string> objects = new List<string>();
+                Collider[] colliders = Physics.OverlapSphere(LethalAccess.PlayerTransform.position, ScanRadius);
+                List<Collider> sortedColliders = colliders
+                    .Where(c => !ignoreKeywords.Any(keyword => c.gameObject.name.ToLower().Contains(keyword.ToLower())))
+                    .OrderBy(c => Vector3.Distance(LethalAccess.PlayerTransform.position, c.transform.position))
+                    .ToList();
+
+                foreach (Collider collider in sortedColliders)
+                {
+                    string gameObjectName = collider.gameObject.name;
+                    objects.Add(gameObjectName);
+                    UnityMainThreadDispatcher.Instance().Enqueue(() => RegisterMenuItem(gameObjectName, gameObjectName, UnlabeledCategoryName));
+                }
+                return objects;
+            });
+        }
+
+        private void SpeakCategoryAndFirstItem()
+        {
+            if (categories.Count > 0)
+            {
+                string currentCategory = categories[currentIndices.categoryIndex];
+                List<string> items = menuItems[currentCategory];
+
+                if (items.Count > 0)
+                {
+                    string gameObjectName = items[0];
+                    GameObject gameObject = FindGameObjectByName(gameObjectName);
+                    string displayName = GetDisplayNameForObject(gameObject);
+                    if (gameObject != null)
+                    {
+                        Utilities.SpeakText($"{currentCategory}, {displayName}");
+                    }
+                    else
+                    {
+                        Utilities.SpeakText($"{currentCategory}, {gameObjectName}, Not found nearby");
+                    }
+                }
+                else
+                {
+                    Utilities.SpeakText($"{currentCategory}, No items");
+                }
+            }
+        }
+
+        private void SetCurrentLookTargetToFirstItem()
+        {
+            if (categories.Count > 0)
+            {
+                string currentCategory = categories[currentIndices.categoryIndex];
+                if (menuItems.ContainsKey(currentCategory) && menuItems[currentCategory].Count > 0)
+                {
+                    string gameObjectName = menuItems[currentCategory][0];
+                    UnityMainThreadDispatcher.Instance().Enqueue(() => {
+                        GameObject gameObject = FindGameObjectByName(gameObjectName);
+                        if (gameObject != null)
+                        {
+                            LethalAccess.currentLookTarget = gameObject;
+                            string displayName = GetDisplayNameForObject(gameObject);
+                        }
+                    });
+                }
+                else
+                {
+                    Utilities.SpeakText($"No items in {currentCategory}");
+                }
+            }
+        }
+
+        private GameObject FindGameObjectByName(string gameObjectName)
+        {
+            try
+            {
+                if (sceneNames.TryGetValue(gameObjectName, out string sceneName))
+                {
+                    UnityEngine.SceneManagement.Scene scene = UnityEngine.SceneManagement.SceneManager.GetSceneByName(sceneName);
+                    if (scene.isLoaded)
+                    {
+                        GameObject[] objectsInScene = scene.GetRootGameObjects();
+                        foreach (GameObject obj in objectsInScene)
+                        {
+                            GameObject foundObject = obj.transform.Find(gameObjectName)?.gameObject;
+                            if (foundObject != null)
+                            {
+                                return foundObject;
+                            }
+                        }
+                    }
+                }
+
+                // Fallback to searching in the default scene
+                GameObject[] allObjects = UnityEngine.Object.FindObjectsOfType<GameObject>();
+                foreach (GameObject obj in allObjects)
+                {
+                    if (obj.name == gameObjectName)
+                    {
+                        return obj;
+                    }
+                }
+
+                // If the GameObject is not found and it has registered coordinates, create it
+                if (registeredCoordinates.TryGetValue(gameObjectName, out Vector3 coordinates))
+                {
+                    GameObject newObject = new GameObject(gameObjectName);
+                    newObject.transform.position = coordinates;
+                    Debug.Log($"Created new GameObject '{gameObjectName}' at coordinates {coordinates}");
+                    return newObject;
+                }
+
+                Debug.LogWarning($"GameObject with name '{gameObjectName}' not found in the scene.");
+                return null;
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"NavMenu: Error finding GameObject: {e.Message}");
+                return null;
+            }
+        }
+
+        public string GetDisplayNameForObject(GameObject gameObject)
+        {
+            if (gameObject != null)
+            {
+                string gameObjectName = gameObject.name;
+
+                // Check for specific object names and return the desired display name
+                switch (gameObjectName)
+                {
+                    case "EntranceTeleportA":
+                        return "Enter Factory";
+                    case "EntranceTeleportA(Clone)":
+                        return "Exit Factory";
+                    case "EntranceTeleportB":
+                        return "Enter Fire Escape";
+                    case "EntranceTeleportB(Clone)":
+                        return "Exit Fire Escape";
+                    default:
+                        // For other objects, check if the display name exists in the dictionary
+                        if (displayNames.TryGetValue(gameObjectName, out string displayName))
+                        {
+                            return displayName;
+                        }
+                        // If no display name is found, use the game object name
+                        return gameObjectName;
+                }
+            }
+
+            // If gameObject is null, get the name set in NavMenu
+            if (currentIndices.categoryIndex < categories.Count)
+            {
+                string currentCategory = categories[currentIndices.categoryIndex];
+                if (currentIndices.itemIndex < menuItems[currentCategory].Count)
+                {
+                    string gameObjectName = menuItems[currentCategory][currentIndices.itemIndex];
+                    if (displayNames.TryGetValue(gameObjectName, out string displayName))
+                    {
+                        return displayName;
+                    }
+                    return gameObjectName;
+                }
+            }
+
+            return "Unknown Object"; // Fallback default string
+        }
+
+        public void HideCategory(string category)
+        {
+            if (categoryVisibility.ContainsKey(category))
+            {
+                categoryVisibility[category] = false;
+            }
+        }
+
+        public void UnhideCategory(string category)
+        {
+            if (categoryVisibility.ContainsKey(category))
+            {
+                categoryVisibility[category] = true;
+            }
+        }
+
+        private Dictionary<string, bool> previousCategoryVisibility = new Dictionary<string, bool>();
+
+        public void UpdateCategoriesVisibility(bool isShipLanded, string currentPlanetName)
+        {
+            if (isShipLanded)
+            {
+                UpdateCategoryVisibility("Factory", currentPlanetName != "71 Gordion");
+                UpdateCategoryVisibility("Company Building", currentPlanetName == "71 Gordion");
+            }
+            else
+            {
+                UpdateCategoryVisibility("Factory", false);
+                UpdateCategoryVisibility("Company Building", false);
+            }
+        }
+
+        private void UpdateCategoryVisibility(string category, bool shouldBeVisible)
+        {
+            if (!previousCategoryVisibility.ContainsKey(category) || previousCategoryVisibility[category] != shouldBeVisible)
+            {
+                if (shouldBeVisible)
+                {
+                    UnhideCategory(category);
+                    Utilities.SpeakText($"{category} category is now available.");
+                }
+                else
+                {
+                    HideCategory(category);
+                    Utilities.SpeakText($"{category} category is now hidden.");
+                }
+                previousCategoryVisibility[category] = shouldBeVisible;
+            }
+        }
+    }
+}
+
+
+
+
+
+
+NorthSoundManager.cs
+.\NorthSoundManager.cs
+
+﻿using UnityEngine;
+using System.Collections;
+using BepInEx.Configuration;
+
+namespace Green.LethalAccess
+{
+    public class NorthSoundManager : MonoBehaviour
+    {
+        private AudioSource audioSource;
+        public bool isEnabled = false;
+        private float playInterval = 1.5f; // Default value
+        private float volume = 0.15f;
+        private float normalFrequency = 440f;
+        private float behindFrequency = 220f; // 50% deeper tone
+
+        // New configuration entry in the "Values" category
+        private static ConfigEntry<float> configPlayInterval;
+
+        void Start()
+        {
+            audioSource = gameObject.AddComponent<AudioSource>();
+            audioSource.spatialize = true;
+            audioSource.spatialBlend = 1f;
+            audioSource.volume = volume;
+            audioSource.loop = false;
+            audioSource.playOnAwake = false;
+            audioSource.dopplerLevel = 0f;
+            audioSource.rolloffMode = AudioRolloffMode.Linear;
+            audioSource.maxDistance = 1000f;
+
+            // Initialize the configuration entry in the "Values" category
+            configPlayInterval = LethalAccess.Instance.Config.Bind("Values", "NorthSoundPlayInterval", 1.5f, "The delay in seconds between North sound plays");
+
+            // Set the playInterval to the configured value
+            playInterval = configPlayInterval.Value;
+        }
+
+        void Update()
+        {
+            if (isEnabled)
+            {
+                Vector3 northDirection = Vector3.forward;
+                transform.position = LethalAccess.PlayerTransform.position + northDirection * 10f;
+                transform.LookAt(LethalAccess.PlayerTransform);
+            }
+        }
+
+        public void ToggleNorthSound()
+        {
+            isEnabled = !isEnabled;
+            if (isEnabled)
+            {
+                StartCoroutine(PlayNorthSoundRoutine());
+            }
+            else
+            {
+                StopAllCoroutines();
+                audioSource.Stop();
+            }
+        }
+
+        private IEnumerator PlayNorthSoundRoutine()
+        {
+            while (isEnabled)
+            {
+                bool isBehindPlayer = IsSoundBehindPlayer();
+                audioSource.clip = GenerateNorthSound(isBehindPlayer);
+                audioSource.Play();
+                yield return new WaitForSeconds(playInterval);
+            }
+        }
+
+        private AudioClip GenerateNorthSound(bool isBehindPlayer)
+        {
+            int sampleRate = 44100;
+            float frequency = isBehindPlayer ? behindFrequency : normalFrequency;
+            float duration = 0.2f;
+            int sampleCount = Mathf.CeilToInt(sampleRate * duration);
+            float[] samples = new float[sampleCount];
+
+            for (int i = 0; i < sampleCount; i++)
+            {
+                float t = (float)i / sampleRate;
+                samples[i] = Mathf.Sin(2f * Mathf.PI * frequency * t);
+            }
+
+            AudioClip clip = AudioClip.Create("NorthSound", sampleCount, 1, sampleRate, false);
+            clip.SetData(samples, 0);
+            return clip;
+        }
+
+        private bool IsSoundBehindPlayer()
+        {
+            Vector3 playerForward = LethalAccess.PlayerTransform.forward;
+            Vector3 toSound = transform.position - LethalAccess.PlayerTransform.position;
+            float dotProduct = Vector3.Dot(playerForward, toSound.normalized);
+            return dotProduct < 0; // If dot product is negative, sound is behind the player
+        }
+
+        // Method to update the play interval
+        public void UpdatePlayInterval(float newInterval)
+        {
+            playInterval = newInterval;
+            configPlayInterval.Value = newInterval;
+        }
+    }
+}
+
+
+
+
+
+
+Pathfinder.cs
+.\Pathfinder.cs
+
+﻿using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.AI;
+using HarmonyLib;
+using GameNetcodeStuff;
+using Green.LethalAccess;
+using DunGen;
+using System.Collections;
+using System.Linq;
+using UnityEngine.Networking;
+using UnityEngine.InputSystem;
+using System.IO;
+using System.Reflection;
+using System;
+
+namespace Green.LethalAccess
+{
+    internal class Pathfinder : MonoBehaviour
+    {
+        public bool IsPathfinding { get { return isPathfinding; } }
+        private NavMeshAgent agent;
+        public bool isPathfinding = false;
+        private Vector3 lastPosition;
+        private Vector3 currentDestination;
+        private float lastPositionUpdateTime = 0;
+        public float stoppingRadius = 1.5f;
+        private float baseSpeed = 1.75f;
+        public static bool ShouldPreventFallDamage = false;
+        private LineRenderer lineRenderer;
+
+        private Vector3 lastFootstepPosition; // Track last position for footstep sound
+        private const float FootstepDistanceThreshold = 3f; // Distance threshold for playing footstep sound
+
+        private AudioSource audioSource;
+        private static readonly string reachedPositionAudioFilePath = @"LethalAccessAssets\ReachedPosition.wav";
+
+        // Define the list of obstacle names at the top of the script
+        private List<string> obstacleNames = new List<string> { "Landmine", "Center", "Collider (6)" };
+
+        public PlayerControllerB playerController;
+
+        public static Pathfinder Instance { get; private set; }
+
+        void Awake()
+        {
+            try
+            {
+                Instance = this;
+                playerController = GetComponent<PlayerControllerB>();
+                CreateOrRecreateAgent();
+
+                audioSource = gameObject.AddComponent<AudioSource>();
+                StartCoroutine(LoadAudioClip(reachedPositionAudioFilePath));
+
+                InvokeRepeating("EnsureNavMeshAgentIsRemoved", 0.5f, 0.5f);
+
+                lineRenderer = gameObject.GetComponent<LineRenderer>();
+                if (lineRenderer == null)
+                {
+                    lineRenderer = gameObject.AddComponent<LineRenderer>();
+                }
+                SetupLineRenderer();
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"Pathfinder: Error during Awake: {e.Message}");
+            }
+        }
+
+        void SetupLineRenderer()
+        {
+            lineRenderer.startWidth = 0.15f;
+            lineRenderer.endWidth = 0.15f;
+            lineRenderer.material = new Material(Shader.Find("Sprites/Default")); // Assign a default material
+            lineRenderer.startColor = Color.red;
+            lineRenderer.endColor = Color.red;
+            lineRenderer.positionCount = 0; // Initially, we don't want to draw anything
+        }
+
+        void EnsureNavMeshAgentIsRemoved()
+        {
+            // Only remove the NavMeshAgent if isPathfinding is false
+            if (!isPathfinding && agent != null)
+            {
+                Destroy(agent);
+                agent = null;
+                Debug.Log("NavMeshAgent removed from the player.");
+            }
+        }
+
+        void Start()
+        {
+            lastPosition = transform.position;
+            lastPositionUpdateTime = Time.time;
+        }
+
+        public void NavigateTo(GameObject targetObject)
+        {
+            try
+            {
+                if (StartOfRound.Instance == null || !StartOfRound.Instance.shipHasLanded)
+                {
+                    Utilities.SpeakText("The ship has not landed yet. Pathfinding is not allowed.");
+                    return;
+                }
+
+                if (targetObject == null)
+                {
+                    Utilities.SpeakText("Selected object not found at current location.");
+                    Debug.LogError("Pathfinder.NavigateTo: targetObject is null.");
+                    return;
+                }
+
+                UnityMainThreadDispatcher.Instance().Enqueue(() => {
+                    if (agent == null)
+                    {
+                        Debug.LogError("Pathfinder.NavigateTo: NavMeshAgent is null.");
+                        CreateOrRecreateAgent();
+                    }
+
+                    NavMeshHit hit;
+                    if (!NavMesh.SamplePosition(agent.transform.position, out hit, 1.0f, NavMesh.AllAreas))
+                    {
+                        Utilities.SpeakText("Could not Pathfind! No NavMesh available at current position.");
+                        return;
+                    }
+
+                    agent.Warp(hit.position);
+
+                    if (FindAndAvoidObstacles())
+                    {
+                        Debug.Log("Avoiding Landmines.");
+                    }
+
+                    if (agent.SetDestination(targetObject.transform.position))
+                    {
+                        agent.isStopped = false;
+                        isPathfinding = true;
+                        ShouldPreventFallDamage = true;
+
+                        string displayName = LethalAccess.Instance?.navMenu?.GetDisplayNameForObject(targetObject) ?? targetObject.name;
+                        Utilities.SpeakText($"Starting pathfinding to {displayName}");
+                    }
+                    else
+                    {
+                        Utilities.SpeakText("Could not Pathfind! Object is not on NavMesh.");
+                        StopPathfinding();
+                    }
+                });
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"Pathfinder: Error during NavigateTo: {e.Message}");
+                StopPathfinding();
+            }
+        }
+
+
+        private bool FindAndAvoidObstacles()
+        {
+            var obstacles = GameObject.FindObjectsOfType<GameObject>()
+                                      .Where(obj => obstacleNames.Contains(obj.name) && Vector3.Distance(transform.position, obj.transform.position) <= 50f);
+
+            if (obstacles.Any())
+            {
+                foreach (var obstacle in obstacles)
+                {
+                    NavMeshObstacle navObstacle = obstacle.GetComponent<NavMeshObstacle>();
+                    if (navObstacle == null)
+                    {
+                        navObstacle = obstacle.AddComponent<NavMeshObstacle>();
+                        navObstacle.carving = true;
+                        navObstacle.shape = NavMeshObstacleShape.Capsule;
+                        navObstacle.radius = 2f; // Adjust radius as needed
+                        navObstacle.height = 2f;
+                    }
+                }
+                return true; // Obstacles found and marked
+            }
+
+            return false; // No obstacles found within the specified radius
+        }
+
+        void FixedUpdate()
+        {
+            try
+            {
+                if (playerController != null && playerController.isPlayerDead)
+                {
+                    if (isPathfinding)
+                    {
+                        StopPathfinding();
+                        Utilities.SpeakText("Pathfinding stopped because the player is dead.");
+                    }
+                    return;
+                }
+
+                if (isPathfinding && agent != null && agent.isOnNavMesh && !agent.pathPending)
+                {
+                    if (agent.remainingDistance <= agent.stoppingDistance)
+                    {
+                        OnReachedDestination();
+                    }
+                    else
+                    {
+                        UpdateAgentSpeed();
+                    }
+                }
+
+                DetectAndSpeakDoor();
+
+                if (isPathfinding)
+                {
+                    HandleStuckDetection();
+                    CheckAndPlayFootstepSound();
+                }
+
+                if (isPathfinding && agent != null && agent.path != null)
+                {
+                    DrawPath(agent.path);
+                }
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogError($"Pathfinder: Error during FixedUpdate: {e.Message}");
+                StopPathfinding();
+            }
+        }
+
+        private void OnReachedDestination()
+        {
+            agent.isStopped = true;
+            isPathfinding = false;
+
+            if (audioSource.clip != null)
+            {
+                audioSource.Play();
+            }
+
+            string displayName = "Unknown Object";
+            if (LethalAccess.Instance != null && LethalAccess.Instance.navMenu != null)
+            {
+                displayName = LethalAccess.Instance.navMenu.GetDisplayNameForObject(LethalAccess.currentLookTarget);
+            }
+
+            StartCoroutine(ResetFallDamageImmunityAfterDelay());
+            RemoveAgent();
+        }
+
+
+
+        private void HandleStuckDetection()
+        {
+            if (Time.time - lastPositionUpdateTime > 3f)
+            {
+                if (Vector3.Distance(transform.position, lastPosition) < 1f)
+                {
+                    TeleportAlongPath(5f);
+                }
+
+                lastPosition = transform.position;
+                lastPositionUpdateTime = Time.time;
+            }
+        }
+
+        void DrawPath(NavMeshPath path)
+        {
+            if (path.corners.Length < 2) return; // No path to draw
+
+            lineRenderer.positionCount = path.corners.Length;
+            for (int i = 0; i < path.corners.Length; i++)
+            {
+                Vector3 pointPosition = path.corners[i] + Vector3.up * 1f; // Raise the line by 1 unit
+                lineRenderer.SetPosition(i, pointPosition);
+            }
+        }
+
+        private void CheckAndPlayFootstepSound()
+        {
+            // Get the player's current position from LethalAccessMod
+            if (LethalAccess.PlayerTransform == null)
+                return;
+
+            Vector3 currentPlayerPosition = LethalAccess.PlayerTransform.position;
+
+            // Compare the horizontal distance between the player's current position and the last footstep position
+            if (Vector3.Distance(new Vector3(currentPlayerPosition.x, 0, currentPlayerPosition.z),
+                                 new Vector3(lastFootstepPosition.x, 0, lastFootstepPosition.z))
+                >= FootstepDistanceThreshold)
+            {
+                // Play footstep sound locally and on the server
+                if (playerController != null)
+                {
+                    playerController.PlayFootstepLocal(); // For local/client-side sound
+                    playerController.PlayFootstepServer(); // For server-side sound
+
+                    lastFootstepPosition = currentPlayerPosition; // Update last position after playing sound
+                }
+            }
+        }
+
+        private void UpdateAgentSpeed()
+        {
+            if (playerController != null)
+            {
+                // Calculate the current weight factor based on the player's carry weight
+                float carryWeight = playerController.carryWeight - 1f; // Subtract base 1 to get actual weight
+                carryWeight = Mathf.Clamp(carryWeight, 0f, 1.4f); // Clamp between 0 and 1.4 (equivalent to 0 to 100 lbs)
+
+                // Increase the impact of weight by 1.5 times
+                carryWeight *= 1.5f;
+                carryWeight = Mathf.Min(carryWeight, 1.4f); // Ensure it doesn't exceed the maximum limit
+
+                // Calculate speed reduction factor (linearly between 1 and 0.15)
+                float speedFactor = Mathf.Lerp(1f, 0.15f, carryWeight / 1.4f);
+
+                // Apply the calculated speed factor to the agent's speed
+                agent.speed = baseSpeed * 3.5f * speedFactor;
+            }
+        }
+
+        private void TeleportAlongPath(float distance)
+        {
+            if (agent.path == null || agent.path.corners.Length < 2) return;
+
+            // Store the current destination
+            currentDestination = agent.destination;
+
+            // Calculate the teleport point
+            Vector3 direction = agent.path.corners[1] - transform.position;
+            Vector3 teleportPoint = transform.position + direction.normalized * distance;
+
+            // Attempt to teleport to the calculated point
+            if (TryTeleportTo(teleportPoint))
+            {
+                Debug.Log("Teleported player to " + teleportPoint);
+                ContinuePathfinding();
+                return;
+            }
+
+            // If teleportation fails, try finding a random point nearby
+            for (int attempts = 0; attempts < 10; attempts++)
+            {
+                Vector3 randomPoint = transform.position + UnityEngine.Random.insideUnitSphere * 2f;
+                if (TryTeleportTo(randomPoint))
+                {
+                    Debug.Log("Teleported player to nearby random point: " + randomPoint);
+                    ContinuePathfinding();
+                    return;
+                }
+            }
+
+            Debug.LogError("Failed to teleport player: No valid NavMesh point found near " + teleportPoint);
+        }
+
+        private bool TryTeleportTo(Vector3 point)
+        {
+            if (NavMesh.SamplePosition(point, out NavMeshHit hit, 1.0f, NavMesh.AllAreas))
+            {
+                agent.Warp(hit.position);
+                return true;
+            }
+            return false;
+        }
+
+        private void ContinuePathfinding()
+        {
+            if (agent != null && currentDestination != null)
+            {
+                agent.SetDestination(currentDestination);
+                isPathfinding = true; // Ensure that pathfinding status is active
+            }
+        }
+
+        private IEnumerator LoadAudioClip(string relativeFilePath)
+        {
+            // Get the directory where the mod DLL is located.
+            string modDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+
+            // Combine the mod directory path with the relative file path to form the full path.
+            string fullPath = Path.Combine(modDirectory, relativeFilePath);
+
+            // Convert the full path to a URL format for UnityWebRequest.
+            string fileURL = "file://" + fullPath;
+
+            using (UnityWebRequest uwr = UnityWebRequestMultimedia.GetAudioClip(fileURL, AudioType.WAV))
+            {
+                yield return uwr.SendWebRequest();
+
+                if (uwr.result == UnityWebRequest.Result.ConnectionError || uwr.result == UnityWebRequest.Result.ProtocolError)
+                {
+                    Debug.LogError("Error While Loading Audio Clip: " + uwr.error);
+                }
+                else
+                {
+                    // Assign the downloaded audio clip to your audio source.
+                    audioSource.clip = DownloadHandlerAudioClip.GetContent(uwr);
+                }
+            }
+        }
+
+        private void DetectAndSpeakDoor()
+        {
+            float doorDetectionDistance = 2.25f;
+            DoorLock closestDoor = null;
+            float closestDistance = doorDetectionDistance;
+
+            // Find the closest door within the detection distance
+            foreach (var doorGameObject in FindObjectsOfType<DoorLock>())
+            {
+                float distanceToDoor = Vector3.Distance(transform.position, doorGameObject.transform.position);
+                if (distanceToDoor < closestDistance)
+                {
+                    closestDistance = distanceToDoor;
+                    closestDoor = doorGameObject;
+                }
+            }
+
+            // Check if a door is found and within the distance
+            if (closestDoor != null)
+            {
+                // Get the AnimatedObjectTrigger component to check the door's state
+                var animatedObjectTrigger = closestDoor.GetComponent<AnimatedObjectTrigger>();
+                if (animatedObjectTrigger != null)
+                {
+                    // Only open the door when the boolValue is false (door is closed)
+                    if (!animatedObjectTrigger.boolValue)
+                    {
+                        // Open the door
+                        closestDoor.OpenOrCloseDoor(playerController);
+                    }
+                }
+            }
+        }
+
+        private IEnumerator ResetFallDamageImmunityAfterDelay()
+        {
+            yield return new WaitForSeconds(0.1f); // Wait for 0.1 seconds
+            ShouldPreventFallDamage = false;
+        }
+
+        private void CreateOrRecreateAgent()
+        {
+            RemoveAgent();
+
+            agent = gameObject.AddComponent<NavMeshAgent>();
+            agent.speed = baseSpeed * 3;
+            agent.angularSpeed = 1200f;
+            agent.acceleration = 12f;
+            agent.radius = 0.3f;
+            agent.baseOffset = 0.4f;
+            agent.stoppingDistance = stoppingRadius;
+            agent.obstacleAvoidanceType = ObstacleAvoidanceType.HighQualityObstacleAvoidance; // Improve obstacle avoidance quality
+            agent.areaMask = NavMesh.AllAreas;
+            agent.autoRepath = true;
+            agent.autoTraverseOffMeshLink = true;
+        }
+
+        public void StopPathfinding()
+        {
+            try
+            {
+                UnityMainThreadDispatcher.Instance().Enqueue(() => {
+                    if (agent != null)
+                    {
+                        agent.isStopped = true;
+                        Destroy(agent);
+                        agent = null;
+                    }
+                    isPathfinding = false;
+                    StartCoroutine(ResetFallDamageImmunityAfterDelay());
+                    ClearPath();
+                });
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"Pathfinder: Error during StopPathfinding: {e.Message}");
+            }
+        }
+
+        void ClearPath()
+        {
+            lineRenderer.positionCount = 0; // This effectively "clears" the line
+        }
+
+        private void RemoveAgent()
+        {
+            if (agent != null)
+            {
+                Destroy(agent);
+                agent = null;
+            }
+        }
+
+        public static void RemoveNavMeshAgentFromPlayer()
+        {
+            var pathfinder = FindObjectOfType<Pathfinder>();
+            if (pathfinder != null)
+            {
+                pathfinder.RemoveAgent();
+            }
+        }
+    }
+}
+
+[HarmonyPatch(typeof(StartOfRound), "StartGame")]
+class StartOfRoundNavMeshPatch
+{
+    [HarmonyPostfix]
+    static void Postfix()
+    {
+        Pathfinder.RemoveNavMeshAgentFromPlayer();
+    }
+}
+
+[HarmonyPatch(typeof(PlayerControllerB))]
+class PlayerControllerBFallDamagePatch
+{
+    [HarmonyPrefix]
+    [HarmonyPatch("PlayerHitGroundEffects")]
+    static bool Prefix(PlayerControllerB __instance, ref float ___fallValue)
+    {
+        if (Pathfinder.ShouldPreventFallDamage)
+        {
+            // Prevent fall damage
+            __instance.takingFallDamage = false;
+
+            // Reset fall value to prevent unintended effects
+            ___fallValue = 0;
+
+            // Skip original method execution
+            return false;
+        }
+
+        // Continue with original method
+        return true;
+    }
+}
+
+
+
+
+
+
+
+Plugin.cs
+.\Plugin.cs
+
+﻿using BepInEx;
+using BepInEx.Configuration;
+using BepInEx.Logging;
+using GameNetcodeStuff;
+using Green.LethalAccess.Patches;
+using HarmonyLib;
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Reflection;
+using System.Runtime;
+using System.Runtime.InteropServices;
+using System.Security.AccessControl;
+using System.Threading;
+using System.Threading.Tasks;
+using UnityEngine;
+using UnityEngine.EventSystems;
+using UnityEngine.InputSystem;
+using UnityEngine.Networking;
+using UnityEngine.Rendering.VirtualTexturing;
+using UnityEngine.InputSystem.EnhancedTouch;
+using UnityEngine.InputSystem.LowLevel;
+using System.Speech.Synthesis;
+
+namespace Green.LethalAccess
+{
+    [BepInPlugin(modGUID, modName, modVersion)]
+    public class LethalAccess : BaseUnityPlugin
+    {
+        private const string modGUID = "Green.LethalAccess";
+        private const string modName = "LethalAccess";
+        private const string modVersion = "1.0.0.0";
+        public static Transform playerTransform;
+        public static Transform cameraTransform;
+
+        public static readonly string reachedPositionAudioFilePath = @"LethalAccessAssets\ReachedPosition.wav";
+
+        private static Dictionary<string, ConfigEntry<Key>> keybindConfigEntries = new Dictionary<string, ConfigEntry<Key>>();
+        private static Dictionary<string, Action> registeredActions = new Dictionary<string, Action>();
+        public static Dictionary<string, List<Func<string>>> overriddenTexts = new Dictionary<string, List<Func<string>>>();
+        private List<GameObject> previouslyFocusedUIElements = new List<GameObject>();
+
+        public static GameObject currentLookTarget;
+        private static GameObject lastAnnouncedObject;
+
+        public static bool enableCustomKeybinds = true;
+        private bool hasPlayedReachedSound = false;
+        private bool isNavigatingWithPrevKey = false;
+
+        private bool mainMenuActivated = false;
+        private bool quickMenuActivated = false;
+        private Dictionary<string, Dictionary<string, string>> customUINavigation = new Dictionary<string, Dictionary<string, string>>();
+
+        private ControlTipAccessPatch controlTipAccessPatch;
+        private ProfitQuotaPatch profitQuotaPatch;
+        private PlayerHealthPatch playerHealthPatch;
+        private TimeOfDayPatch timeOfDayPatch;
+        public NavMenu navMenu;
+        private Pathfinder pathfinder;
+        private NorthSoundManager northSoundManager;
+
+        private const float MAX_DISTANCE_TO_OBJECT = 15f;
+        private const float DEFAULT_STOPPING_RADIUS = 1.5f;
+
+        public static LethalAccess Instance { get; private set; }
+
+        void Awake()
+        {
+            if (Instance == null)
+            {
+                Instance = this;
+            }
+            else
+            {
+                Destroy(this);
+                return;
+            }
+
+            controlTipAccessPatch = new ControlTipAccessPatch();
+            controlTipAccessPatch.Initialize();
+
+            profitQuotaPatch = new ProfitQuotaPatch();
+            profitQuotaPatch.Initialize();
+
+            playerHealthPatch = new PlayerHealthPatch();
+            playerHealthPatch.Initialize();
+
+            timeOfDayPatch = new TimeOfDayPatch();
+            timeOfDayPatch.Initialize();
+
+            navMenu = new NavMenu();
+            navMenu.Initialize();
+
+            pathfinder = new Pathfinder();
+
+
+            northSoundManager = gameObject.AddComponent<NorthSoundManager>();
+
+            var harmony = new Harmony(modGUID);
+            harmony.PatchAll(Assembly.GetExecutingAssembly());
+            harmony.PatchAll(typeof(PreInitScenePatch));
+            Logger.LogInfo("PreInitScene skip patch applied successfully.");
+            Logger.LogInfo("LethalAccess initialized.");
+
+            RegisterKeybinds();
+
+            StartCoroutine(LoadAudioClip(reachedPositionAudioFilePath));
+
+            LethalAccess.SetUISpeech("Canvas/MenuContainer/SettingsPanel/MicSettings/SpeakerButton", new List<Func<string>>
+            {
+                () => $"Microphone Toggle: {Utilities.GetTextFromGameObject("Canvas/MenuContainer/SettingsPanel/MicSettings/SpeakerButton")}"
+            });
+
+            // Register QuickMenu microphone toggle button
+            LethalAccess.SetUISpeech("Systems/UI/Canvas/QuickMenu/SettingsPanel/MicSettings/SpeakerButton", new List<Func<string>>
+            {
+                () => $"Microphone Toggle: {Utilities.GetTextFromGameObject("Systems/UI/Canvas/QuickMenu/SettingsPanel/MicSettings/SpeakerButton")}"
+            });
+
+            LethalAccess.SetUISpeech("Canvas/MenuContainer/SettingsPanel/ControlsOptions/LookSensitivity/Slider", new List<Func<string>>
+            {
+                () => $"{Utilities.GetTextFromGameObject("Canvas/MenuContainer/SettingsPanel/ControlsOptions/LookSensitivity/Text (1)")} Slider: {Utilities.GetSliderValue("Canvas/MenuContainer/SettingsPanel/ControlsOptions/LookSensitivity/Slider/Handle Slide Area/Handle")}"
+            });
+
+            LethalAccess.SetUISpeech("Canvas/MenuContainer/SettingsPanel/MasterVolume/Slider", new List<Func<string>>
+            {
+                () => $"{Utilities.GetTextFromGameObject("Canvas/MenuContainer/SettingsPanel/MasterVolume/Text (1)")} Slider: {Utilities.GetSliderValue("Canvas/MenuContainer/SettingsPanel/MasterVolume/Slider/Handle Slide Area/Handle")}%"
+            });
+
+            // Register QuickMenu sliders
+            LethalAccess.SetUISpeech("Systems/UI/Canvas/QuickMenu/SettingsPanel/ControlsOptions/LookSensitivity/Slider", new List<Func<string>>
+            {
+                () => $"{Utilities.GetTextFromGameObject("Systems/UI/Canvas/QuickMenu/SettingsPanel/ControlsOptions/LookSensitivity/Text (1)")} Slider: {Utilities.GetSliderValue("Systems/UI/Canvas/QuickMenu/SettingsPanel/ControlsOptions/LookSensitivity/Slider/Handle Slide Area/Handle")}"
+            });
+
+            LethalAccess.SetUISpeech("Systems/UI/Canvas/QuickMenu/SettingsPanel/MasterVolume/Slider", new List<Func<string>>
+            {
+                () => $"{Utilities.GetTextFromGameObject("Systems/UI/Canvas/QuickMenu/SettingsPanel/MasterVolume/Text (1)")} Slider: {Utilities.GetSliderValue("Systems/UI/Canvas/QuickMenu/SettingsPanel/MasterVolume/Slider/Handle Slide Area/Handle")}%"
+            });
+
+            LethalAccess.SetUISpeech("Canvas/MenuContainer/LobbyList/ListPanel/Scroll View/Viewport/Content/LobbyListItem(Clone)/JoinButton", new List<Func<string>>
+            {
+                () => Utilities.GetLobbyInfoFromJoinButton(EventSystem.current.currentSelectedGameObject)
+            });
+
+            // Company Building
+            navMenu.RegisterMenuItem("ItemCounter", "Item Counter", "Company Building", coordinates: new Vector3(-29.141f, -1.154f, -31.461f));
+            navMenu.RegisterMenuItem("BellDinger", "Sell Bell", "Company Building", "CompanyBuilding");
+
+            // Factory
+            navMenu.RegisterMenuItem("EntranceTeleportA", "Enter Factory", "Factory");
+            navMenu.RegisterMenuItem("EntranceTeleportA(Clone)", "Exit Factory", "Factory");
+            navMenu.RegisterMenuItem("EntranceTeleportB", "Enter Fire Escape", "Factory");
+            navMenu.RegisterMenuItem("EntranceTeleportB(Clone)", "Exit Fire Escape", "Factory");
+
+            // Ship
+            navMenu.RegisterMenuItem("TerminalScript", "Terminal", "Ship");
+            navMenu.RegisterMenuItem("StartGameLever", "Start Ship Lever", "Ship");
+            navMenu.RegisterMenuItem("ShipInside", "Inside of Ship", "Ship");
+
+            // Ship Utilities
+            navMenu.RegisterMenuItem("StorageCloset", "Storage Closet", "Ship Utilities");
+            navMenu.RegisterMenuItem("PlacementBlocker (5)", "Charging Station", "Ship Utilities");
+            navMenu.RegisterMenuItem("Bunkbeds", "Bunk Beds", "Ship Utilities");
+            navMenu.RegisterMenuItem("LightSwitch", "Light Switch", "Ship Utilities");
+
+            // Other Utilities
+            navMenu.RegisterMenuItem("ItemShip", "Item Ship", "Other Utilities");
+            navMenu.RegisterMenuItem("RedButton", "Activate Teleporter", "Other Utilities");
+
+            // Register the 'P' keybind to navigate to the currently looking object
+            RegisterKeybind("NavigateToLookingObject", Key.P, PathfindToSelected);
+
+            // Register the 'O' keybind to stop looking at and stop pathfinding to the current object
+            RegisterKeybind("StopLookingAndPathfinding", Key.O, StopLookingAndPathfinding);
+
+            RegisterKeybind("FocusPreviousUIElement", Key.Slash, FocusPreviousUIElement);
+
+            RegisterKeybind("LeftClickHold", Key.LeftAlt, () => SimulateMouseClick(0, true));
+            RegisterKeybind("RightClickHold", Key.RightAlt, () => SimulateMouseClick(1, true));
+
+            RegisterKeybind("ToggleNorthSound", Key.N, ToggleNorthSound);
+
+            RegisterKeybind("SpeakPlayerDirection", Key.X, SpeakPlayerDirection);
+
+            // Connect ChallengeMoonButton to File3 when pressing Up
+            SetUINavigation("Canvas/MenuContainer/LobbyHostSettings/FilesPanel/ChallengeMoonButton", "Up", "Canvas/MenuContainer/LobbyHostSettings/FilesPanel/File3");
+
+            // Connect File3 to ChallengeMoonButton when pressing Down
+            SetUINavigation("Canvas/MenuContainer/LobbyHostSettings/FilesPanel/File3", "Down", "Canvas/MenuContainer/LobbyHostSettings/FilesPanel/ChallengeMoonButton");
+        }
+
+        private async void Update()
+        {
+            if (enableCustomKeybinds)
+            {
+                CheckKeybinds();
+            }
+
+            if (currentLookTarget != null)
+            {
+                Utilities.LookAtObject(currentLookTarget);
+            }
+
+            bool isShipLanded = StartOfRound.Instance != null && StartOfRound.Instance.shipHasLanded;
+            string currentPlanetName = isShipLanded ? StartOfRound.Instance.currentLevel.PlanetName : string.Empty;
+
+            await Task.Run(() => {
+                navMenu.UpdateCategoriesVisibility(isShipLanded, currentPlanetName);
+                CheckReachedTrackedObject();
+                CheckMainMenuActivation();
+                CheckQuickMenuActivation();
+            });
+
+            HandleUIElementAnnouncement();
+        }
+
+        private void CheckKeybinds()
+        {
+            foreach (var keybind in keybindConfigEntries)
+            {
+                if (Keyboard.current[keybind.Value.Value].wasPressedThisFrame)
+                {
+                    if (registeredActions.TryGetValue(keybind.Key, out var action))
+                    {
+                        action.Invoke();
+                    }
+                }
+                else if (Keyboard.current[keybind.Value.Value].wasReleasedThisFrame)
+                {
+                    if (keybind.Key == "LeftClickHold")
+                    {
+                        SimulateMouseClick(0, false);
+                    }
+                    else if (keybind.Key == "RightClickHold")
+                    {
+                        SimulateMouseClick(1, false);
+                    }
+                }
+            }
+        }
+
+        private void SimulateMouseClick(int buttonIndex, bool isPressed)
+        {
+            var mouse = Mouse.current;
+            if (mouse != null)
+            {
+                if (buttonIndex == 0) // Left mouse button
+                {
+                    if (isPressed)
+                    {
+                        InputSystem.QueueStateEvent(mouse, new MouseState().WithButton(MouseButton.Left, true));
+                    }
+                    else
+                    {
+                        InputSystem.QueueStateEvent(mouse, new MouseState().WithButton(MouseButton.Left, false));
+                    }
+                }
+                else if (buttonIndex == 1) // Right mouse button
+                {
+                    if (isPressed)
+                    {
+                        InputSystem.QueueStateEvent(mouse, new MouseState().WithButton(MouseButton.Right, true));
+                    }
+                    else
+                    {
+                        InputSystem.QueueStateEvent(mouse, new MouseState().WithButton(MouseButton.Right, false));
+                    }
+                }
+            }
+        }
+
+        public static void HandleUIElementAnnouncement()
+        {
+            if (EventSystem.current?.currentSelectedGameObject != null)
+            {
+                GameObject selectedObject = EventSystem.current.currentSelectedGameObject;
+
+                if (selectedObject != lastAnnouncedObject)
+                {
+                    Instance.AnnounceUIElement(selectedObject);
+                    lastAnnouncedObject = selectedObject;
+                }
+            }
+        }
+
+        private void AnnounceUIElement(GameObject selectedObject)
+        {
+            if (!isNavigatingWithPrevKey)
+            {
+                previouslyFocusedUIElements.Add(lastAnnouncedObject);
+                if (previouslyFocusedUIElements.Count > 5)
+                {
+                    previouslyFocusedUIElements.RemoveAt(0);
+                }
+            }
+
+            string gameObjectPath = Utilities.GetGameObjectPath(selectedObject);
+
+            if (overriddenTexts.TryGetValue(gameObjectPath, out var textProviders))
+            {
+                string textToAnnounce = string.Join(" ", textProviders.Select(provider => provider()));
+                textToAnnounce = Utilities.RemoveSpecialCharacters(textToAnnounce);
+
+                if (!string.IsNullOrEmpty(textToAnnounce))
+                {
+                    UnityMainThreadDispatcher.Instance().Enqueue(() =>
+                    {
+                        Utilities.SpeakText(textToAnnounce);
+                    });
+                }
+            }
+            else
+            {
+                string textToAnnounce = Utilities.GetTextFromComponent(selectedObject);
+                textToAnnounce = Utilities.RemoveSpecialCharacters(textToAnnounce);
+
+                if (!string.IsNullOrEmpty(textToAnnounce))
+                {
+                    UnityMainThreadDispatcher.Instance().Enqueue(() =>
+                    {
+                        Utilities.SpeakText(textToAnnounce);
+                    });
+                }
+            }
+
+            UnityMainThreadDispatcher.Instance().Enqueue(() =>
+            {
+                Utilities.LogUIElementInfo(selectedObject, Logger);
+            });
+        }
+
+        private void FocusPreviousUIElement()
+        {
+            if (previouslyFocusedUIElements.Count > 0)
+            {
+                isNavigatingWithPrevKey = true;
+
+                GameObject previousUIElement = previouslyFocusedUIElements[previouslyFocusedUIElements.Count - 1];
+                previouslyFocusedUIElements.RemoveAt(previouslyFocusedUIElements.Count - 1);
+
+                if (previousUIElement != null && previousUIElement.activeInHierarchy)
+                {
+                    EventSystem.current.SetSelectedGameObject(previousUIElement);
+                }
+
+                isNavigatingWithPrevKey = false;
+            }
+        }
+
+        public void SetUINavigation(string uiElementPath, string direction, string connectedUIElementPath)
+        {
+            if (!customUINavigation.ContainsKey(uiElementPath))
+            {
+                customUINavigation[uiElementPath] = new Dictionary<string, string>();
+            }
+            customUINavigation[uiElementPath][direction] = connectedUIElementPath;
+        }
+
+        private void SetupCustomUINavigation()
+        {
+            foreach (var uiElementEntry in customUINavigation)
+            {
+                string uiElementPath = uiElementEntry.Key;
+                Dictionary<string, string> navigationSettings = uiElementEntry.Value;
+
+                GameObject uiElement = GameObject.Find(uiElementPath);
+                if (uiElement != null)
+                {
+                    UnityEngine.UI.Selectable selectable = uiElement.GetComponent<UnityEngine.UI.Selectable>();
+                    if (selectable != null)
+                    {
+                        UnityEngine.UI.Navigation navigation = selectable.navigation;
+
+                        foreach (var navigationEntry in navigationSettings)
+                        {
+                            string direction = navigationEntry.Key;
+                            string connectedUIElementPath = navigationEntry.Value;
+
+                            GameObject connectedUIElement = GameObject.Find(connectedUIElementPath);
+                            if (connectedUIElement != null)
+                            {
+                                UnityEngine.UI.Selectable connectedSelectable = connectedUIElement.GetComponent<UnityEngine.UI.Selectable>();
+                                if (connectedSelectable != null)
+                                {
+                                    switch (direction)
+                                    {
+                                        case "Up":
+                                            navigation.selectOnUp = connectedSelectable;
+                                            break;
+                                        case "Down":
+                                            navigation.selectOnDown = connectedSelectable;
+                                            break;
+                                        case "Left":
+                                            navigation.selectOnLeft = connectedSelectable;
+                                            break;
+                                        case "Right":
+                                            navigation.selectOnRight = connectedSelectable;
+                                            break;
+                                    }
+                                }
+                            }
+                        }
+
+                        selectable.navigation = navigation;
+                    }
+                }
+            }
+        }
+
+        private void CheckMainMenuActivation()
+        {
+            if (UnityEngine.SceneManagement.SceneManager.GetActiveScene().name == "MainMenu")
+            {
+                if (!mainMenuActivated)
+                {
+                    mainMenuActivated = true;
+                    SetupCustomUINavigation();
+                }
+            }
+            else
+            {
+                mainMenuActivated = false;
+            }
+        }
+
+        private void CheckQuickMenuActivation()
+        {
+            GameObject quickMenuObject = GameObject.Find("QuickMenu");
+            if (quickMenuObject != null && quickMenuObject.activeSelf)
+            {
+                if (!quickMenuActivated)
+                {
+                    quickMenuActivated = true;
+                    SetupCustomUINavigation();
+                }
+            }
+            else
+            {
+                quickMenuActivated = false;
+            }
+        }
+
+        private void CheckReachedTrackedObject()
+        {
+            try
+            {
+                if (currentLookTarget == null || PlayerTransform == null)
+                {
+                    return;
+                }
+
+                float distanceToTarget = Vector3.Distance(PlayerTransform.position, currentLookTarget.transform.position);
+                float stoppingRadius = Instance?.pathfinder?.stoppingRadius ?? DEFAULT_STOPPING_RADIUS;
+
+                if (distanceToTarget <= stoppingRadius)
+                {
+                    if (!hasPlayedReachedSound)
+                    {
+                        string displayName = navMenu?.GetDisplayNameForObject(currentLookTarget) ?? "Unknown Object";
+
+                        Debug.Log($"Attempting to play audio clip for {displayName}");
+                        StartCoroutine(PlayAudioClipCoroutine(reachedPositionAudioFilePath, currentLookTarget, 0f, 5f));
+                        Utilities.SpeakText($"Reached {displayName}");
+                        hasPlayedReachedSound = true;
+                    }
+                }
+                else
+                {
+                    hasPlayedReachedSound = false;
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"Error in CheckReachedTrackedObject: {ex.Message}\n{ex.StackTrace}");
+            }
+        }
+
+        private void RegisterKeybinds()
+        {
+            foreach (var keybind in registeredActions.Keys)
+            {
+                var configEntry = Config.Bind("Keybinds", keybind, keybindConfigEntries[keybind].Value);
+                keybindConfigEntries[keybind] = configEntry;
+            }
+        }
+
+        public void RegisterKeybind(string keybindName, Key defaultKey, Action action)
+        {
+            if (!registeredActions.ContainsKey(keybindName))
+            {
+                registeredActions[keybindName] = action;
+                keybindConfigEntries[keybindName] = Config.Bind("Keybinds", keybindName, defaultKey);
+            }
+        }
+
+        public static void SetUISpeech(string gameObjectPath, List<Func<string>> textProviders)
+        {
+            overriddenTexts[gameObjectPath] = textProviders;
+        }
+
+        public static Transform PlayerTransform
+        {
+            get
+            {
+                if (playerTransform == null)
+                {
+                    PlayerControllerB localPlayer = GameNetworkManager.Instance?.localPlayerController;
+                    if (localPlayer != null)
+                    {
+                        playerTransform = localPlayer.transform;
+                    }
+                    else
+                    {
+                        Debug.LogWarning("LocalPlayerController is null. Cannot get PlayerTransform.");
+                    }
+                }
+                return playerTransform;
+            }
+        }
+
+        public static Transform CameraTransform
+        {
+            get
+            {
+                if (cameraTransform == null)
+                {
+                    PlayerControllerB localPlayer = GameNetworkManager.Instance?.localPlayerController;
+                    if (localPlayer != null && localPlayer.gameplayCamera != null)
+                    {
+                        cameraTransform = localPlayer.gameplayCamera.transform;
+                    }
+                    else
+                    {
+                        Debug.LogWarning("LocalPlayerController or gameplayCamera is null. Cannot get CameraTransform.");
+                    }
+                }
+                return cameraTransform;
+            }
+        }
+
+        public void StopLookingAndPathfinding()
+        {
+            if (currentLookTarget != null)
+            {
+                string displayName = navMenu?.GetDisplayNameForObject(currentLookTarget) ?? "Unknown Object";
+                Utilities.SpeakText($"Stopped looking at {displayName}");
+                currentLookTarget = null;
+            }
+
+            if (pathfinder.isPathfinding)
+            {
+                pathfinder.StopPathfinding();
+                Utilities.SpeakText("Stopped pathfinding");
+            }
+        }
+
+        private void PathfindToSelected()
+        {
+
+            Debug.Log("PathfindToSelected() method called.");
+
+            if (PlayerTransform != null && currentLookTarget != null)
+            {
+                if (pathfinder == null)
+                {
+                    pathfinder = PlayerTransform.gameObject.GetComponent<Pathfinder>();
+                    if (pathfinder == null)
+                    {
+                        Debug.Log("Adding Pathfinder component to the player.");
+                        pathfinder = PlayerTransform.gameObject.AddComponent<Pathfinder>();
+                    }
+                }
+
+                Debug.Log($"Attempting to pathfind to {currentLookTarget.name}");
+                pathfinder.NavigateTo(currentLookTarget);
+            }
+            else
+            {
+                if (PlayerTransform == null)
+                {
+                    Debug.Log("Pathfinder initialization failed: PlayerTransform is null.");
+                }
+
+                if (currentLookTarget == null)
+                {
+                    Debug.Log("Pathfinding not initiated: No object selected or object not found.");
+                    Utilities.SpeakText("Object not found. Make sure you land the ship before attempting to pathfind.");
+                }
+            }
+        }
+
+        private void ToggleNorthSound()
+        {
+            northSoundManager.ToggleNorthSound();
+            string status = northSoundManager.isEnabled ? "enabled" : "disabled";
+            Utilities.SpeakText($"North Sound {status}");
+        }
+
+        private void SpeakPlayerDirection()
+        {
+            if (LethalAccess.PlayerTransform != null)
+            {
+                Vector3 forward = LethalAccess.PlayerTransform.forward;
+                float angle = Mathf.Atan2(forward.x, forward.z) * Mathf.Rad2Deg;
+                if (angle < 0) angle += 360;
+
+                string compassDirection = GetCompassDirection(angle);
+                int roundedAngle = Mathf.RoundToInt(angle);
+
+                string directionMessage = $"Facing {compassDirection} at {roundedAngle} degrees";
+                Utilities.SpeakText(directionMessage);
+            }
+            else
+            {
+                Utilities.SpeakText("Player position not available");
+            }
+        }
+
+        private string GetCompassDirection(float angle)
+        {
+            string[] directions = { "North", "Northeast", "East", "Southeast", "South", "Southwest", "West", "Northwest" };
+            int index = Mathf.RoundToInt(angle / 45f) % 8;
+            return directions[index];
+        }
+
+        private IEnumerator LoadAudioClip(string relativeFilePath)
+        {
+            string modDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+            string fullPath = Path.Combine(modDirectory, relativeFilePath);
+            string fileURL = "file://" + fullPath;
+
+            using (UnityWebRequest uwr = UnityWebRequestMultimedia.GetAudioClip(fileURL, AudioType.WAV))
+            {
+                yield return uwr.SendWebRequest();
+
+                if (uwr.result == UnityWebRequest.Result.ConnectionError || uwr.result == UnityWebRequest.Result.ProtocolError)
+                {
+                    Debug.LogError($"Error While Loading Audio Clip: {uwr.error}");
+                }
+                else
+                {
+                    AudioClip clip = DownloadHandlerAudioClip.GetContent(uwr);
+                    if (clip != null)
+                    {
+                        Debug.Log($"Successfully loaded audio clip: {relativeFilePath}");
+                    }
+                    else
+                    {
+                        Debug.LogError($"Failed to load audio clip: {relativeFilePath}");
+                    }
+                }
+            }
+        }
+
+        public IEnumerator PlayAudioClipCoroutine(string audioFilePath, GameObject targetGameObject, float minDistance, float maxDistance)
+        {
+            if (targetGameObject == null)
+            {
+                Debug.LogError("Target GameObject is null. Cannot play audio clip.");
+                yield break;
+            }
+
+            string modDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+            string fullPath = Path.Combine(modDirectory, audioFilePath);
+            string fileURL = "file://" + fullPath;
+
+            using (UnityWebRequest uwr = UnityWebRequestMultimedia.GetAudioClip(fileURL, AudioType.WAV))
+            {
+                yield return uwr.SendWebRequest();
+
+                if (uwr.result == UnityWebRequest.Result.ConnectionError || uwr.result == UnityWebRequest.Result.ProtocolError)
+                {
+                    Debug.LogError($"Error loading audio clip: {uwr.error}");
+                }
+                else
+                {
+                    AudioClip clip = DownloadHandlerAudioClip.GetContent(uwr);
+                    if (clip != null)
+                    {
+                        AudioSource audioSource = targetGameObject.GetComponent<AudioSource>();
+                        if (audioSource == null)
+                        {
+                            audioSource = targetGameObject.AddComponent<AudioSource>();
+                        }
+
+                        audioSource.clip = clip;
+                        audioSource.spatialBlend = 1.0f;
+                        audioSource.rolloffMode = AudioRolloffMode.Linear;
+                        audioSource.minDistance = minDistance;
+                        audioSource.maxDistance = maxDistance;
+
+                        audioSource.Play();
+                        Debug.Log($"Playing audio clip: {audioFilePath}");
+                    }
+                    else
+                    {
+                        Debug.LogError($"Failed to load audio clip: {audioFilePath}");
+                    }
+                }
+            }
+        }
+
+        void OnDestroy()
+        {
+            SpeechSynthesizer.Cleanup();
+        }
+    }
+}
+
+
+
+
+
+
+SpeechSynthesizer.cs
+.\SpeechSynthesizer.cs
+
+﻿using UnityEngine;
+using System;
+using GreenBean.LethalSpeechOutput;
+
+namespace Green.LethalAccess
+{
+    public static class SpeechSynthesizer
+    {
+        static SpeechSynthesizer()
+        {
+            UnityMainThreadDispatcher.Instance().Enqueue(() =>
+            {
+                Debug.Log("SpeechSynthesizer initialized.");
+            });
+        }
+
+        public static void SpeakText(string text)
+        {
+            try
+            {
+                LethalSpeechOutput.SpeakText(text);
+                UnityMainThreadDispatcher.Instance().Enqueue(() => Debug.Log($"Spoken text using LethalSpeechOutput: '{text}'"));
+            }
+            catch (Exception ex)
+            {
+                UnityMainThreadDispatcher.Instance().Enqueue(() =>
+                {
+                    Debug.LogError($"Error speaking text: {ex.Message}");
+                    Debug.LogError($"Stack trace: {ex.StackTrace}");
+                });
+            }
+        }
+
+        public static void Cleanup()
+        {
+            UnityMainThreadDispatcher.Instance().Enqueue(() => Debug.Log("SpeechSynthesizer cleanup completed."));
+        }
+    }
+}
+
+
+
+
+
+
+
+UnityMainThreadDispatcher.cs
+.\UnityMainThreadDispatcher.cs
+
+﻿using UnityEngine;
+using System.Collections.Generic;
+using System;
+using System.Threading.Tasks;
+
+public class UnityMainThreadDispatcher : MonoBehaviour
+{
+    private static UnityMainThreadDispatcher _instance = null;
+
+    private readonly Queue<Action> _executionQueue = new Queue<Action>();
+
+    public static UnityMainThreadDispatcher Instance()
+    {
+        if (!_instance)
+        {
+            _instance = FindObjectOfType(typeof(UnityMainThreadDispatcher)) as UnityMainThreadDispatcher;
+            if (!_instance)
+            {
+                var obj = new GameObject("UnityMainThreadDispatcher");
+                _instance = obj.AddComponent<UnityMainThreadDispatcher>();
+            }
+        }
+        return _instance;
+    }
+
+    void Update()
+    {
+        lock (_executionQueue)
+        {
+            while (_executionQueue.Count > 0)
+            {
+                _executionQueue.Dequeue().Invoke();
+            }
+        }
+    }
+
+    public void Enqueue(Action action)
+    {
+        lock (_executionQueue)
+        {
+            _executionQueue.Enqueue(action);
+        }
+    }
+
+    public Task EnqueueAsync(Action action)
+    {
+        var tcs = new TaskCompletionSource<bool>();
+
+        Enqueue(() =>
+        {
+            try
+            {
+                action();
+                tcs.SetResult(true);
+            }
+            catch (Exception ex)
+            {
+                tcs.SetException(ex);
+            }
+        });
+
+        return tcs.Task;
+    }
+}
+
+
+
+
+
+
+Utilities.cs
+.\Utilities.cs
+
+﻿using BepInEx.Logging;
+using GameNetcodeStuff;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Reflection;
+using System.Text;
+using System.Threading.Tasks;
+using UnityEngine;
+using UnityEngine.Networking;
+using static IngamePlayerSettings;
+
+namespace Green.LethalAccess
+{
+    internal class Utilities
+    {
+        public static string GetTextFromGameObject(string gameObjectPath)
+        {
+            GameObject gameObject = GameObject.Find(gameObjectPath);
+            if (gameObject != null)
+            {
+                return GetTextFromComponent(gameObject);
+            }
+            return string.Empty;
+        }
+
+        public static string GetTextFromComponent(GameObject gameObject)
+        {
+            // Check if the component has a TextMeshProUGUI component
+            TMPro.TextMeshProUGUI tmpTextComponent = gameObject.GetComponentInChildren<TMPro.TextMeshProUGUI>();
+            if (tmpTextComponent != null)
+            {
+                return tmpTextComponent.text;
+            }
+
+            // If no TextMeshProUGUI component, check for a Text component
+            UnityEngine.UI.Text textComponent = gameObject.GetComponent<UnityEngine.UI.Text>();
+            if (textComponent != null)
+            {
+                return textComponent.text;
+            }
+
+            // If no text component found, recursively check child objects
+            foreach (Transform child in gameObject.transform)
+            {
+                string childText = GetTextFromComponent(child.gameObject);
+                if (!string.IsNullOrEmpty(childText))
+                {
+                    return childText;
+                }
+            }
+
+            // If no text component found, use the name of the GameObject
+            return gameObject.name;
+        }
+
+        public static string GetLobbyInfoFromJoinButton(GameObject selectedObject)
+        {
+            if (selectedObject != null)
+            {
+                Transform lobbyListItemTransform = selectedObject.transform.parent;
+                if (lobbyListItemTransform != null)
+                {
+                    LobbySlot lobbySlot = lobbyListItemTransform.GetComponent<LobbySlot>();
+                    if (lobbySlot != null)
+                    {
+                        string lobbyName = Utilities.GetTextFromComponent(lobbySlot.LobbyName.gameObject);
+                        string playerCount = Utilities.GetTextFromComponent(lobbySlot.playerCount.gameObject);
+                        return $"Lobby: {lobbyName}, Players: {playerCount}";
+                    }
+                }
+            }
+            return string.Empty;
+        }
+
+        public static string RemoveSpecialCharacters(string input)
+        {
+            string specialCharacters = "[]{}<>()";
+            foreach (char c in specialCharacters)
+            {
+                input = input.Replace(c.ToString(), string.Empty);
+            }
+            return input;
+        }
+
+        public static string GetGameObjectPath(GameObject gameObject)
+        {
+            string path = gameObject.name;
+            Transform parent = gameObject.transform.parent;
+
+            while (parent != null)
+            {
+                path = parent.name + "/" + path;
+                parent = parent.parent;
+            }
+
+            return path;
+        }
+
+        public static float GetSliderValuePercentage(string sliderHandlePath)
+        {
+            GameObject sliderHandle = GameObject.Find(sliderHandlePath);
+            if (sliderHandle != null)
+            {
+                Vector3 localPosition = sliderHandle.transform.localPosition;
+                float percentage = (localPosition.x + 70f) / 140f * 100f;
+                return Mathf.Clamp(percentage, 0f, 100f);
+            }
+            return 0f;
+        }
+
+        public static int GetSliderValue(string sliderHandlePath)
+        {
+            GameObject sliderHandle = GameObject.Find(sliderHandlePath);
+            if (sliderHandle != null)
+            {
+                UnityEngine.UI.Slider slider = sliderHandle.GetComponentInParent<UnityEngine.UI.Slider>();
+                if (slider != null)
+                {
+                    return Mathf.RoundToInt(slider.value);
+                }
+            }
+            return 0;
+        }
+
+        public static void LookAtObject(GameObject targetObject)
+        {
+            if (targetObject != null && LethalAccess.CameraTransform != null)
+            {
+                float maxDistance = 15f;
+                float distanceToTarget = Vector3.Distance(LethalAccess.CameraTransform.position, targetObject.transform.position);
+
+                if (distanceToTarget <= maxDistance)
+                {
+                    PlayerControllerB playerControllerB = LethalAccess.PlayerTransform.GetComponent<PlayerControllerB>();
+
+                    if (playerControllerB != null)
+                    {
+                        Vector3 targetDirection = targetObject.transform.position - LethalAccess.CameraTransform.position;
+                        Vector3 relativeDirection = LethalAccess.CameraTransform.InverseTransformDirection(targetDirection);
+
+                        // Increase the rotation speed by multiplying the input
+                        float rotationSpeedMultiplier = 5f; // Adjust this value to change the rotation speed
+                        Vector2 adjustedInput = new Vector2(relativeDirection.x, relativeDirection.y) * rotationSpeedMultiplier;
+
+                        var method = typeof(PlayerControllerB).GetMethod("CalculateNormalLookingInput", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                        method?.Invoke(playerControllerB, new object[] { adjustedInput });
+                    }
+                }
+            }
+        }
+
+        public static async void SpeakText(string text)
+        {
+            await Task.Run(() =>
+            {
+                SpeechSynthesizer.SpeakText(text);
+            });
+        }
+
+        public static void LogUIElementInfo(GameObject uiElement, ManualLogSource logger)
+        {
+            string elementName = uiElement.name;
+            string gameObjectPath = GetGameObjectPath(uiElement);
+
+
+            logger.LogInfo($"UI Element: {elementName}, GameObject Path: {gameObjectPath}");
+        }
+
+        public static async Task<AudioClip> LoadClip(string relativePath)
+        {
+            AudioClip clip = null;
+            string modDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+            string fullPath = Path.Combine(modDirectory, relativePath);
+            string fileURL = "file://" + fullPath;
+
+            try
+            {
+                using (UnityWebRequest uwr = UnityWebRequestMultimedia.GetAudioClip(fileURL, AudioType.WAV))
+                {
+                    var operation = uwr.SendWebRequest();
+
+                    while (!operation.isDone)
+                    {
+                        await Task.Yield(); // Yield control back to the main thread
+                    }
+
+                    if (uwr.result == UnityWebRequest.Result.Success)
+                    {
+                        clip = DownloadHandlerAudioClip.GetContent(uwr);
+                        Debug.Log($"Successfully loaded audio clip: {relativePath}");
+                    }
+                    else
+                    {
+                        Debug.LogError($"Failed to load audio clip: {uwr.error}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"Error loading audio clip: {ex.Message}");
+            }
+
+            return clip;
+        }
+    }
+}
+
+
+
+
+
+
+LethalAccess Remake.csproj.dtbcache.json
+.\.vs\LethalAccess Remake.csproj.dtbcache.json
+
+{"RootPath":"C:\\Users\\green\\source\\repos\\LethalAccess Remake\\LethalAccess Remake","ProjectFileName":"LethalAccess Remake.csproj","Configuration":"Debug|AnyCPU","FrameworkPath":"","Sources":[{"SourceFile":"CompanyNavMesh.cs"},{"SourceFile":"NavMenu.cs"},{"SourceFile":"Patches\\ClipboardTextPatch.cs"},{"SourceFile":"Patches\\ControlTipPatch.cs"},{"SourceFile":"Patches\\EndOfGamesStatsPatch.cs"},{"SourceFile":"Patches\\HealthPatch.cs"},{"SourceFile":"Patches\\HoldInteractTonePatch.cs"},{"SourceFile":"Patches\\InteractionPatch.cs"},{"SourceFile":"Patches\\IsInsideFactoryPatch.cs"},{"SourceFile":"Patches\\ItemActionPatch.cs"},{"SourceFile":"Patches\\ItemChargerPatch.cs"},{"SourceFile":"Patches\\ItemInteractLeftRightOnClientPatch.cs"},{"SourceFile":"Patches\\ItemSellDetailsPatch.cs"},{"SourceFile":"Patches\\MenuManagerNotif&HostPatch.cs"},{"SourceFile":"Patches\\MoonPatch.cs"},{"SourceFile":"Patches\\ProfitQuotaPatch.cs"},{"SourceFile":"Patches\\SaveFileAnnouncementPatch.cs"},{"SourceFile":"Patches\\SettingsChangeAccess.cs"},{"SourceFile":"Patches\\ShipLandedLeftPatch.cs"},{"SourceFile":"Patches\\TerminalTogglePatch.cs"},{"SourceFile":"Patches\\TimePatch.cs"},{"SourceFile":"Patches\\TooltipPatch.cs"},{"SourceFile":"Pathfinder.cs"},{"SourceFile":"Plugin.cs"},{"SourceFile":"Properties\\AssemblyInfo.cs"},{"SourceFile":"SpeechSynthesizer.cs"},{"SourceFile":"UnityMainThreadDispatcher.cs"},{"SourceFile":"Utilities.cs"},{"SourceFile":"obj\\Debug\\.NETFramework,Version=v4.7.2.AssemblyAttributes.cs"}],"References":[{"Reference":"C:\\Program Files (x86)\\Steam\\steamapps\\common\\Lethal Company\\BepInEx\\core\\0Harmony.dll","ResolvedFrom":"","OriginalItemSpec":"","Name":"","EmbedInteropTypes":false,"CopyLocal":false,"IsProjectReference":false,"ProjectPath":""},{"Reference":"C:\\Program Files (x86)\\Steam\\steamapps\\common\\Lethal Company\\Lethal Company_Data\\Managed\\Assembly-CSharp.dll","ResolvedFrom":"","OriginalItemSpec":"","Name":"","EmbedInteropTypes":false,"CopyLocal":false,"IsProjectReference":false,"ProjectPath":""},{"Reference":"C:\\Program Files (x86)\\Steam\\steamapps\\common\\Lethal Company\\BepInEx\\core\\BepInEx.dll","ResolvedFrom":"","OriginalItemSpec":"","Name":"","EmbedInteropTypes":false,"CopyLocal":false,"IsProjectReference":false,"ProjectPath":""},{"Reference":"C:\\Program Files (x86)\\Steam\\steamapps\\common\\Lethal Company\\BepInEx\\core\\BepInEx.Harmony.dll","ResolvedFrom":"","OriginalItemSpec":"","Name":"","EmbedInteropTypes":false,"CopyLocal":false,"IsProjectReference":false,"ProjectPath":""},{"Reference":"C:\\Users\\green\\source\\repos\\LethalAccess Remake\\packages\\TOWK.Utility.CrossSpeak.1.0.0\\lib\\netstandard2.0\\CrossSpeak.dll","ResolvedFrom":"","OriginalItemSpec":"","Name":"","EmbedInteropTypes":false,"CopyLocal":false,"IsProjectReference":false,"ProjectPath":""},{"Reference":"C:\\Program Files (x86)\\Reference Assemblies\\Microsoft\\Framework\\.NETFramework\\v4.7.2\\Microsoft.CSharp.dll","ResolvedFrom":"","OriginalItemSpec":"","Name":"","EmbedInteropTypes":false,"CopyLocal":false,"IsProjectReference":false,"ProjectPath":""},{"Reference":"C:\\Program Files (x86)\\Steam\\steamapps\\common\\Lethal Company\\BepInEx\\core\\MonoMod.Utils.dll","ResolvedFrom":"","OriginalItemSpec":"","Name":"","EmbedInteropTypes":false,"CopyLocal":false,"IsProjectReference":false,"ProjectPath":""},{"Reference":"C:\\Program Files (x86)\\Reference Assemblies\\Microsoft\\Framework\\.NETFramework\\v4.7.2\\mscorlib.dll","ResolvedFrom":"","OriginalItemSpec":"","Name":"","EmbedInteropTypes":false,"CopyLocal":false,"IsProjectReference":false,"ProjectPath":""},{"Reference":"C:\\Program Files (x86)\\Reference Assemblies\\Microsoft\\Framework\\.NETFramework\\v4.7.2\\System.Core.dll","ResolvedFrom":"","OriginalItemSpec":"","Name":"","EmbedInteropTypes":false,"CopyLocal":false,"IsProjectReference":false,"ProjectPath":""},{"Reference":"C:\\Program Files (x86)\\Reference Assemblies\\Microsoft\\Framework\\.NETFramework\\v4.7.2\\System.Data.DataSetExtensions.dll","ResolvedFrom":"","OriginalItemSpec":"","Name":"","EmbedInteropTypes":false,"CopyLocal":false,"IsProjectReference":false,"ProjectPath":""},{"Reference":"C:\\Program Files (x86)\\Reference Assemblies\\Microsoft\\Framework\\.NETFramework\\v4.7.2\\System.Data.dll","ResolvedFrom":"","OriginalItemSpec":"","Name":"","EmbedInteropTypes":false,"CopyLocal":false,"IsProjectReference":false,"ProjectPath":""},{"Reference":"C:\\Program Files (x86)\\Reference Assemblies\\Microsoft\\Framework\\.NETFramework\\v4.7.2\\System.dll","ResolvedFrom":"","OriginalItemSpec":"","Name":"","EmbedInteropTypes":false,"CopyLocal":false,"IsProjectReference":false,"ProjectPath":""},{"Reference":"C:\\Program Files (x86)\\Reference Assemblies\\Microsoft\\Framework\\.NETFramework\\v4.7.2\\System.Net.Http.dll","ResolvedFrom":"","OriginalItemSpec":"","Name":"","EmbedInteropTypes":false,"CopyLocal":false,"IsProjectReference":false,"ProjectPath":""},{"Reference":"C:\\Program Files (x86)\\Reference Assemblies\\Microsoft\\Framework\\.NETFramework\\v4.7.2\\System.Speech.dll","ResolvedFrom":"","OriginalItemSpec":"","Name":"","EmbedInteropTypes":false,"CopyLocal":false,"IsProjectReference":false,"ProjectPath":""},{"Reference":"C:\\Program Files (x86)\\Reference Assemblies\\Microsoft\\Framework\\.NETFramework\\v4.7.2\\System.Xml.dll","ResolvedFrom":"","OriginalItemSpec":"","Name":"","EmbedInteropTypes":false,"CopyLocal":false,"IsProjectReference":false,"ProjectPath":""},{"Reference":"C:\\Program Files (x86)\\Reference Assemblies\\Microsoft\\Framework\\.NETFramework\\v4.7.2\\System.Xml.Linq.dll","ResolvedFrom":"","OriginalItemSpec":"","Name":"","EmbedInteropTypes":false,"CopyLocal":false,"IsProjectReference":false,"ProjectPath":""},{"Reference":"C:\\Users\\green\\source\\repos\\LethalAccess Remake\\packages\\TOWK.Utility.CrossSpeak.1.0.0\\lib\\netstandard2.0\\TolkDotNet.dll","ResolvedFrom":"","OriginalItemSpec":"","Name":"","EmbedInteropTypes":false,"CopyLocal":false,"IsProjectReference":false,"ProjectPath":""},{"Reference":"C:\\Program Files (x86)\\Steam\\steamapps\\common\\Lethal Company\\Lethal Company_Data\\Managed\\Unity.AI.Navigation.dll","ResolvedFrom":"","OriginalItemSpec":"","Name":"","EmbedInteropTypes":false,"CopyLocal":false,"IsProjectReference":false,"ProjectPath":""},{"Reference":"C:\\Program Files (x86)\\Steam\\steamapps\\common\\Lethal Company\\Lethal Company_Data\\Managed\\Unity.Collections.dll","ResolvedFrom":"","OriginalItemSpec":"","Name":"","EmbedInteropTypes":false,"CopyLocal":false,"IsProjectReference":false,"ProjectPath":""},{"Reference":"C:\\Program Files (x86)\\Steam\\steamapps\\common\\Lethal Company\\Lethal Company_Data\\Managed\\Unity.InputSystem.dll","ResolvedFrom":"","OriginalItemSpec":"","Name":"","EmbedInteropTypes":false,"CopyLocal":false,"IsProjectReference":false,"ProjectPath":""},{"Reference":"C:\\Program Files (x86)\\Steam\\steamapps\\common\\Lethal Company\\Lethal Company_Data\\Managed\\Unity.InputSystem.ForUI.dll","ResolvedFrom":"","OriginalItemSpec":"","Name":"","EmbedInteropTypes":false,"CopyLocal":false,"IsProjectReference":false,"ProjectPath":""},{"Reference":"C:\\Program Files (x86)\\Steam\\steamapps\\common\\Lethal Company\\Lethal Company_Data\\Managed\\Unity.Mathematics.dll","ResolvedFrom":"","OriginalItemSpec":"","Name":"","EmbedInteropTypes":false,"CopyLocal":false,"IsProjectReference":false,"ProjectPath":""},{"Reference":"C:\\Program Files (x86)\\Steam\\steamapps\\common\\Lethal Company\\Lethal Company_Data\\Managed\\Unity.Netcode.Components.dll","ResolvedFrom":"","OriginalItemSpec":"","Name":"","EmbedInteropTypes":false,"CopyLocal":false,"IsProjectReference":false,"ProjectPath":""},{"Reference":"C:\\Program Files (x86)\\Steam\\steamapps\\common\\Lethal Company\\Lethal Company_Data\\Managed\\Unity.Netcode.Runtime.dll","ResolvedFrom":"","OriginalItemSpec":"","Name":"","EmbedInteropTypes":false,"CopyLocal":false,"IsProjectReference":false,"ProjectPath":""},{"Reference":"C:\\Program Files (x86)\\Steam\\steamapps\\common\\Lethal Company\\Lethal Company_Data\\Managed\\Unity.Networking.Transport.dll","ResolvedFrom":"","OriginalItemSpec":"","Name":"","EmbedInteropTypes":false,"CopyLocal":false,"IsProjectReference":false,"ProjectPath":""},{"Reference":"C:\\Program Files (x86)\\Steam\\steamapps\\common\\Lethal Company\\Lethal Company_Data\\Managed\\Unity.Profiling.Core.dll","ResolvedFrom":"","OriginalItemSpec":"","Name":"","EmbedInteropTypes":false,"CopyLocal":false,"IsProjectReference":false,"ProjectPath":""},{"Reference":"C:\\Program Files (x86)\\Steam\\steamapps\\common\\Lethal Company\\Lethal Company_Data\\Managed\\Unity.Services.Core.dll","ResolvedFrom":"","OriginalItemSpec":"","Name":"","EmbedInteropTypes":false,"CopyLocal":false,"IsProjectReference":false,"ProjectPath":""},{"Reference":"C:\\Program Files (x86)\\Steam\\steamapps\\common\\Lethal Company\\Lethal Company_Data\\Managed\\Unity.TextMeshPro.dll","ResolvedFrom":"","OriginalItemSpec":"","Name":"","EmbedInteropTypes":false,"CopyLocal":false,"IsProjectReference":false,"ProjectPath":""},{"Reference":"C:\\Program Files (x86)\\Steam\\steamapps\\common\\Lethal Company\\Lethal Company_Data\\Managed\\UnityEngine.AccessibilityModule.dll","ResolvedFrom":"","OriginalItemSpec":"","Name":"","EmbedInteropTypes":false,"CopyLocal":false,"IsProjectReference":false,"ProjectPath":""},{"Reference":"C:\\Program Files (x86)\\Steam\\steamapps\\common\\Lethal Company\\Lethal Company_Data\\Managed\\UnityEngine.AIModule.dll","ResolvedFrom":"","OriginalItemSpec":"","Name":"","EmbedInteropTypes":false,"CopyLocal":false,"IsProjectReference":false,"ProjectPath":""},{"Reference":"C:\\Users\\green\\source\\repos\\LethalAccess Remake\\LethalAccess Remake\\bin\\Debug\\UnityEngine.AnimationModule.dll","ResolvedFrom":"","OriginalItemSpec":"","Name":"","EmbedInteropTypes":false,"CopyLocal":false,"IsProjectReference":false,"ProjectPath":""},{"Reference":"C:\\Program Files (x86)\\Steam\\steamapps\\common\\Lethal Company\\Lethal Company_Data\\Managed\\UnityEngine.AssetBundleModule.dll","ResolvedFrom":"","OriginalItemSpec":"","Name":"","EmbedInteropTypes":false,"CopyLocal":false,"IsProjectReference":false,"ProjectPath":""},{"Reference":"C:\\Program Files (x86)\\Steam\\steamapps\\common\\Lethal Company\\Lethal Company_Data\\Managed\\UnityEngine.AudioModule.dll","ResolvedFrom":"","OriginalItemSpec":"","Name":"","EmbedInteropTypes":false,"CopyLocal":false,"IsProjectReference":false,"ProjectPath":""},{"Reference":"C:\\Program Files (x86)\\Steam\\steamapps\\common\\Lethal Company\\Lethal Company_Data\\Managed\\UnityEngine.CoreModule.dll","ResolvedFrom":"","OriginalItemSpec":"","Name":"","EmbedInteropTypes":false,"CopyLocal":false,"IsProjectReference":false,"ProjectPath":""},{"Reference":"C:\\Program Files (x86)\\Steam\\steamapps\\common\\Lethal Company\\Lethal Company_Data\\Managed\\UnityEngine.dll","ResolvedFrom":"","OriginalItemSpec":"","Name":"","EmbedInteropTypes":false,"CopyLocal":false,"IsProjectReference":false,"ProjectPath":""},{"Reference":"C:\\Program Files (x86)\\Steam\\steamapps\\common\\Lethal Company\\Lethal Company_Data\\Managed\\UnityEngine.ImageConversionModule.dll","ResolvedFrom":"","OriginalItemSpec":"","Name":"","EmbedInteropTypes":false,"CopyLocal":false,"IsProjectReference":false,"ProjectPath":""},{"Reference":"C:\\Program Files (x86)\\Steam\\steamapps\\common\\Lethal Company\\Lethal Company_Data\\Managed\\UnityEngine.IMGUIModule.dll","ResolvedFrom":"","OriginalItemSpec":"","Name":"","EmbedInteropTypes":false,"CopyLocal":false,"IsProjectReference":false,"ProjectPath":""},{"Reference":"C:\\Program Files (x86)\\Steam\\steamapps\\common\\Lethal Company\\Lethal Company_Data\\Managed\\UnityEngine.InputLegacyModule.dll","ResolvedFrom":"","OriginalItemSpec":"","Name":"","EmbedInteropTypes":false,"CopyLocal":false,"IsProjectReference":false,"ProjectPath":""},{"Reference":"C:\\Program Files (x86)\\Steam\\steamapps\\common\\Lethal Company\\Lethal Company_Data\\Managed\\UnityEngine.InputModule.dll","ResolvedFrom":"","OriginalItemSpec":"","Name":"","EmbedInteropTypes":false,"CopyLocal":false,"IsProjectReference":false,"ProjectPath":""},{"Reference":"C:\\Program Files (x86)\\Steam\\steamapps\\common\\Lethal Company\\Lethal Company_Data\\Managed\\UnityEngine.Physics2DModule.dll","ResolvedFrom":"","OriginalItemSpec":"","Name":"","EmbedInteropTypes":false,"CopyLocal":false,"IsProjectReference":false,"ProjectPath":""},{"Reference":"C:\\Program Files (x86)\\Steam\\steamapps\\common\\Lethal Company\\Lethal Company_Data\\Managed\\UnityEngine.PhysicsModule.dll","ResolvedFrom":"","OriginalItemSpec":"","Name":"","EmbedInteropTypes":false,"CopyLocal":false,"IsProjectReference":false,"ProjectPath":""},{"Reference":"C:\\Program Files (x86)\\Steam\\steamapps\\common\\Lethal Company\\Lethal Company_Data\\Managed\\UnityEngine.UI.dll","ResolvedFrom":"","OriginalItemSpec":"","Name":"","EmbedInteropTypes":false,"CopyLocal":false,"IsProjectReference":false,"ProjectPath":""},{"Reference":"C:\\Program Files (x86)\\Steam\\steamapps\\common\\Lethal Company\\Lethal Company_Data\\Managed\\UnityEngine.UIElementsModule.dll","ResolvedFrom":"","OriginalItemSpec":"","Name":"","EmbedInteropTypes":false,"CopyLocal":false,"IsProjectReference":false,"ProjectPath":""},{"Reference":"C:\\Program Files (x86)\\Steam\\steamapps\\common\\Lethal Company\\Lethal Company_Data\\Managed\\UnityEngine.UIModule.dll","ResolvedFrom":"","OriginalItemSpec":"","Name":"","EmbedInteropTypes":false,"CopyLocal":false,"IsProjectReference":false,"ProjectPath":""},{"Reference":"C:\\Program Files (x86)\\Steam\\steamapps\\common\\Lethal Company\\Lethal Company_Data\\Managed\\UnityEngine.UnityWebRequestAssetBundleModule.dll","ResolvedFrom":"","OriginalItemSpec":"","Name":"","EmbedInteropTypes":false,"CopyLocal":false,"IsProjectReference":false,"ProjectPath":""},{"Reference":"C:\\Program Files (x86)\\Steam\\steamapps\\common\\Lethal Company\\Lethal Company_Data\\Managed\\UnityEngine.UnityWebRequestAudioModule.dll","ResolvedFrom":"","OriginalItemSpec":"","Name":"","EmbedInteropTypes":false,"CopyLocal":false,"IsProjectReference":false,"ProjectPath":""},{"Reference":"C:\\Program Files (x86)\\Steam\\steamapps\\common\\Lethal Company\\Lethal Company_Data\\Managed\\UnityEngine.UnityWebRequestModule.dll","ResolvedFrom":"","OriginalItemSpec":"","Name":"","EmbedInteropTypes":false,"CopyLocal":false,"IsProjectReference":false,"ProjectPath":""},{"Reference":"C:\\Program Files (x86)\\Steam\\steamapps\\common\\Lethal Company\\Lethal Company_Data\\Managed\\UnityEngine.UnityWebRequestTextureModule.dll","ResolvedFrom":"","OriginalItemSpec":"","Name":"","EmbedInteropTypes":false,"CopyLocal":false,"IsProjectReference":false,"ProjectPath":""},{"Reference":"C:\\Program Files (x86)\\Steam\\steamapps\\common\\Lethal Company\\Lethal Company_Data\\Managed\\UnityEngine.UnityWebRequestWWWModule.dll","ResolvedFrom":"","OriginalItemSpec":"","Name":"","EmbedInteropTypes":false,"CopyLocal":false,"IsProjectReference":false,"ProjectPath":""},{"Reference":"C:\\Program Files (x86)\\Steam\\steamapps\\common\\Lethal Company\\Lethal Company_Data\\Managed\\UnityEngine.VFXModule.dll","ResolvedFrom":"","OriginalItemSpec":"","Name":"","EmbedInteropTypes":false,"CopyLocal":false,"IsProjectReference":false,"ProjectPath":""},{"Reference":"C:\\Program Files (x86)\\Steam\\steamapps\\common\\Lethal Company\\Lethal Company_Data\\Managed\\UnityEngine.VirtualTexturingModule.dll","ResolvedFrom":"","OriginalItemSpec":"","Name":"","EmbedInteropTypes":false,"CopyLocal":false,"IsProjectReference":false,"ProjectPath":""},{"Reference":"C:\\Program Files (x86)\\Steam\\steamapps\\common\\Lethal Company\\Lethal Company_Data\\Managed\\UnityEngine.WindModule.dll","ResolvedFrom":"","OriginalItemSpec":"","Name":"","EmbedInteropTypes":false,"CopyLocal":false,"IsProjectReference":false,"ProjectPath":""}],"Analyzers":[],"Outputs":[{"OutputItemFullPath":"C:\\Users\\green\\source\\repos\\LethalAccess Remake\\LethalAccess Remake\\bin\\Debug\\LethalAccess Remake.dll","OutputItemRelativePath":"LethalAccess Remake.dll"},{"OutputItemFullPath":"C:\\Users\\green\\source\\repos\\LethalAccess Remake\\LethalAccess Remake\\bin\\Debug\\LethalAccess Remake.pdb","OutputItemRelativePath":"LethalAccess Remake.pdb"}],"CopyToOutputEntries":[]}
+
+
+
+
+
+
+ClipboardTextPatch.cs
+.\Patches\ClipboardTextPatch.cs
+
+﻿using HarmonyLib;
+using System.Collections;
+using UnityEngine;
+
+namespace Green.LethalAccess.Patches
+{
+    [HarmonyPatch(typeof(ClipboardItem))]
+    public class ClipboardItemPatches
+    {
+        // Patch for speaking the page when flipping pages
+        [HarmonyPatch(nameof(ClipboardItem.ItemInteractLeftRight)), HarmonyPostfix]
+        public static void ItemInteractLeftRightPostfix(ClipboardItem __instance)
+        {
+            SpeakPage(__instance.currentPage);
+        }
+
+        [HarmonyPatch(nameof(ClipboardItem.EquipItem)), HarmonyPostfix]
+        public static void EquipItemPostfix(ClipboardItem __instance)
+        {
+            LethalAccess.Instance.StartCoroutine(DelayedSpeakPage(__instance.currentPage));
+        }
+
+        private static IEnumerator DelayedSpeakPage(int currentPage)
+        {
+            yield return new WaitForSeconds(0.1f);
+            SpeakPage(currentPage);
+        }
+
+        private static void SpeakPage(int currentPage)
+        {
+            string pageText = GetPageContent(currentPage);
+            Utilities.SpeakText($"Page {currentPage}. {pageText}");
+        }
+
+        private static string GetPageContent(int currentPage)
+        {
+            switch (currentPage)
+            {
+                case 1:
+                    return "An order number, 4186915, is prominently displayed at the upper edge. Below, a list of content categories is presented, indicating the inclusion of general descriptions, procedures for emergencies, diagrams both block and schematic, as well as detailed exploded views and a list of parts. Notably mentioned are the entities Halden Electronics and F. Power Co. A grid with numerous entries, indicative of a specifications chart, spans the central portion, but the text within is blurred, rendering the specifics indiscernible. A triangular warning icon attracts attention to a cautionary note below, which explicitly states that the provided information is tailored for authorized and skilled technicians, explicitly excluding the general public. It highlights an intentional omission of certain cautions or warnings, aimed at enhancing readability, while also clearly disclaiming liability for any harm or fatality that may result from misuse of the information or related tools. The lower segment features the logo of Halden Electronics, reinforcing the brand's presence. Accompanying this is a legal notice, asserting the exclusive trademark rights of Halden Electronics to the content, and strictly prohibiting the distribution of the material therein.";
+                case 2:
+                    return "At the top, a section number and title indicate instructions for operating an Echo Scanner, a patented device for employee use. Instructions suggest using a right mouse button (RMB) to activate the scanner towards objects of interest. Upon detection, the scanner provides data such as monetary value, name, and purpose, with color-coded information: green for places or objects of interest, yellow for objects returnable as valuable scrap to the Company, and red for biological matter such as wildlife.\r\n\r\nA tip box emphasizes using the scanner to locate the autopilot ship or other points of interest when outside, noting the scanner's signal range of up to 50 meters in open areas.\r\n\r\nAn illustration shows radio waves emanating from a human figure wearing a helmet, suggesting the operational range of the scanner.\r\n\r\nBelow, a warning icon prefaces a caution about the scanner's built-in components in helmet compartments emitting radiation, with a potential increase in cancer risk and other illnesses. The Company's obligation to disclose this information complies with the HDHAN Health Act.\r\n\r\nThe page is numbered 146 at the bottom.";
+                case 3:
+                    return "A section title suggests information about the relationship between an autopilot ship, a terminal, and the user, described as a contracted worker provided with one of the company's vehicles as a home base and access to a multi-use Terminal. Instructions for routing to moons using the terminal's GPS feature are given, with a note that travel to distant moons may require Company Credits, the cost of which is determined by a risk and cost-benefit analysis department.\r\n\r\nA tip box advises that safer and closer moons are generally less costly or free, and suggests adherence to these areas as recommended by the risk analysis team for the duration of a contract.\r\n\r\nUnder a subheading about purchasing tools, the Terminal is mentioned as a gateway to the Company Store, where items, specifically under 30 pounds, can be bought in bulk, highlighting a Survival Kit as essential for beginners. The delivery process for purchased items involves their arrival via a transport vehicle on the chosen moon's surface, with a cautionary instruction not to miss the delivery.\r\n\r\nAnother subheading, Bestiary, explains that using the Echo Scanner on wildlife transmits information to a research team, which is then added to the user's terminal bestiary if not already documented.\r\n\r\nThe page concludes with the number 139 at the bottom. An image of a computer terminal with a screen and keyboard is also shown, suggesting the described Terminal.";
+                case 4:
+                    return "A section heading indicates guidelines for returning scrap and conducting transactions with the Company. It underlines the expectation of returning materials in exchange for Company Credits, despite the perceived luxury of the contract period. Directions are given to route to the Company Building on 71-Gordion to sell scrap.\r\n\r\nA warning box lists specific directives for selling scrap: to avoid loitering around the counter, prepare all scrap for bulk placement on the counter, and to signal the Company by ringing a bell until acknowledged, all while maintaining silence.\r\n\r\nA note highlights that the exchange rate from scrap to Credits is variable, advising to verify current rates via the terminal.\r\n\r\nAnother section heading introduces general and miscellaneous job tips. It advises using an electric coil for charging battery-powered items, planning trips considering that the autopilot ship won't stay on a moon surface past midnight, keeping a crewmate at \"home\" for intelligence and remote access capabilities, and using the terminal to broadcast special codes for accessing secure doors and areas, with \"E9\" provided as an example code.\r\n\r\nThe page number 140 is visible at the bottom.";
+                default:
+                    return "Unknown page.";
+            }
+        }
+    }
+}
+
+
+
+
+
+
+ControlTipPatch.cs
+.\Patches\ControlTipPatch.cs
+
+﻿using HarmonyLib;
+using UnityEngine;
+using UnityEngine.InputSystem;
+using TMPro;
+
+namespace Green.LethalAccess.Patches
+{
+    public class ControlTipAccessPatch : MonoBehaviour
+    {
+        private const string SpeakControlTipKeybindName = "SpeakControlTipKey";
+        private const Key SpeakControlTipDefaultKey = Key.Quote;
+
+        public void Initialize()
+        {
+            Debug.Log("ControlTipPatch: Initializing input actions.");
+            LethalAccess.Instance.RegisterKeybind(SpeakControlTipKeybindName, SpeakControlTipDefaultKey, SpeakControlTip);
+            Debug.Log("ControlTipPatch: Input actions are registered.");
+        }
+
+        private void SpeakControlTip()
+        {
+            // Concatenate text from ControlTip1, ControlTip2, and ControlTip3
+            string combinedText = "";
+
+            for (int i = 1; i <= 3; i++)
+            {
+                var controlTipTextObject = GameObject.Find($"Systems/UI/Canvas/IngamePlayerHUD/TopRightCorner/ControlTip{i}");
+                if (controlTipTextObject != null)
+                {
+                    var tmpTextComponent = controlTipTextObject.GetComponent<TextMeshProUGUI>();
+                    if (tmpTextComponent != null)
+                    {
+                        combinedText += tmpTextComponent.text + ", "; // Add a space between control tips
+                    }
+                    else
+                    {
+                        Debug.LogError($"[ControlTipPatch] TMP Text component not found on ControlTip{i} GameObject.");
+                    }
+                }
+                else
+                {
+                    Debug.LogError($"[ControlTipPatch] ControlTip{i} GameObject not found.");
+                }
+            }
+
+            if (!string.IsNullOrEmpty(combinedText))
+            {
+                Debug.Log("[ControlTipPatch] Speaking control tips: " + combinedText);
+                Utilities.SpeakText(combinedText);
+            }
+        }
+    }
+}
+
+
+
+
+
+
+EndOfGamesStatsPatch.cs
+.\Patches\EndOfGamesStatsPatch.cs
+
+﻿using GameNetcodeStuff;
+using HarmonyLib;
+using Green.LethalAccess;
+using System.Text;
+using UnityEngine;
+using TMPro;
+using UnityEngine.UI;
+
+namespace Green.LethalAccess.Patches
+{
+    [HarmonyPatch(typeof(HUDManager), "FillEndGameStats")]
+    public static class HUDManagerFillEndGameStatsPatch
+    {
+        static void Postfix(HUDManager __instance, EndOfGameStats stats, int scrapCollected)
+        {
+            StringBuilder spokenMessage = new StringBuilder();
+            spokenMessage.AppendLine("End of Round Stats:");
+
+            // Scrap Collected
+            spokenMessage.AppendLine($"Scrap Collected Value: ${scrapCollected}.");
+
+            int currentProfit = TimeOfDay.Instance.quotaFulfilled;
+            int profitQuota = TimeOfDay.Instance.profitQuota;
+
+            // Quota Information
+            spokenMessage.AppendLine($"Quota: ${currentProfit} of ${profitQuota}.");
+
+            // Player Details
+            for (int i = 0; i < __instance.playersManager.allPlayerScripts.Length; i++)
+            {
+                PlayerControllerB player = __instance.playersManager.allPlayerScripts[i];
+                if (player != null && !player.playerUsername.StartsWith("Player #"))
+                {
+                    spokenMessage.AppendLine($"Player {i + 1}: {player.playerUsername}.");
+                    spokenMessage.AppendLine($"State: {(player.isPlayerDead ? "Dead." : "Alive.")}");
+
+                    if (player.isPlayerDead)
+                    {
+                        string causeOfDeath = player.causeOfDeath == CauseOfDeath.Abandoned ? "Abandoned." : "Deceased.";
+                        spokenMessage.AppendLine($"Cause of Death: {causeOfDeath}.");
+                    }
+
+                    // Player Notes
+                    if (stats.allPlayerStats.Length > i)
+                    {
+                        var playerStat = stats.allPlayerStats[i];
+                        if (playerStat.playerNotes.Count > 0)
+                        {
+                            spokenMessage.AppendLine("Notes:");
+                            foreach (var note in playerStat.playerNotes)
+                            {
+                                spokenMessage.AppendLine($"* {note}.");
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Additional stats if available
+            var elements = __instance.statsUIElements;
+            if (!string.IsNullOrEmpty(elements.gradeLetter.text))
+            {
+                spokenMessage.AppendLine($"Grade: {elements.gradeLetter.text}.");
+            }
+
+            // Penalty Information
+            if (__instance.endgameStatsAnimator.GetCurrentAnimatorStateInfo(0).IsName("displayPenalty"))
+            {
+                spokenMessage.AppendLine("Penalties have been applied due to player deaths.");
+                if (elements.penaltyAddition != null && elements.penaltyTotal != null)
+                {
+                    spokenMessage.AppendLine($"Penalty Addition: {elements.penaltyAddition.text}.");
+                    spokenMessage.AppendLine($"Penalty Total: {elements.penaltyTotal.text}.");
+                }
+            }
+
+            // Speak the message
+            Utilities.SpeakText(spokenMessage.ToString());
+        }
+    }
+}
+
+
+
+
+
+
+HealthPatch.cs
+.\Patches\HealthPatch.cs
+
+﻿using HarmonyLib;
+using UnityEngine;
+using UnityEngine.InputSystem;
+
+namespace Green.LethalAccess.Patches
+{
+    public class PlayerHealthPatch : MonoBehaviour
+    {
+        private const string SpeakHealthKeybindName = "SpeakHealthKey";
+        private const Key SpeakHealthDefaultKey = Key.H;
+
+        public void Initialize()
+        {
+            Debug.Log("PlayerHealthPatch: Initializing input actions.");
+            LethalAccess.Instance.RegisterKeybind(SpeakHealthKeybindName, SpeakHealthDefaultKey, SpeakPlayerHealth);
+            Debug.Log("PlayerHealthPatch: Input actions are registered.");
+
+            var harmony = new Harmony("green.lethalaccess.playerhealthaccess");
+            harmony.PatchAll(typeof(HUDManagerUpdateHealthUIPatch));
+        }
+
+        private void SpeakPlayerHealth()
+        {
+            int playerHealth = HUDManagerUpdateHealthUIPatch.LastUpdatedHealth;
+            Debug.Log("[PlayerHealthPatch] Speaking health: " + playerHealth);
+            Utilities.SpeakText(playerHealth + " HP");
+        }
+    }
+
+    [HarmonyPatch(typeof(HUDManager), "UpdateHealthUI")]
+    public class HUDManagerUpdateHealthUIPatch
+    {
+        public static int LastUpdatedHealth { get; private set; } = 100; // Default to full health
+
+        static void Postfix(int health)
+        {
+            // This method is called after UpdateHealthUI in HUDManager
+            LastUpdatedHealth = health;
+            Debug.Log($"[LethalAccess] Player health updated: {health}");
+        }
+    }
+}
+
+
+
+
+
+
+HoldInteractTonePatch.cs
+.\Patches\HoldInteractTonePatch.cs
+
+﻿using HarmonyLib;
+using Green.LethalAccess;
+using UnityEngine;
+
+namespace Green.LethalAccess.Patches
+{
+    public static class LethalAccess_InteractionPatches
+    {
+        private static AudioSource continuousToneSource = null;
+        private static AudioSource completionToneSource = null;
+        private static bool isToneInitialized = false;
+
+        [HarmonyPatch(typeof(HUDManager), "Update")]
+        public static class HUDManager_UpdatePatch
+        {
+            [HarmonyPostfix]
+            public static void Postfix(HUDManager __instance)
+            {
+                if (__instance == null) return;
+                InitializeTones();
+                if (continuousToneSource == null) return;
+
+                if (__instance.holdFillAmount > 0)
+                {
+                    float pitch = 1 + (__instance.holdFillAmount * 0.7f);
+                    continuousToneSource.pitch = pitch;
+                    if (!continuousToneSource.isPlaying)
+                    {
+                        continuousToneSource.Play();
+                    }
+                    continuousToneSource.volume = Mathf.Lerp(0.1f, 0.5f, __instance.holdFillAmount);
+                }
+                else if (__instance.holdFillAmount == 0 && continuousToneSource.isPlaying)
+                {
+                    continuousToneSource.Stop();
+                }
+            }
+        }
+
+        [HarmonyPatch(typeof(HUDManager), "HoldInteractionFill")]
+        public static class HUDManager_HoldInteractionFillPatch
+        {
+            [HarmonyPostfix]
+            public static void Postfix(HUDManager __instance, float timeToHold, float speedMultiplier, bool __result)
+            {
+                if (__result) // Interaction completed
+                {
+                    PlayCompletionTone();
+                }
+            }
+        }
+
+        private static void InitializeTones()
+        {
+            if (!isToneInitialized || continuousToneSource == null || completionToneSource == null)
+            {
+                if (LethalAccess.PlayerTransform != null)
+                {
+                    // Initialize continuous tone
+                    continuousToneSource = LethalAccess.PlayerTransform.gameObject.AddComponent<AudioSource>();
+                    continuousToneSource.loop = true;
+                    continuousToneSource.clip = GenerateContinuousToneClip(440, 1);
+                    continuousToneSource.volume = 0.3f;
+
+                    // Initialize completion tone
+                    completionToneSource = LethalAccess.PlayerTransform.gameObject.AddComponent<AudioSource>();
+                    completionToneSource.loop = false;
+                    completionToneSource.clip = GenerateCompletionToneClip();
+                    completionToneSource.volume = 0.7f;
+                    completionToneSource.priority = 0; // Highest priority
+                    completionToneSource.bypassEffects = true;
+                    completionToneSource.bypassListenerEffects = true;
+                    completionToneSource.bypassReverbZones = true;
+
+                    isToneInitialized = true;
+                }
+            }
+        }
+
+        private static AudioClip GenerateContinuousToneClip(float frequency, float duration)
+        {
+            int sampleRate = 44100;
+            int sampleLength = Mathf.RoundToInt(sampleRate * duration);
+            AudioClip toneClip = AudioClip.Create("ContinuousTone", sampleLength, 1, sampleRate, false);
+            float[] samples = new float[sampleLength];
+            for (int i = 0; i < sampleLength; i++)
+            {
+                samples[i] = Mathf.Sin(2 * Mathf.PI * frequency * i / sampleRate);
+            }
+            toneClip.SetData(samples, 0);
+            return toneClip;
+        }
+
+        private static AudioClip GenerateCompletionToneClip()
+        {
+            int sampleRate = 44100;
+            float toneDuration = 0.15f;
+            float pauseDuration = 0.05f;
+            int sampleLength = Mathf.RoundToInt(sampleRate * ((toneDuration * 2) + pauseDuration));
+            AudioClip toneClip = AudioClip.Create("CompletionTone", sampleLength, 1, sampleRate, false);
+            float[] samples = new float[sampleLength];
+
+            float frequency1 = 660f;
+            float frequency2 = 785f;
+
+            int index = 0;
+
+            // First tone
+            for (int i = 0; i < Mathf.RoundToInt(sampleRate * toneDuration) && index < sampleLength; i++)
+            {
+                samples[index++] = Mathf.Sin(2 * Mathf.PI * frequency1 * i / sampleRate) * 0.5f;
+            }
+
+            // Short pause
+            index = Mathf.Min(index + Mathf.RoundToInt(sampleRate * pauseDuration), sampleLength);
+
+            // Second tone
+            for (int i = 0; i < Mathf.RoundToInt(sampleRate * toneDuration) && index < sampleLength; i++)
+            {
+                samples[index++] = Mathf.Sin(2 * Mathf.PI * frequency2 * i / sampleRate) * 0.5f;
+            }
+
+            toneClip.SetData(samples, 0);
+            return toneClip;
+        }
+
+        private static void PlayCompletionTone()
+        {
+            InitializeTones();
+            if (completionToneSource != null && !completionToneSource.isPlaying)
+            {
+                completionToneSource.PlayOneShot(completionToneSource.clip, 1f);
+            }
+        }
+    }
+}
+
+
+
+
+
+
+HoverTextPatch.cs
+.\Patches\HoverTextPatch.cs
+
+using HarmonyLib;
+using UnityEngine;
+using GameNetcodeStuff;
+using TMPro;
+
+namespace Green.LethalAccess.Patches
+{
+    [HarmonyPatch(typeof(PlayerControllerB))]
+    public class HoverTextPatch
+    {
+        [HarmonyPatch("SetHoverTipAndCurrentInteractTrigger")]
+        [HarmonyPostfix]
+        public static void Postfix(PlayerControllerB __instance)
+        {
+            if (__instance.cursorTip == null) return;
+
+            // Only modify text if we're looking at an item and not in a special state
+            if (!__instance.isGrabbingObjectAnimation && !__instance.inSpecialMenu &&
+                !__instance.quickMenuManager.isMenuOpen)
+            {
+                Ray interactRay = new Ray(__instance.gameplayCamera.transform.position,
+                                        __instance.gameplayCamera.transform.forward);
+
+                if (Physics.Raycast(interactRay, out RaycastHit hit, __instance.grabDistance, 64)) // Using the correct mask value
+                {
+                    if (hit.collider.CompareTag("PhysicsProp"))
+                    {
+                        GrabbableObject grabbableObject = hit.collider.gameObject.GetComponent<GrabbableObject>();
+                        if (grabbableObject != null)
+                        {
+                            string itemName = grabbableObject.itemProperties.itemName;
+
+                            // Check inventory space by looking for empty slots
+                            bool hasEmptySlot = false;
+                            for (int i = 0; i < __instance.ItemSlots.Length; i++)
+                            {
+                                if (__instance.ItemSlots[i] == null)
+                                {
+                                    hasEmptySlot = true;
+                                    break;
+                                }
+                            }
+
+                            // Handle inventory full case
+                            if (!hasEmptySlot)
+                            {
+                                __instance.cursorTip.text = $"Inventory full! Cannot grab {itemName}";
+                                return;
+                            }
+
+                            // Handle line of sight check
+                            if (Physics.Linecast(__instance.gameplayCamera.transform.position,
+                                               grabbableObject.transform.position,
+                                               1073741824, QueryTriggerInteraction.Ignore))
+                            {
+                                return;
+                            }
+
+                            // Handle pre-game state
+                            if (!GameNetworkManager.Instance.gameHasStarted &&
+                                !grabbableObject.itemProperties.canBeGrabbedBeforeGameStart &&
+                                StartOfRound.Instance.testRoom == null)
+                            {
+                                __instance.cursorTip.text = $"Cannot hold {itemName} until ship has landed";
+                                return;
+                            }
+
+                            // Handle custom grab tooltip
+                            if (!string.IsNullOrEmpty(grabbableObject.customGrabTooltip))
+                            {
+                                __instance.cursorTip.text = $"{grabbableObject.customGrabTooltip} ({itemName})";
+                            }
+                            else
+                            {
+                                // Add item name to the standard grab tooltip
+                                __instance.cursorTip.text = $"Grab {itemName} : [E], ";
+                            }
+
+                            // Add weight information if it's significant
+                            if (grabbableObject.itemProperties.weight > 1f)
+                            {
+                                __instance.cursorTip.text += $" - Weight: {grabbableObject.itemProperties.weight}";
+                            }
+
+                            // Add two-handed information
+                            if (grabbableObject.itemProperties.twoHanded)
+                            {
+                                __instance.cursorTip.text += " (Two-Handed)";
+                            }
+
+                            // Add value information if it has scrap value
+                            if (grabbableObject.scrapValue > 0)
+                            {
+                                __instance.cursorTip.text += $" - Value: ${grabbableObject.scrapValue}";
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+
+
+
+
+InteractionPatch.cs
+.\Patches\InteractionPatch.cs
+
+﻿using GameNetcodeStuff;
+using HarmonyLib;
+using TMPro;
+using UnityEngine;
+
+namespace Green.LethalAccess.Patches
+{
+    [HarmonyPatch(typeof(PlayerControllerB), "Update")]
+    public static class PlayerControllerBUpdatePatch
+    {
+        private static string lastInteractText = ""; // To keep track of the last interact text for comparison
+        private static TMP_Text interactTextComponent = null; // Cache the TMP_Text component
+
+        static void Postfix()
+        {
+            // Check if the interactTextComponent is null or was destroyed (e.g., changing levels/scenes)
+            if (interactTextComponent == null || interactTextComponent.gameObject == null)
+            {
+                // Attempt to find the InteractText object again
+                GameObject interactTextObj = GameObject.Find("Systems/UI/Canvas/PlayerCursor/InteractText");
+                if (interactTextObj != null) // Make sure we've found the object
+                {
+                    interactTextComponent = interactTextObj.GetComponent<TMP_Text>();
+                }
+            }
+
+            // Now, if we have a valid interactTextComponent, check its content
+            if (interactTextComponent != null && interactTextComponent.text != lastInteractText)
+            {
+                // The text has changed, handle the new text
+                SpeakInteraction(interactTextComponent.text);
+
+                // Update the last interact text to the new text
+                lastInteractText = interactTextComponent.text;
+            }
+        }
+
+        // Method to handle the speaking functionality
+        private static void SpeakInteraction(string text)
+        {
+            // Check specific texts and decide whether to speak them
+            if (!string.IsNullOrWhiteSpace(text))
+            {
+                if (text == "Climb : [E]") // Ignore "Climb : [E]"
+                {
+                    // Do nothing for "Climb : [E]"
+                }
+                else if (text == "Use door : [E]") // Customize or ignore "Use door : [E]"
+                {
+                    // If you want to customize the message:
+                    // Utilities.SpeakText("Custom message here.");
+
+                    // Or simply do nothing if you want to ignore it.
+                }
+                else // Speak all other texts
+                {
+                    Utilities.SpeakText(text);
+                }
+            }
+        }
+    }
+}
+
+
+
+
+
+
+IsInsideFactoryPatch.cs
+.\Patches\IsInsideFactoryPatch.cs
+
+﻿using GameNetcodeStuff;
+using HarmonyLib;
+
+namespace Green.LethalAccess.Patches
+{
+    [HarmonyPatch(typeof(StartOfRound))]
+    public static class IsInsideFactoryPatch
+    {
+        public static bool IsInFactory = false; // Public static field to hold the state
+        private static bool previousIsInFactoryState = false; // Variable to track previous state
+
+        [HarmonyPatch("Update")]
+        [HarmonyPostfix]
+        public static void Postfix()
+        {
+            var playerController = GameNetworkManager.Instance.localPlayerController as PlayerControllerB;
+            if (playerController != null)
+            {
+                bool currentIsInsideFactory = playerController.isInsideFactory;
+
+                // Check if the state has changed since the last frame
+                if (currentIsInsideFactory != previousIsInFactoryState)
+                {
+                    // Update the tracked state
+                    previousIsInFactoryState = currentIsInsideFactory;
+                    IsInFactory = currentIsInsideFactory;
+
+                    // Speak text based on whether the player is entering or leaving the facility
+                    if (currentIsInsideFactory)
+                    {
+                        Utilities.SpeakText("You have entered the Facility.");
+                    }
+                    else
+                    {
+                        Utilities.SpeakText("You have left the Facility.");
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+
+
+
+
+ItemActionPatch.cs
+.\Patches\ItemActionPatch.cs
+
+﻿using System;
+using GameNetcodeStuff;
+using HarmonyLib;
+using UnityEngine;
+using System.Collections;
+
+namespace Green.LethalAccess.Patches
+{
+    [HarmonyPatch(typeof(PlayerControllerB))]
+    public static class ItemAction
+    {
+        private static DateTime lastSpokenTime = DateTime.MinValue;
+        private static AudioSource audioSource;
+        private static AudioSource twoHandedAudioSource;
+
+        private static void SpeakWithCooldown(string text)
+        {
+            if ((DateTime.Now - lastSpokenTime).TotalSeconds > 0.05)
+            {
+                Utilities.SpeakText(text);
+                lastSpokenTime = DateTime.Now;
+            }
+        }
+
+        public static event Action OnItemHeld;
+
+        private static void HandleItemPickedUp(bool isTwoHanded)
+        {
+            if (isTwoHanded)
+            {
+                PlayTwoHandedSound();
+            }
+            else
+            {
+                if (audioSource == null)
+                {
+                    GameObject obj = new GameObject("ItemPickupAudioSource");
+                    audioSource = obj.AddComponent<AudioSource>();
+                    audioSource.clip = GenerateItemPickupTone();
+                    audioSource.volume = 0.35f; // 30% lower volume
+                }
+
+                audioSource.Play();
+            }
+            LethalAccess.currentLookTarget = null;
+        }
+
+        private static AudioClip GenerateItemPickupTone()
+        {
+            int sampleRate = 44100;
+            float toneDuration = 0.1f;
+            float pauseDuration = 0.028125f; // 0.05f * 0.75f * 0.75f
+            int sampleLength = Mathf.RoundToInt(sampleRate * ((toneDuration * 2) + pauseDuration));
+            AudioClip toneClip = AudioClip.Create("ItemPickupTone", sampleLength, 1, sampleRate, false);
+            float[] samples = new float[sampleLength];
+
+            // Set frequency values
+            float frequency1 = 544.5f; // Approximately 880 * 0.75 * 1.1 * 0.75
+            float frequency2 = 647.5f; // Approximately 1046.5 * 0.75 * 1.1 * 0.75
+
+            int index = 0;
+
+            // First tone
+            for (int i = 0; i < Mathf.RoundToInt(sampleRate * toneDuration) && index < sampleLength; i++)
+            {
+                samples[index++] = Mathf.Sin(2 * Mathf.PI * frequency1 * i / sampleRate);
+            }
+
+            // Short pause
+            index = Mathf.Min(index + Mathf.RoundToInt(sampleRate * pauseDuration), sampleLength);
+
+            // Second tone
+            for (int i = 0; i < Mathf.RoundToInt(sampleRate * toneDuration) && index < sampleLength; i++)
+            {
+                samples[index++] = Mathf.Sin(2 * Mathf.PI * frequency2 * i / sampleRate);
+            }
+
+            toneClip.SetData(samples, 0);
+            return toneClip;
+        }
+
+        private static void PlayTwoHandedSound()
+        {
+            if (twoHandedAudioSource == null)
+            {
+                GameObject obj = new GameObject("TwoHandedAudioSource");
+                twoHandedAudioSource = obj.AddComponent<AudioSource>();
+                twoHandedAudioSource.clip = GenerateTwoHandedTone();
+                twoHandedAudioSource.volume = 0.35f; // Same volume as item pickup tone
+            }
+
+            twoHandedAudioSource.Play();
+        }
+
+        private static AudioClip GenerateTwoHandedTone()
+        {
+            int sampleRate = 44100;
+            float toneDuration = 0.1f;
+            float pauseDuration = 0.028125f; // 0.05f * 0.75f * 0.75f
+            int sampleLength = Mathf.RoundToInt(sampleRate * ((toneDuration * 2) + pauseDuration));
+            AudioClip toneClip = AudioClip.Create("TwoHandedTone", sampleLength, 1, sampleRate, false);
+            float[] samples = new float[sampleLength];
+
+            // Set frequency values
+            float frequency1 = 272.25f; // Half of 544.5f
+            float frequency2 = 323.75f; // Half of 647.5f
+
+            int index = 0;
+
+            // First tone
+            for (int i = 0; i < Mathf.RoundToInt(sampleRate * toneDuration) && index < sampleLength; i++)
+            {
+                samples[index++] = Mathf.Sin(2 * Mathf.PI * frequency1 * i / sampleRate);
+            }
+
+            // Short pause
+            index = Mathf.Min(index + Mathf.RoundToInt(sampleRate * pauseDuration), sampleLength);
+
+            // Second tone
+            for (int i = 0; i < Mathf.RoundToInt(sampleRate * toneDuration) && index < sampleLength; i++)
+            {
+                samples[index++] = Mathf.Sin(2 * Mathf.PI * frequency2 * i / sampleRate);
+            }
+
+            toneClip.SetData(samples, 0);
+            return toneClip;
+        }
+
+        [HarmonyPatch("SwitchToItemSlot"), HarmonyPostfix]
+        public static void SwitchToItemSlotPostfix(PlayerControllerB __instance, int slot)
+        {
+            if (__instance.IsOwner && __instance.ItemSlots[slot] != null)
+            {
+                GrabbableObject item = __instance.ItemSlots[slot];
+                string itemName = item.itemProperties.itemName;
+                int scrapValue = item.scrapValue;
+
+                // Remove the item from the NavMenu
+                LethalAccess.Instance.navMenu.RemoveItem(item.gameObject.name, "Items");
+
+                string actionType = "held";
+                if (item.isPocketed)
+                {
+                    actionType = "pocketed";
+                }
+                else if (item.deactivated)
+                {
+                    actionType = "deactivated";
+                }
+
+                if (item.itemProperties.twoHanded)
+                {
+                    SpeakWithCooldown($"{actionType} {itemName}, two-handed object, worth ${scrapValue}, cannot switch items until this item is dropped");
+                }
+                else
+                {
+                    SpeakWithCooldown($"{actionType} {itemName}, worth ${scrapValue}");
+                }
+
+                HandleItemPickedUp(item.itemProperties.twoHanded);
+                OnItemHeld?.Invoke();
+
+                // Refresh the menu if the held/pocketed/deactivated item was the currently selected item
+                if (LethalAccess.Instance.navMenu.currentIndices.categoryIndex == LethalAccess.Instance.navMenu.categories.IndexOf("Items") &&
+                    LethalAccess.Instance.navMenu.menuItems["Items"].Count > 0 &&
+                    LethalAccess.Instance.navMenu.menuItems["Items"][LethalAccess.Instance.navMenu.currentIndices.itemIndex] == item.gameObject.name)
+                {
+                    Utilities.SpeakText($"{itemName} removed from item list as it is now {actionType}.");
+                    LethalAccess.Instance.navMenu.RefreshMenu();
+                }
+            }
+        }
+
+        [HarmonyPatch("SetObjectAsNoLongerHeld"), HarmonyPostfix]
+        public static void SetObjectAsNoLongerHeldPostfix(PlayerControllerB __instance, GrabbableObject dropObject)
+        {
+            if (__instance.IsOwner && dropObject != null)
+            {
+                string itemName = dropObject.itemProperties.itemName;
+                SpeakWithCooldown("Dropped " + itemName);
+            }
+        }
+    }
+}
+
+
+
+
+
+
+
+ItemChargerPatch.cs
+.\Patches\ItemChargerPatch.cs
+
+﻿using HarmonyLib;
+using UnityEngine;
+
+namespace Green.LethalAccess.Patches
+{
+    [HarmonyPatch(typeof(ItemCharger), "ChargeItem")]
+    public static class ItemRecharger_ChargeItem_Patch
+    {
+        // This postfix runs after the original ChargeItem method
+        static void Postfix()
+        {
+            // Speak when an item is recharged
+            SpeakItemRecharged(); // This calls a custom method to handle the speaking functionality
+        }
+
+        // Custom method to handle speaking functionality
+        private static void SpeakItemRecharged()
+        {
+            Debug.Log("Item recharged!"); // Placeholder for demonstration
+            Utilities.SpeakText("Item recharged!");
+        }
+    }
+}
+
+
+
+
+
+
+ItemInteractLeftRightOnClientPatch.cs
+.\Patches\ItemInteractLeftRightOnClientPatch.cs
+
+﻿using GameNetcodeStuff;
+using HarmonyLib;
+
+[HarmonyPatch(typeof(GrabbableObject), nameof(GrabbableObject.ItemInteractLeftRightOnClient))]
+class ItemInteractLeftRightOnClientPatch
+{
+    static void Prefix(PlayerControllerB __instance, ref bool __state)
+    {
+        __state = __instance.enabled;
+        __instance.enabled = true;
+    }
+
+    static void Postfix(PlayerControllerB __instance, bool __state)
+    {
+        __instance.enabled = __state;
+    }
+}
+
+
+
+
+
+
+ItemSellDetailsPatch.cs
+.\Patches\ItemSellDetailsPatch.cs
+
+﻿using HarmonyLib;
+
+namespace Green.LethalAccess.Patches
+{
+    [HarmonyPatch(typeof(DepositItemsDesk))]
+    public class DepositItemsDeskPatch
+    {
+        [HarmonyPostfix]
+        [HarmonyPatch("SellAndDisplayItemProfits")]
+        public static void Postfix(int profit, int newGroupCredits, DepositItemsDesk __instance)
+        {
+            // Speak the profit and new group credits
+            string message = "Sold items for a profit of $" + profit.ToString() + ". New group total: $" + newGroupCredits.ToString();
+            Utilities.SpeakText(message);
+
+            // Additional logic if needed to speak about individual items sold
+            GrabbableObject[] soldItems = __instance.deskObjectsContainer.GetComponentsInChildren<GrabbableObject>();
+            foreach (GrabbableObject item in soldItems)
+            {
+                // You can customize this message as needed
+                string itemName = item.itemProperties?.itemName ?? item.gameObject.name;
+                int scrapValue = item.scrapValue;
+                Utilities.SpeakText($"Sold {itemName} for ${scrapValue}");
+            }
+        }
+    }
+}
+
+
+
+
+
+
+LookDownPatch.cs
+.\Patches\LookDownPatch.cs
+
+﻿using GameNetcodeStuff;
+using HarmonyLib;
+using System.Collections.Generic;
+using System.Linq;
+using System.Reflection.Emit;
+
+namespace GreenBean.LethalAccess
+{
+    public static class LookDownPatchConfig
+    {
+        public static float MaxAngle = 90f;
+    }
+
+    [HarmonyPatch(typeof(PlayerControllerB), "CalculateSmoothLookingInput")]
+    internal class AdjustSmoothLookingPatcher
+    {
+        private static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
+        {
+            List<CodeInstruction> list = new List<CodeInstruction>(instructions);
+            for (int i = 0; i < list.Count; i++)
+            {
+                if (list[i].opcode == OpCodes.Ldc_R4 && (float)list[i].operand == 60f)
+                {
+                    list[i].operand = LookDownPatchConfig.MaxAngle;
+                    break;
+                }
+            }
+            return list.AsEnumerable();
+        }
+    }
+
+    [HarmonyPatch(typeof(PlayerControllerB), "CalculateNormalLookingInput")]
+    internal class AdjustNormalLookingPatcher
+    {
+        private static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
+        {
+            List<CodeInstruction> list = new List<CodeInstruction>(instructions);
+            for (int i = 0; i < list.Count; i++)
+            {
+                if (list[i].opcode == OpCodes.Ldc_R4 && (float)list[i].operand == 60f)
+                {
+                    list[i].operand = LookDownPatchConfig.MaxAngle;
+                    break;
+                }
+            }
+            return list.AsEnumerable();
+        }
+    }
+}
+
+
+
+
+
+
+MenuManagerNotif&HostPatch.cs
+.\Patches\MenuManagerNotif&HostPatch.cs
+
+﻿using HarmonyLib;
+using System.Reflection;
+using TMPro;
+using UnityEngine;
+using UnityEngine.UI;
+
+namespace Green.LethalAccess.Patches
+{
+    [HarmonyPatch(typeof(MenuManager))]
+    public static class MenuManagerNotificationPatch
+    {
+        // Patch for DisplayMenuNotification
+        [HarmonyPatch(nameof(MenuManager.DisplayMenuNotification))]
+        [HarmonyPostfix]
+        public static void Postfix(MenuManager __instance, string notificationText, string buttonText)
+        {
+            if (__instance.menuNotificationText != null)
+            {
+                string readText = __instance.menuNotificationText.text;
+                Debug.Log($"Menu Notification: {readText}");
+                Utilities.SpeakText(readText);
+            }
+        }
+    }
+
+    [HarmonyPatch(typeof(MenuManager))]
+    public static class MenuManagerHostSetLobbyPublicPatch
+    {
+        // Patch for HostSetLobbyPublic
+        [HarmonyPatch(nameof(MenuManager.HostSetLobbyPublic))]
+        [HarmonyPostfix]
+        public static void Postfix(bool setPublic)
+        {
+            if (setPublic)
+            {
+                Debug.Log("Set to Public");
+                Utilities.SpeakText("Set to Public");
+            }
+            else
+            {
+                Debug.Log("Set to Private");
+                Utilities.SpeakText("Set to Private");
+            }
+        }
+    }
+}
+
+
+
+
+
+
+MoonPatch.cs
+.\Patches\MoonPatch.cs
+
+﻿using HarmonyLib;
+
+namespace Green.LethalAccess.Patches
+{
+    [HarmonyPatch(typeof(StartOfRound))]
+    public class SwitchLevelPatch
+    {
+        private static string lastMoon;
+
+        [HarmonyPostfix]
+        [HarmonyPatch(nameof(StartOfRound.ChangeLevel))]
+        public static void AnnounceMoonChange(StartOfRound __instance, int levelID)
+        {
+            if (lastMoon != __instance.currentLevel.PlanetName)
+            {
+                lastMoon = __instance.currentLevel.PlanetName;
+                Utilities.SpeakText("Navigated to " + __instance.currentLevel.PlanetName);
+
+                // Weather alert logic
+                if (__instance.currentLevel.currentWeather != LevelWeatherType.None)
+                {
+                    string weatherAlert = __instance.currentLevel.PlanetName + " is currently experiencing " + __instance.currentLevel.currentWeather.ToString();
+                    Utilities.SpeakText(weatherAlert);
+                }
+            }
+        }
+
+        // Function to speak the current moon
+        public static void SpeakCurrentMoon(StartOfRound instance)
+        {
+            if (instance != null && instance.currentLevel != null)
+            {
+                Utilities.SpeakText("Current moon: " + instance.currentLevel.PlanetName);
+            }
+            else
+            {
+                Utilities.SpeakText("Current moon information is not available.");
+            }
+        }
+    }
+}
+
+
+
+
+
+
+PreInitScenePatch.cs
+.\Patches\PreInitScenePatch.cs
+
+﻿using HarmonyLib;
+using UnityEngine;
+
+namespace Green.LethalAccess.Patches
+{
+    [HarmonyPatch(typeof(PreInitSceneScript))]
+    public static class PreInitScenePatch
+    {
+        [HarmonyPatch("Start")]
+        [HarmonyPostfix]
+        public static void Postfix(PreInitSceneScript __instance)
+        {
+            Debug.Log("LethalAccess: Pressing Continue button in PreInitScene");
+            __instance.PressContinueButton();
+        }
+    }
+}
+
+
+
+
+
+
+ProfitQuotaPatch.cs
+.\Patches\ProfitQuotaPatch.cs
+
+﻿using UnityEngine;
+using UnityEngine.InputSystem;
+using HarmonyLib;
+
+namespace Green.LethalAccess.Patches
+{
+    public class ProfitQuotaPatch : MonoBehaviour
+    {
+        private const string SpeakProfitQuotaKeybindName = "SpeakProfitQuotaKey";
+        private const Key SpeakProfitQuotaDefaultKey = Key.K;
+
+        public void Initialize()
+        {
+            Debug.Log("ProfitQuotaPatch: Initializing input actions.");
+            LethalAccess.Instance.RegisterKeybind(SpeakProfitQuotaKeybindName, SpeakProfitQuotaDefaultKey, SpeakProfitQuota);
+            Debug.Log("ProfitQuotaPatch: Input actions are registered.");
+        }
+
+        private void SpeakProfitQuota()
+        {
+            TimeOfDay timeOfDayInstance = TimeOfDay.Instance;
+            if (timeOfDayInstance != null)
+            {
+                // Speak the current profit and quota
+                int currentProfit = timeOfDayInstance.quotaFulfilled;
+                int profitQuota = timeOfDayInstance.profitQuota;
+                Debug.Log($"[ProfitQuotaPatch] Current profit: ${currentProfit}, Profit Quota: ${profitQuota}");
+                Utilities.SpeakText($"Profit Quota: {currentProfit} of ${profitQuota}");
+
+                // Speak the number of days left
+                int daysLeft = timeOfDayInstance.daysUntilDeadline;
+                Utilities.SpeakText($"{daysLeft} days left, ");
+            }
+            else
+            {
+                Debug.LogError("[ProfitQuotaPatch] TimeOfDay instance is not available.");
+            }
+
+            // Speak additional stats
+            SpeakAdditionalStats();
+        }
+
+        private void SpeakAdditionalStats()
+        {
+            Terminal terminalInstance = Object.FindObjectOfType<Terminal>();
+            StartOfRound startOfRoundInstance = StartOfRound.Instance;
+
+            if (terminalInstance != null && startOfRoundInstance != null)
+            {
+                int groupCredits = terminalInstance.groupCredits;
+                float companyBuyingRate = startOfRoundInstance.companyBuyingRate;
+
+                // Convert the company buying rate to a percentage and round it to the nearest integer
+                int companyBuyingRatePercentage = Mathf.RoundToInt(companyBuyingRate * 100);
+
+                string additionalStats = $"Group Balance: ${groupCredits}, " +
+                    $"Company Buy Rate: {companyBuyingRatePercentage} percent.";
+
+                Utilities.SpeakText(additionalStats);
+            }
+            else
+            {
+                Debug.LogError("[ProfitQuotaPatch] Unable to access Terminal or StartOfRound instances.");
+            }
+        }
+    }
+
+    [HarmonyPatch(typeof(TimeOfDay), nameof(TimeOfDay.UpdateProfitQuotaCurrentTime))]
+    public static class TimeOfDayUpdateProfitQuotaCurrentTimePatch
+    {
+        static void Postfix(TimeOfDay __instance)
+        {
+            // Extract the number of days until the deadline
+            int daysLeft = __instance.daysUntilDeadline;
+
+            // Construct the message
+            string message = $"{daysLeft} days left.";
+
+            // Announce the message
+            Utilities.SpeakText(message);
+
+            // Optional: Log the message for debugging
+            Debug.Log(message);
+        }
+    }
+}
+
+
+
+
+
+
+SaveFileAnnouncementPatch.cs
+.\Patches\SaveFileAnnouncementPatch.cs
+
+﻿using HarmonyLib;
+
+namespace Green.LethalAccess
+{
+    [HarmonyPatch(typeof(SaveFileUISlot))]
+    public static class SaveFileUISlotPatch
+    {
+        [HarmonyPatch("SetFileToThis"), HarmonyPostfix]
+        public static void SetFileToThisPostfix(SaveFileUISlot __instance)
+        {
+            if (__instance.fileNum == -1) return; // Do not announce if file number is 0
+
+            // Extracting group balance and days survived from fileStatsText
+            string details = __instance.fileStatsText.text;
+            string message;
+
+            if (string.IsNullOrWhiteSpace(details))
+            {
+                // Construct the message for an empty file
+                message = $"Set to File {__instance.fileNum + 1}, empty file.";
+            }
+            else
+            {
+                string[] splitDetails = details.Split('\n');
+                string groupBalance = splitDetails.Length > 0 ? splitDetails[0] : "";
+                string daysSurvived = splitDetails.Length > 1 ? splitDetails[1] : "";
+
+                // Construct the message with details
+                message = $"Set to File {__instance.fileNum + 1}, Balance: {groupBalance}, {daysSurvived}";
+            }
+
+            // Announce the message
+            Utilities.SpeakText(message);
+        }
+    }
+}
+
+
+
+
+
+
+SettingsChangeAccess.cs
+.\Patches\SettingsChangeAccess.cs
+
+﻿using HarmonyLib;
+using UnityEngine;
+
+namespace Green.LethalAccess.Patches
+{
+    internal class SettingsUIAccessPatch
+    {
+        public static bool micEnabled; // Mic status
+        public static string CURRENT_INPUT_DEVICE; // Current input device
+        public static bool pushToTalkEnabled;
+
+        [HarmonyPatch(typeof(IngamePlayerSettings))]
+        public static class IngamePlayerSettingsPatch
+        {
+            public static void UpdateMicStatusAndDevice(bool enabled, string device)
+            {
+                micEnabled = enabled;
+                CURRENT_INPUT_DEVICE = device;
+            }
+
+            public static void UpdatePushToTalkStatus(bool enabled)
+            {
+                pushToTalkEnabled = enabled;
+            }
+
+            public static void FetchInitialSettings()
+            {
+                // Ensure IngamePlayerSettings.Instance is properly referenced
+                if (IngamePlayerSettings.Instance != null)
+                {
+                    micEnabled = IngamePlayerSettings.Instance.unsavedSettings.micEnabled;
+                    pushToTalkEnabled = IngamePlayerSettings.Instance.unsavedSettings.pushToTalk;
+                    CURRENT_INPUT_DEVICE = IngamePlayerSettings.Instance.unsavedSettings.micDevice;
+                }
+                else
+                {
+                    Debug.LogError("IngamePlayerSettings.Instance is null. Default settings could not be fetched.");
+                }
+            }
+
+            // Improved patch for saving settings
+            [HarmonyPatch(nameof(IngamePlayerSettings.SaveSettingsToPrefs))]
+            [HarmonyPostfix]
+            public static void PostfixSaveSettingsToPrefs(IngamePlayerSettings __instance)
+            {
+                string onlineModeStatus = __instance.settings.startInOnlineMode ? "Online" : "Offline";
+                string invertYAxisStatus = __instance.settings.invertYAxis ? "Inverted" : "Normal";
+                Utilities.SpeakText($"Settings saved.");
+            }
+
+            // Improved patch for discarding changes
+            [HarmonyPatch(nameof(IngamePlayerSettings.DiscardChangedSettings))]
+            [HarmonyPostfix]
+            public static void PostfixDiscardChangedSettings()
+            {
+                Utilities.SpeakText("All unsaved changes have been discarded.");
+            }
+
+            // Improved patch for changing master volume
+            [HarmonyPatch(nameof(IngamePlayerSettings.ChangeMasterVolume))]
+            [HarmonyPostfix]
+            public static void PostfixChangeMasterVolume(int setTo)
+            {
+                Utilities.SpeakText($"{setTo}% Master Volume.");
+            }
+
+            // Improved patch for changing look sensitivity
+            [HarmonyPatch(nameof(IngamePlayerSettings.ChangeLookSens))]
+            [HarmonyPostfix]
+            public static void PostfixChangeLookSens(int setTo)
+            {
+                Utilities.SpeakText($"{setTo} sensitivity.");
+            }
+
+            // Improved patch for microphone enabled setting
+            [HarmonyPatch(nameof(IngamePlayerSettings.SetMicrophoneEnabled))]
+            [HarmonyPostfix]
+            public static void PostfixSetMicrophoneEnabled(IngamePlayerSettings __instance)
+            {
+                string micStatus = __instance.unsavedSettings.micEnabled ? "enabled" : "disabled";
+                Utilities.SpeakText($"Microphone is now {micStatus}.");
+
+                // Update mic status in MenuManagerPatch
+                UpdateMicStatusAndDevice(__instance.unsavedSettings.micEnabled, __instance.unsavedSettings.micDevice);
+            }
+
+            [HarmonyPatch(nameof(IngamePlayerSettings.SetMicPushToTalk))]
+            [HarmonyPostfix]
+            public static void PostfixSetMicPushToTalk(IngamePlayerSettings __instance)
+            {
+                string pushToTalkStatus = __instance.unsavedSettings.pushToTalk ? "Push to talk" : "Voice activation";
+                Utilities.SpeakText($"Microphone mode set to {pushToTalkStatus}.");
+
+                // Update push to talk status in MenuManagerPatch
+                UpdatePushToTalkStatus(__instance.unsavedSettings.pushToTalk);
+            }
+
+
+            // Patch for SwitchMicrophoneSetting
+            [HarmonyPatch(nameof(IngamePlayerSettings.SwitchMicrophoneSetting))]
+            [HarmonyPostfix]
+            public static void PostfixSwitchMicrophoneSetting(IngamePlayerSettings __instance)
+            {
+                string newMic = __instance.unsavedSettings.micDevice;
+                Utilities.SpeakText($"Microphone switched to: {newMic}");
+
+                // Update mic status and current input device in MenuManagerPatch
+                UpdateMicStatusAndDevice(__instance.unsavedSettings.micEnabled, newMic);
+            }
+
+            // ... additional patches and classes as needed 
+
+            // New Harmony Patch for InitializeGame
+            [HarmonyPatch(typeof(InitializeGame))]
+            public static class InitializeGamePatch
+            {
+                [HarmonyPatch("Start")]
+                [HarmonyPostfix]
+                public static void PostfixStart()
+                {
+                    Utilities.SpeakText("Game Initialized.");
+                    FetchInitialSettings();
+                }
+            }
+        }
+
+        // Existing Patch for Terminal's LoadNewNode method
+        [HarmonyPatch(typeof(Terminal))]
+        public static class TerminalPatch
+        {
+            [HarmonyPatch(nameof(Terminal.LoadNewNode))]
+            [HarmonyPostfix]
+            public static void PostfixLoadNewNode(Terminal __instance)
+            {
+                if (!string.IsNullOrEmpty(__instance.currentText))
+                {
+                    Utilities.SpeakText(__instance.currentText.Trim());
+                }
+            }
+        }
+    }
+}
+
+
+
+
+
+
+ShipLandedLeftPatch.cs
+.\Patches\ShipLandedLeftPatch.cs
+
+﻿using HarmonyLib;
+using UnityEngine;
+
+namespace Green.LethalAccess.Patches
+{
+    [HarmonyPatch(typeof(StartOfRound), "Update")]
+    public static class ShipHasLandedPatch
+    {
+        private static bool previousShipHasLanded = false;
+
+        [HarmonyPostfix]
+        public static void Postfix(StartOfRound __instance)
+        {
+            // Check if the shipHasLanded field is accessible
+            if (__instance.shipHasLanded)
+            {
+                // Speak only when the value changes from false to true
+                if (!previousShipHasLanded)
+                {
+                    Utilities.SpeakText("The ship has landed.");
+                    previousShipHasLanded = true;
+                }
+            }
+            else
+            {
+                previousShipHasLanded = false;
+            }
+        }
+    }
+
+    [HarmonyPatch(typeof(StartOfRound), "ShipHasLeft")]
+    public static class ShipHasLeftPatch
+    {
+        [HarmonyPostfix]
+        public static void Postfix()
+        {
+            Utilities.SpeakText("The ship has left.");
+        }
+    }
+}
+
+
+
+
+
+
+TerminalTogglePatch.cs
+.\Patches\TerminalTogglePatch.cs
+
+﻿using GameNetcodeStuff;
+using HarmonyLib;
+
+namespace Green.LethalAccess.Patches
+{
+    [HarmonyPatch(typeof(PlayerControllerB))]
+    public static class TerminalTogglePatch
+    {
+        public static bool IsTerminalActive { get; private set; } = false;
+
+        [HarmonyPatch(typeof(Terminal))]
+        public static class TerminalOpenClosePatch
+        {
+            [HarmonyPatch(nameof(Terminal.BeginUsingTerminal))]
+            [HarmonyPostfix]
+            public static void PostfixBeginUsingTerminal()
+            {
+                Utilities.SpeakText("Terminal opened!");
+                IsTerminalActive = true;
+                LethalAccess.enableCustomKeybinds = !IsTerminalActive;
+            }
+
+            [HarmonyPatch(nameof(Terminal.QuitTerminal))]
+            [HarmonyPostfix]
+            public static void PostfixQuitTerminal()
+            {
+                Utilities.SpeakText("Terminal closed.");
+                IsTerminalActive = false;
+                LethalAccess.enableCustomKeybinds = !IsTerminalActive;
+            }
+        }
+    }
+}
+
+
+
+
+
+
+TimePatch.cs
+.\Patches\TimePatch.cs
+
+﻿using HarmonyLib;
+using UnityEngine;
+using UnityEngine.InputSystem;
+
+namespace Green.LethalAccess.Patches
+{
+    // Patch for HUDManager to track the visibility of the clock
+    [HarmonyPatch(typeof(HUDManager), nameof(HUDManager.SetClockVisible))]
+    public static class HUDManagerSetClockVisiblePatch
+    {
+        public static bool IsClockVisible { get; private set; }
+
+        static void Postfix(bool visible)
+        {
+            IsClockVisible = visible;
+        }
+    }
+
+    // Patch for TimeOfDay to speak time when 'T' key is pressed
+    [HarmonyPatch(typeof(TimeOfDay))]
+    public class TimeOfDayPatch : MonoBehaviour
+    {
+        private const string SpeakTimeKeybindName = "SpeakTimeKey";
+        private const Key SpeakTimeDefaultKey = Key.T;
+
+        public void Initialize()
+        {
+            Debug.Log("TimeOfDayPatch: Initializing input actions.");
+            LethalAccess.Instance.RegisterKeybind(SpeakTimeKeybindName, SpeakTimeDefaultKey, SpeakTimeAction);
+            Debug.Log("TimeOfDayPatch: Input actions are registered.");
+
+            var harmony = new Harmony("green.lethalaccess.timeofdaypatch");
+            harmony.PatchAll(typeof(TimeOfDayPatch));
+        }
+
+        private void SpeakTimeAction()
+        {
+            TimeOfDay timeOfDay = TimeOfDay.Instance;
+            if (timeOfDay != null)
+            {
+                if (HUDManagerSetClockVisiblePatch.IsClockVisible)
+                {
+                    SpeakCurrentTime(timeOfDay);
+                }
+                else
+                {
+                    Utilities.SpeakText("You must be outside to check the time.");
+                }
+            }
+        }
+
+        private static void SpeakCurrentTime(TimeOfDay timeOfDay)
+        {
+            int totalMinutes = (int)(timeOfDay.currentDayTime % timeOfDay.lengthOfHours);
+            int hour = timeOfDay.hour + 6; // Adjust to start at 6 AM instead of 1 AM
+            int minutes = totalMinutes % 60;
+            // Adjust for 24-hour cycle
+            if (hour >= 24) hour -= 24;
+            string amPm = hour >= 12 ? "PM" : "AM";
+            hour = hour % 12;
+            hour = hour == 0 ? 12 : hour; // Convert 0 to 12 for 12-hour clock
+
+            Utilities.SpeakText($"{hour}:{minutes:D2} {amPm}");
+        }
+    }
+}
+
+
+
+
+
+
+TooltipPatch.cs
+.\Patches\TooltipPatch.cs
+
+﻿using HarmonyLib;
+using System;
+using TMPro;
+
+namespace Green.LethalAccess.Patches
+{
+    [HarmonyPatch(typeof(HUDManager), nameof(HUDManager.DisplayTip))]
+    public static class HUDManager_DisplayTip_Patch
+    {
+        // Static field to store the time of the last speak operation
+        private static DateTime lastSpeakTime = DateTime.MinValue;
+
+        static void Postfix(string headerText, string bodyText, bool isWarning, bool useSave, string prefsKey)
+        {
+            // Check the time difference since the last speak operation
+            if ((DateTime.Now - lastSpeakTime).TotalSeconds < 0.05)
+            {
+                // If less than 0.05 seconds have passed, do not speak again yet
+                return;
+            }
+
+            // Combine the header and body text for speaking
+            string fullTipMessage = $"{headerText}. {bodyText}";
+
+            // Check if the fullTipMessage matches the specific message
+            if (fullTipMessage == "Welcome!. Right-click to scan objects in the ship for info.")
+            {
+                // Replace it with the customized message
+                Utilities.SpeakText("Welcome! Head over to your Terminal or land the ship to get started. Feel free to read your clipboard for more information.");
+            }
+            else
+            {
+                // For all other tips, speak the original combined message
+                Utilities.SpeakText(fullTipMessage);
+            }
+
+            // Update the time of the last speak operation
+            lastSpeakTime = DateTime.Now;
+        }
+    }
+
+    [HarmonyPatch(typeof(StartOfRound), nameof(StartOfRound.openingDoorsSequence))]
+    public static class StartOfRound_OpeningDoorsSequence_Patch
+    {
+        static void Postfix(StartOfRound __instance)
+        {
+            // Speak the planet information
+            if (HUDManager.Instance != null)
+            {
+                string planetInfoMessage = $"{HUDManager.Instance.planetInfoHeaderText.text}: {HUDManager.Instance.planetInfoSummaryText.text}, Risk Level: {HUDManager.Instance.planetRiskLevelText.text}";
+                Utilities.SpeakText(planetInfoMessage);
+            }
+        }
+    }
+}
+
+
+
+
+
+
+
+AssemblyInfo.cs
+.\Properties\AssemblyInfo.cs
+
+﻿using System.Reflection;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+
+// General Information about an assembly is controlled through the following
+// set of attributes. Change these attribute values to modify the information
+// associated with an assembly.
+[assembly: AssemblyTitle("LethalAccess Remake")]
+[assembly: AssemblyDescription("")]
+[assembly: AssemblyConfiguration("")]
+[assembly: AssemblyCompany("")]
+[assembly: AssemblyProduct("LethalAccess Remake")]
+[assembly: AssemblyCopyright("Copyright ©  2024")]
+[assembly: AssemblyTrademark("")]
+[assembly: AssemblyCulture("")]
+
+// Setting ComVisible to false makes the types in this assembly not visible
+// to COM components.  If you need to access a type in this assembly from
+// COM, set the ComVisible attribute to true on that type.
+[assembly: ComVisible(false)]
+
+// The following GUID is for the ID of the typelib if this project is exposed to COM
+[assembly: Guid("921084e6-f5ac-4a1f-9d36-75ba292096cd")]
+
+// Version information for an assembly consists of the following four values:
+//
+//      Major Version
+//      Minor Version
+//      Build Number
+//      Revision
+//
+// You can specify all the values or you can default the Build and Revision Numbers
+// by using the '*' as shown below:
+// [assembly: AssemblyVersion("1.0.*")]
+[assembly: AssemblyVersion("1.0.0.0")]
+[assembly: AssemblyFileVersion("1.0.0.0")]
+
+
+
+
+
+
+

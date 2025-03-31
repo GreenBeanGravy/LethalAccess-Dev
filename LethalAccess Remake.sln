@@ -1,0 +1,25 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.9.34728.123
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LethalAccess Remake", "LethalAccess Remake\LethalAccess Remake.csproj", "{921084E6-F5AC-4A1F-9D36-75BA292096CD}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{921084E6-F5AC-4A1F-9D36-75BA292096CD}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{921084E6-F5AC-4A1F-9D36-75BA292096CD}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{921084E6-F5AC-4A1F-9D36-75BA292096CD}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{921084E6-F5AC-4A1F-9D36-75BA292096CD}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {81658B2C-9AD4-42ED-9A0B-08770FA814B8}
+	EndGlobalSection
+EndGlobal
