@@ -290,22 +290,6 @@ namespace LethalAccess
                 currentPlanetName = "Company Building";
             }
 
-            if (Time.frameCount % 300 == 0 && tileTracker != null)
-            {
-                Tile currentTile = tileTracker.GetCurrentTile();
-                if (currentTile != null)
-                {
-                    string currentRoom = tileTracker.GetCurrentTileName();
-                    bool isMainPath = tileTracker.IsOnMainPath();
-                    bool isInFactory = tileTracker.IsPlayerInFactoryArea();
-                    Logger.LogInfo($"Player location: {currentRoom}, MainPath: {isMainPath}, InFactory: {isInFactory}");
-                }
-                else
-                {
-                    Logger.LogInfo("Player location: " + currentPlanetName + ", no tile information available");
-                }
-            }
-
             await Task.Run(delegate
             {
                 navMenu.UpdateCategoriesVisibility(isShipLanded, currentPlanetName);

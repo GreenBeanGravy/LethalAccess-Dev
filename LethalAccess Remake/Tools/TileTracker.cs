@@ -1343,11 +1343,27 @@ namespace LethalAccess
 
         private void UpdateAllMarkerVisibility()
         {
-            if (!markersInitialized)
+            if (!markersInitialized || !LethalAccess.Patches.IsInsideFactoryPatch.IsInFactory)
             {
+                // If not in factory, hide all markers
+                foreach (NavigationPoint point in navigationPoints)
+                {
+                    if (point.visualMarker != null)
+                    {
+                        point.visualMarker.SetActive(false);
+                        foreach (GameObject marker in point.additionalMarkers)
+                        {
+                            if (marker != null)
+                            {
+                                marker.SetActive(false);
+                            }
+                        }
+                    }
+                }
                 return;
             }
 
+            // Rest of the original method...
             Vector3 position;
             lock (playerPositionLock)
             {
@@ -1470,7 +1486,10 @@ namespace LethalAccess
                     }
                 }
 
-                if (isStartupComplete)
+                // Only perform tile and position checking if the player is inside a factory
+                bool isInFactory = LethalAccess.Patches.IsInsideFactoryPatch.IsInFactory;
+
+                if (isStartupComplete && isInFactory)
                 {
                     if (currentTile == null)
                     {
@@ -1482,7 +1501,8 @@ namespace LethalAccess
                     }
                 }
 
-                if (markersInitialized)
+                // Only update markers and check for discovered points when in factory
+                if (markersInitialized && isInFactory)
                 {
                     updateFrameCounter++;
                     if (updateFrameCounter >= VISUALIZATION_UPDATE_INTERVAL)
@@ -1490,13 +1510,11 @@ namespace LethalAccess
                         UpdateMarkersVisibility();
                         updateFrameCounter = 0;
                     }
-                }
 
-                if (markersInitialized)
-                {
                     CheckForDiscoveredPoints();
                 }
 
+                // Audio pings should still work even when not in factory
                 if (markersInitialized && currentMode != NavigationMode.Off && Time.time - lastAudioPingTime > audioPingInterval && !isPlayingSequentialAudio)
                 {
                     PlayAudioForNearbyPoints();
@@ -1539,6 +1557,12 @@ namespace LethalAccess
 
         public void OnPlayerEnteredTile(Tile tile)
         {
+            // First check if player is in factory before processing
+            if (!LethalAccess.Patches.IsInsideFactoryPatch.IsInFactory)
+            {
+                return;
+            }
+
             if (tile == currentTile)
             {
                 return;
@@ -1576,6 +1600,7 @@ namespace LethalAccess
             CheckAndAnnounceJunction(tile);
         }
 
+
         private void CheckAndAnnounceJunction(Tile tile)
         {
             if (currentMode == NavigationMode.Off || junctionAnnounceCooldown > 0f || tile == lastAnnouncedJunctionTile)
@@ -1604,6 +1629,12 @@ namespace LethalAccess
 
         public void OnPlayerExitedTile(Tile tile)
         {
+            // Only process if player is in factory
+            if (!LethalAccess.Patches.IsInsideFactoryPatch.IsInFactory)
+            {
+                return;
+            }
+
             LogMessage("Player exited tile: " + tile.name);
 
             if (tile == lastAnnouncedJunctionTile)
@@ -1626,6 +1657,12 @@ namespace LethalAccess
         {
             try
             {
+                // Skip the entire method if not in factory
+                if (!LethalAccess.Patches.IsInsideFactoryPatch.IsInFactory)
+                {
+                    return;
+                }
+
                 if (dungeons == null || dungeons.Length == 0 || playerTransform == null)
                 {
                     return;
@@ -1917,6 +1954,31 @@ namespace LethalAccess
             }
 
             UpdateAllMarkerVisibility();
+        }
+
+        public void ResetWhenLeavingFactory()
+        {
+            currentTile = null;
+            lastAnnouncedJunctionTile = null;
+
+            // Hide all markers
+            if (markersInitialized)
+            {
+                foreach (NavigationPoint point in navigationPoints)
+                {
+                    if (point.visualMarker != null)
+                    {
+                        point.visualMarker.SetActive(false);
+                        foreach (GameObject marker in point.additionalMarkers)
+                        {
+                            if (marker != null)
+                            {
+                                marker.SetActive(false);
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         private Mesh CreateSphereMesh(float radius)
