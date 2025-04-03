@@ -314,16 +314,111 @@ namespace LethalAccess
                 CheckQuickMenuActivation();
             });
 
+            // Enhanced turning system with arrow keys and snap turning
             if (GameNetworkManager.Instance?.localPlayerController != null && PlayerTransform != null && CameraTransform != null)
             {
+                // Regular turning with bracket keys (existing functionality)
                 if (Keyboard.current[Key.LeftBracket].isPressed)
                 {
-                    PlayerTransform.Rotate(0f, -turnSpeed * Time.deltaTime, 0f);
+                    SafeRotate(-turnSpeed * Time.deltaTime);
                 }
                 if (Keyboard.current[Key.RightBracket].isPressed)
                 {
-                    PlayerTransform.Rotate(0f, turnSpeed * Time.deltaTime, 0f);
+                    SafeRotate(turnSpeed * Time.deltaTime);
                 }
+
+                // Regular turning with arrow keys
+                if (Keyboard.current[Key.LeftArrow].isPressed && !Keyboard.current[Key.LeftShift].isPressed && !Keyboard.current[Key.RightShift].isPressed)
+                {
+                    SafeRotate(-turnSpeed * Time.deltaTime);
+                }
+                if (Keyboard.current[Key.RightArrow].isPressed && !Keyboard.current[Key.LeftShift].isPressed && !Keyboard.current[Key.RightShift].isPressed)
+                {
+                    SafeRotate(turnSpeed * Time.deltaTime);
+                }
+
+                // Snap turning with shift+arrow keys
+                if ((Keyboard.current[Key.LeftShift].isPressed || Keyboard.current[Key.RightShift].isPressed))
+                {
+                    if (Keyboard.current[Key.LeftArrow].wasPressedThisFrame)
+                    {
+                        SnapTurn(-45f);
+                    }
+                    if (Keyboard.current[Key.RightArrow].wasPressedThisFrame)
+                    {
+                        SnapTurn(45f);
+                    }
+                }
+            }
+        }
+
+        // Safe rotation method to prevent "Look rotation viewing vector is zero" errors
+        private void SafeRotate(float yawDegrees)
+        {
+            if (PlayerTransform == null) return;
+
+            try
+            {
+                PlayerTransform.Rotate(0f, yawDegrees, 0f);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"Error in SafeRotate: {ex.Message}");
+            }
+        }
+
+        // New method for snap turning in 45-degree increments
+        private void SnapTurn(float degrees)
+        {
+            if (PlayerTransform == null) return;
+
+            try
+            {
+                // Get current rotation angle
+                Vector3 forward = PlayerTransform.forward;
+
+                // Make sure the forward vector is not zero
+                if (forward.magnitude < 0.001f)
+                {
+                    Debug.LogWarning("Forward vector is too small, using default forward");
+                    forward = Vector3.forward; // Use default forward if the vector is too small
+                }
+
+                float currentAngle = Mathf.Atan2(forward.x, forward.z) * Mathf.Rad2Deg;
+                if (currentAngle < 0f) currentAngle += 360f;
+
+                // Calculate new angle with the turn
+                float newAngle = currentAngle + degrees;
+
+                // Snap to the nearest 45-degree cardinal direction
+                newAngle = Mathf.Round(newAngle / 45f) * 45f;
+                if (newAngle >= 360f) newAngle -= 360f;
+                if (newAngle < 0f) newAngle += 360f;
+
+                // Apply the rotation safely
+                Vector3 newForward = new Vector3(
+                    Mathf.Sin(newAngle * Mathf.Deg2Rad),
+                    0f,
+                    Mathf.Cos(newAngle * Mathf.Deg2Rad)
+                );
+
+                if (newForward.magnitude > 0.001f)
+                {
+                    // Use Quaternion.LookRotation which is safer when vectors are normalized
+                    PlayerTransform.rotation = Quaternion.LookRotation(newForward, Vector3.up);
+                }
+                else
+                {
+                    Debug.LogWarning("Calculated forward vector is too small, skipping rotation");
+                }
+
+                // Announce just the cardinal direction (not the angle)
+                string compassDirection = GetCompassDirection(newAngle);
+                Utilities.SpeakText(compassDirection);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"Error in SnapTurn: {ex.Message}");
             }
         }
 
