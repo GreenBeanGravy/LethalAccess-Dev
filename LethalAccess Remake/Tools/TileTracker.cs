@@ -1343,27 +1343,11 @@ namespace LethalAccess
 
         private void UpdateAllMarkerVisibility()
         {
-            if (!markersInitialized || !LethalAccess.Patches.IsInsideFactoryPatch.IsInFactory)
+            if (!markersInitialized)
             {
-                // If not in factory, hide all markers
-                foreach (NavigationPoint point in navigationPoints)
-                {
-                    if (point.visualMarker != null)
-                    {
-                        point.visualMarker.SetActive(false);
-                        foreach (GameObject marker in point.additionalMarkers)
-                        {
-                            if (marker != null)
-                            {
-                                marker.SetActive(false);
-                            }
-                        }
-                    }
-                }
                 return;
             }
 
-            // Rest of the original method...
             Vector3 position;
             lock (playerPositionLock)
             {
