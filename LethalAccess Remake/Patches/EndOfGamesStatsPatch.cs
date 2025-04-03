@@ -1,12 +1,12 @@
 ﻿using GameNetcodeStuff;
 using HarmonyLib;
-using Green.LethalAccessPlugin;
+using LethalAccess;
 using System.Text;
 using UnityEngine;
 using TMPro;
 using UnityEngine.UI;
 
-namespace Green.LethalAccessPlugin.Patches
+namespace LethalAccess.Patches
 {
     [HarmonyPatch(typeof(HUDManager), "FillEndGameStats")]
     public static class HUDManagerFillEndGameStatsPatch

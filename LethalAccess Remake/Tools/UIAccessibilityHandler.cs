@@ -6,7 +6,7 @@ using UnityEngine.UI;
 using UnityEngine.EventSystems;
 using TMPro;
 
-namespace Green.LethalAccessPlugin
+namespace LethalAccess
 {
     /// <summary>
     /// Handles UI accessibility features for LethalAccess
@@ -42,13 +42,13 @@ namespace Green.LethalAccessPlugin
             LogInfo("UIAccessibilityManager initialized");
 
             // Migrate any existing UI speech overrides from the static dictionary
-            if (LethalAccess.LethalAccessPlugin.overriddenTexts != null && LethalAccess.LethalAccessPlugin.overriddenTexts.Count > 0)
+            if (LACore.overriddenTexts != null && LACore.overriddenTexts.Count > 0)
             {
-                foreach (var kvp in LethalAccess.LethalAccessPlugin.overriddenTexts)
+                foreach (var kvp in LACore.overriddenTexts)
                 {
                     customTextProviders[kvp.Key] = kvp.Value;
                 }
-                LogInfo($"Migrated {LethalAccess.LethalAccessPlugin.overriddenTexts.Count} existing UI speech overrides");
+                LogInfo($"Migrated {LACore.overriddenTexts.Count} existing UI speech overrides");
             }
         }
 

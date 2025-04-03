@@ -1,6 +1,6 @@
 using System;
 using System.Collections.Generic;
-using Green.LethalAccessPlugin;
+using LethalAccess;
 using LethalAccess;
 using UnityEngine;
 
@@ -48,7 +48,7 @@ public class ElevatorManager
         }
 
         // Check if player is in range of the elevator
-        Transform playerTransform = LethalAccessPlugin.PlayerTransform;
+        Transform playerTransform = LACore.PlayerTransform;
         if (playerTransform == null ||
             Vector3.Distance(playerTransform.position, elevatorController.elevatorInsidePoint.position) > scanRadius)
         {

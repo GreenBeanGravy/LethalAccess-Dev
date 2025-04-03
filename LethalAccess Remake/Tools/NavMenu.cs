@@ -4,11 +4,11 @@ using System.Linq;
 using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.InputSystem;
-using Green.LethalAccessPlugin;
+using LethalAccess;
 using DunGen;
 using System.Threading;
 
-namespace Green.LethalAccessPlugin
+namespace LethalAccess
 {
     /// <summary>
     /// NavMenu handles in-game navigation menus for locations, items, and other game objects.
@@ -80,11 +80,11 @@ namespace Green.LethalAccessPlugin
                 Debug.Log("NavMenu: Initializing input actions.");
 
                 // Register keybinds
-                LethalAccess.LethalAccessPlugin.Instance.RegisterKeybind("MoveToNextItem", UnityEngine.InputSystem.Key.RightBracket, MoveToNextItem);
-                LethalAccess.LethalAccessPlugin.Instance.RegisterKeybind("MoveToPreviousItem", UnityEngine.InputSystem.Key.LeftBracket, MoveToPreviousItem);
-                LethalAccess.LethalAccessPlugin.Instance.RegisterKeybind("MoveToNextCategory", UnityEngine.InputSystem.Key.Equals, MoveToNextCategory);
-                LethalAccess.LethalAccessPlugin.Instance.RegisterKeybind("MoveToPreviousCategory", UnityEngine.InputSystem.Key.Minus, MoveToPreviousCategory);
-                LethalAccess.LethalAccessPlugin.Instance.RegisterKeybind("RefreshCurrentCategory", UnityEngine.InputSystem.Key.Semicolon, RefreshCurrentCategory);
+                LACore.Instance.RegisterKeybind("MoveToNextItem", UnityEngine.InputSystem.Key.RightBracket, MoveToNextItem);
+                LACore.Instance.RegisterKeybind("MoveToPreviousItem", UnityEngine.InputSystem.Key.LeftBracket, MoveToPreviousItem);
+                LACore.Instance.RegisterKeybind("MoveToNextCategory", UnityEngine.InputSystem.Key.Equals, MoveToNextCategory);
+                LACore.Instance.RegisterKeybind("MoveToPreviousCategory", UnityEngine.InputSystem.Key.Minus, MoveToPreviousCategory);
+                LACore.Instance.RegisterKeybind("RefreshCurrentCategory", UnityEngine.InputSystem.Key.Semicolon, RefreshCurrentCategory);
 
                 // Initialize base categories
                 menuItems[ItemsCategoryName] = new List<string>();
@@ -268,10 +268,10 @@ namespace Green.LethalAccessPlugin
                 string displayName = GetDisplayNameForObject(gameObject, uniqueKey);
                 float distance = 0f;
 
-                if (gameObject != null && LethalAccess.LethalAccessPlugin.PlayerTransform != null)
+                if (gameObject != null && LACore.PlayerTransform != null)
                 {
                     distance = PathValidationExtension.GetPathDistance(
-                        LethalAccess.LethalAccessPlugin.PlayerTransform.position,
+                        LACore.PlayerTransform.position,
                         gameObject.transform.position
                     );
                 }
@@ -291,7 +291,7 @@ namespace Green.LethalAccessPlugin
                 if (gameObject != null)
                 {
                     Utilities.SpeakText($"{category}, {displayName}{distanceText}{indexText}");
-                    LethalAccess.LethalAccessPlugin.currentLookTarget = gameObject;
+                    LACore.currentLookTarget = gameObject;
                 }
                 else
                 {
@@ -610,7 +610,7 @@ namespace Green.LethalAccessPlugin
             {
                 if (target != null)
                 {
-                    LethalAccess.LethalAccessPlugin.currentLookTarget = target;
+                    LACore.currentLookTarget = target;
                 }
             }
             catch (Exception ex)
@@ -808,10 +808,10 @@ namespace Green.LethalAccessPlugin
 
                 try
                 {
-                    if (LethalAccess.LethalAccessPlugin.PlayerTransform == null)
+                    if (LACore.PlayerTransform == null)
                         return (items, objectMap);
 
-                    Vector3 playerPos = LethalAccess.LethalAccessPlugin.PlayerTransform.position;
+                    Vector3 playerPos = LACore.PlayerTransform.position;
 
                     // Perform physics operations in batches to prevent overloading
                     Collider[] colliders = new Collider[0];
@@ -961,10 +961,10 @@ namespace Green.LethalAccessPlugin
 
                 try
                 {
-                    if (LethalAccess.LethalAccessPlugin.PlayerTransform == null)
+                    if (LACore.PlayerTransform == null)
                         return (objects, objectMap);
 
-                    Vector3 playerPos = LethalAccess.LethalAccessPlugin.PlayerTransform.position;
+                    Vector3 playerPos = LACore.PlayerTransform.position;
 
                     // OPTIMIZATION: Reduce scan radius for unlabeled objects to improve performance
                     float optimizedScanRadius = ScanRadius * 0.8f; // 80% of original radius
@@ -1268,7 +1268,7 @@ namespace Green.LethalAccessPlugin
                             GameObject gameObject = FindGameObjectByUniqueKey(uniqueKey);
                             if (gameObject != null)
                             {
-                                LethalAccess.LethalAccessPlugin.currentLookTarget = gameObject;
+                                LACore.currentLookTarget = gameObject;
                             }
                         });
                     }

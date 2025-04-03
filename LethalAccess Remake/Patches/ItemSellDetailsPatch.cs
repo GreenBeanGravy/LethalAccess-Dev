@@ -1,6 +1,6 @@
 ﻿using HarmonyLib;
 
-namespace Green.LethalAccessPlugin.Patches
+namespace LethalAccess.Patches
 {
     [HarmonyPatch(typeof(DepositItemsDesk))]
     public class DepositItemsDeskPatch

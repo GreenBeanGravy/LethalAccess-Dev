@@ -2,10 +2,8 @@
 using GameNetcodeStuff;
 using HarmonyLib;
 using UnityEngine;
-using System.Collections;
-using LethalAccess;
 
-namespace Green.LethalAccessPlugin.Patches
+namespace LethalAccess.Patches
 {
     [HarmonyPatch(typeof(PlayerControllerB))]
     public static class ItemAction
@@ -43,7 +41,7 @@ namespace Green.LethalAccessPlugin.Patches
 
                 audioSource.Play();
             }
-            LethalAccess.LethalAccessPlugin.currentLookTarget = null;
+            LACore.currentLookTarget = null;
         }
 
         private static AudioClip GenerateItemPickupTone()
@@ -137,7 +135,7 @@ namespace Green.LethalAccessPlugin.Patches
                 int scrapValue = item.scrapValue;
 
                 // Remove the item from the NavMenu
-                LethalAccess.LethalAccessPlugin.Instance.navMenu.RemoveItem(item.gameObject.name, "Items");
+                LACore.Instance.navMenu.RemoveItem(item.gameObject.name, "Items");
 
                 string actionType = "held";
                 if (item.isPocketed)
@@ -162,12 +160,12 @@ namespace Green.LethalAccessPlugin.Patches
                 OnItemHeld?.Invoke();
 
                 // Refresh the menu if the held/pocketed/deactivated item was the currently selected item
-                if (LethalAccess.LethalAccessPlugin.Instance.navMenu.currentIndices.categoryIndex == LethalAccess.LethalAccessPlugin.Instance.navMenu.categories.IndexOf("Items") &&
-                    LethalAccess.LethalAccessPlugin.Instance.navMenu.menuItems["Items"].Count > 0 &&
-                    LethalAccess.LethalAccessPlugin.Instance.navMenu.menuItems["Items"][LethalAccess.LethalAccessPlugin.Instance.navMenu.currentIndices.itemIndex] == item.gameObject.name)
+                if (LACore.Instance.navMenu.currentIndices.categoryIndex == LACore.Instance.navMenu.categories.IndexOf("Items") &&
+                    LACore.Instance.navMenu.menuItems["Items"].Count > 0 &&
+                    LACore.Instance.navMenu.menuItems["Items"][LACore.Instance.navMenu.currentIndices.itemIndex] == item.gameObject.name)
                 {
                     Utilities.SpeakText($"{itemName} removed from item list as it is now {actionType}.");
-                    LethalAccess.LethalAccessPlugin.Instance.navMenu.RefreshMenu();
+                    LACore.Instance.navMenu.RefreshMenu();
                 }
             }
         }

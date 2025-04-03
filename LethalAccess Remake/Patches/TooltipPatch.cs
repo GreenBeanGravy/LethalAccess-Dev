@@ -3,7 +3,7 @@ using System;
 using TMPro;
 using UnityEngine;
 
-namespace Green.LethalAccessPlugin.Patches
+namespace LethalAccess.Patches
 {
     [HarmonyPatch(typeof(HUDManager), nameof(HUDManager.DisplayTip))]
     public static class HUDManager_DisplayTip_Patch

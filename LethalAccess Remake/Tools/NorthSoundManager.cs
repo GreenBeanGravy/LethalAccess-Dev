@@ -2,7 +2,7 @@
 using System.Collections;
 using BepInEx.Configuration;
 
-namespace Green.LethalAccessPlugin
+namespace LethalAccess
 {
     public class NorthSoundManager : MonoBehaviour
     {
@@ -29,7 +29,7 @@ namespace Green.LethalAccessPlugin
             audioSource.maxDistance = 1000f;
 
             // Initialize the configuration entry in the "Values" category
-            configPlayInterval = LethalAccess.LethalAccessPlugin.Instance.Config.Bind("Values", "NorthSoundPlayInterval", 1.5f, "The delay in seconds between North sound plays");
+            configPlayInterval = LACore.Instance.Config.Bind("Values", "NorthSoundPlayInterval", 1.5f, "The delay in seconds between North sound plays");
 
             // Set the playInterval to the configured value
             playInterval = configPlayInterval.Value;
@@ -40,8 +40,8 @@ namespace Green.LethalAccessPlugin
             if (isEnabled)
             {
                 Vector3 northDirection = Vector3.forward;
-                transform.position = LethalAccess.LethalAccessPlugin.PlayerTransform.position + northDirection * 10f;
-                transform.LookAt(LethalAccess.LethalAccessPlugin.PlayerTransform);
+                transform.position = LACore.PlayerTransform.position + northDirection * 10f;
+                transform.LookAt(LACore.PlayerTransform);
             }
         }
 
@@ -91,8 +91,8 @@ namespace Green.LethalAccessPlugin
 
         private bool IsSoundBehindPlayer()
         {
-            Vector3 playerForward = LethalAccess.LethalAccessPlugin.PlayerTransform.forward;
-            Vector3 toSound = transform.position - LethalAccess.LethalAccessPlugin.PlayerTransform.position;
+            Vector3 playerForward = LACore.PlayerTransform.forward;
+            Vector3 toSound = transform.position - LACore.PlayerTransform.position;
             float dotProduct = Vector3.Dot(playerForward, toSound.normalized);
             return dotProduct < 0; // If dot product is negative, sound is behind the player
         }

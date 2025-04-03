@@ -1,7 +1,7 @@
 ﻿using HarmonyLib;
 using UnityEngine;
 
-namespace Green.LethalAccessPlugin.Patches
+namespace LethalAccess.Patches
 {
     internal class SettingsUIAccessPatch
     {

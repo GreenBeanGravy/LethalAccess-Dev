@@ -2,7 +2,7 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
 
-namespace Green.LethalAccessPlugin.Patches
+namespace LethalAccess.Patches
 {
     // Patch for HUDManager to track the visibility of the clock
     [HarmonyPatch(typeof(HUDManager), nameof(HUDManager.SetClockVisible))]
@@ -26,7 +26,7 @@ namespace Green.LethalAccessPlugin.Patches
         public void Initialize()
         {
             Debug.Log("TimeOfDayPatch: Initializing input actions.");
-            LethalAccess.LethalAccessPlugin.Instance.RegisterKeybind(SpeakTimeKeybindName, SpeakTimeDefaultKey, SpeakTimeAction);
+            LACore.Instance.RegisterKeybind(SpeakTimeKeybindName, SpeakTimeDefaultKey, SpeakTimeAction);
             Debug.Log("TimeOfDayPatch: Input actions are registered.");
 
             var harmony = new Harmony("green.lethalaccess.timeofdaypatch");

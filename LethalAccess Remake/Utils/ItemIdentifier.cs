@@ -2,7 +2,7 @@
 using UnityEngine;
 using System;
 
-namespace Green.LethalAccessPlugin
+namespace LethalAccess
 {
     public static class ItemIdentifier
     {

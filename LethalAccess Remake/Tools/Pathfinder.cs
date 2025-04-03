@@ -11,7 +11,7 @@ using UnityEngine.Networking;
 using System;
 using LethalAccess;
 
-namespace Green.LethalAccessPlugin
+namespace LethalAccess
 {
     /// <summary>
     /// Improved Pathfinder component that provides navigation capabilities for the player
@@ -1335,7 +1335,7 @@ namespace Green.LethalAccessPlugin
             }
 
             // Always announce when starting pathfinding
-            string displayName = LethalAccess.LethalAccessPlugin.Instance?.navMenu?.GetDisplayNameForObject(currentTargetObject) ?? currentTargetObject.name;
+            string displayName = LACore.Instance?.navMenu?.GetDisplayNameForObject(currentTargetObject) ?? currentTargetObject.name;
             Utilities.SpeakText($"Starting pathfinding to {displayName}");
         }
 
@@ -1870,7 +1870,7 @@ namespace Green.LethalAccessPlugin
             // Announce reaching the destination
             if (currentTargetObject != null)
             {
-                string displayName = LethalAccess.LethalAccessPlugin.Instance?.navMenu?.GetDisplayNameForObject(currentTargetObject) ?? "destination";
+                string displayName = LACore.Instance?.navMenu?.GetDisplayNameForObject(currentTargetObject) ?? "destination";
                 Utilities.SpeakText($"Reached {displayName}");
 
                 // Do not clear currentTargetObject so we can look at it after pathfinding
@@ -2319,7 +2319,7 @@ namespace Green.LethalAccessPlugin
                 // Announce reaching the destination
                 if (currentTargetObject != null)
                 {
-                    string displayName = LethalAccess.LethalAccessPlugin.Instance?.navMenu?.GetDisplayNameForObject(currentTargetObject) ?? "destination";
+                    string displayName = LACore.Instance?.navMenu?.GetDisplayNameForObject(currentTargetObject) ?? "destination";
                     Utilities.SpeakText($"Reached {displayName}");
 
                     // Do not clear currentTargetObject so we can look at it after pathfinding

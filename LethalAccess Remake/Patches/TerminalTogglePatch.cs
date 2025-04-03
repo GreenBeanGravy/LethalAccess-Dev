@@ -1,7 +1,7 @@
 ﻿using GameNetcodeStuff;
 using HarmonyLib;
 
-namespace Green.LethalAccessPlugin.Patches
+namespace LethalAccess.Patches
 {
     [HarmonyPatch(typeof(PlayerControllerB))]
     public static class TerminalTogglePatch
@@ -17,7 +17,7 @@ namespace Green.LethalAccessPlugin.Patches
             {
                 Utilities.SpeakText("Terminal opened!");
                 IsTerminalActive = true;
-                LethalAccess.LethalAccessPlugin.enableCustomKeybinds = !IsTerminalActive;
+                LACore.enableCustomKeybinds = !IsTerminalActive;
             }
 
             [HarmonyPatch(nameof(Terminal.QuitTerminal))]
@@ -26,7 +26,7 @@ namespace Green.LethalAccessPlugin.Patches
             {
                 Utilities.SpeakText("Terminal closed.");
                 IsTerminalActive = false;
-                LethalAccess.LethalAccessPlugin.enableCustomKeybinds = !IsTerminalActive;
+                LACore.enableCustomKeybinds = !IsTerminalActive;
             }
         }
     }

@@ -2,7 +2,7 @@
 using UnityEngine.InputSystem;
 using HarmonyLib;
 
-namespace Green.LethalAccessPlugin.Patches
+namespace LethalAccess.Patches
 {
     public class ProfitQuotaPatch : MonoBehaviour
     {
@@ -12,7 +12,7 @@ namespace Green.LethalAccessPlugin.Patches
         public void Initialize()
         {
             Debug.Log("ProfitQuotaPatch: Initializing input actions.");
-            LethalAccess.LethalAccessPlugin.Instance.RegisterKeybind(SpeakProfitQuotaKeybindName, SpeakProfitQuotaDefaultKey, SpeakProfitQuota);
+            LACore.Instance.RegisterKeybind(SpeakProfitQuotaKeybindName, SpeakProfitQuotaDefaultKey, SpeakProfitQuota);
             Debug.Log("ProfitQuotaPatch: Input actions are registered.");
         }
 

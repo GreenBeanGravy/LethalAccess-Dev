@@ -2,7 +2,7 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
 
-namespace Green.LethalAccessPlugin.Patches
+namespace LethalAccess.Patches
 {
     public class PlayerHealthPatch : MonoBehaviour
     {
@@ -12,7 +12,7 @@ namespace Green.LethalAccessPlugin.Patches
         public void Initialize()
         {
             Debug.Log("PlayerHealthPatch: Initializing input actions.");
-            LethalAccess.LethalAccessPlugin.Instance.RegisterKeybind(SpeakHealthKeybindName, SpeakHealthDefaultKey, SpeakPlayerHealth);
+            LACore.Instance.RegisterKeybind(SpeakHealthKeybindName, SpeakHealthDefaultKey, SpeakPlayerHealth);
             Debug.Log("PlayerHealthPatch: Input actions are registered.");
 
             var harmony = new Harmony("green.lethalaccess.playerhealthaccess");

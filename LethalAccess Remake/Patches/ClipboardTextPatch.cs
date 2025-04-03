@@ -2,7 +2,7 @@
 using System.Collections;
 using UnityEngine;
 
-namespace Green.LethalAccessPlugin.Patches
+namespace LethalAccess.Patches
 {
     [HarmonyPatch(typeof(ClipboardItem))]
     public class ClipboardItemPatches
@@ -17,7 +17,7 @@ namespace Green.LethalAccessPlugin.Patches
         [HarmonyPatch(nameof(ClipboardItem.EquipItem)), HarmonyPostfix]
         public static void EquipItemPostfix(ClipboardItem __instance)
         {
-            LethalAccess.LethalAccessPlugin.Instance.StartCoroutine(DelayedSpeakPage(__instance.currentPage));
+            LACore.Instance.StartCoroutine(DelayedSpeakPage(__instance.currentPage));
         }
 
         private static IEnumerator DelayedSpeakPage(int currentPage)

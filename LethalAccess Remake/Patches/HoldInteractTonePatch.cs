@@ -1,8 +1,8 @@
 ﻿using HarmonyLib;
-using Green.LethalAccessPlugin;
+using LethalAccess;
 using UnityEngine;
 
-namespace Green.LethalAccessPlugin.Patches
+namespace LethalAccess.Patches
 {
     public static class LethalAccess_InteractionPatches
     {
@@ -54,16 +54,16 @@ namespace Green.LethalAccessPlugin.Patches
         {
             if (!isToneInitialized || continuousToneSource == null || completionToneSource == null)
             {
-                if (LethalAccess.LethalAccessPlugin.PlayerTransform != null)
+                if (LACore.PlayerTransform != null)
                 {
                     // Initialize continuous tone
-                    continuousToneSource = LethalAccess.LethalAccessPlugin.PlayerTransform.gameObject.AddComponent<AudioSource>();
+                    continuousToneSource = LACore.PlayerTransform.gameObject.AddComponent<AudioSource>();
                     continuousToneSource.loop = true;
                     continuousToneSource.clip = GenerateContinuousToneClip(440, 1);
                     continuousToneSource.volume = 0.3f;
 
                     // Initialize completion tone
-                    completionToneSource = LethalAccess.LethalAccessPlugin.PlayerTransform.gameObject.AddComponent<AudioSource>();
+                    completionToneSource = LACore.PlayerTransform.gameObject.AddComponent<AudioSource>();
                     completionToneSource.loop = false;
                     completionToneSource.clip = GenerateCompletionToneClip();
                     completionToneSource.volume = 0.7f;

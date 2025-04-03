@@ -3,7 +3,7 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 using TMPro;
 
-namespace Green.LethalAccessPlugin.Patches
+namespace LethalAccess.Patches
 {
     public class ControlTipAccessPatch : MonoBehaviour
     {
@@ -13,7 +13,7 @@ namespace Green.LethalAccessPlugin.Patches
         public void Initialize()
         {
             Debug.Log("ControlTipPatch: Initializing input actions.");
-            LethalAccess.LethalAccessPlugin.Instance.RegisterKeybind(SpeakControlTipKeybindName, SpeakControlTipDefaultKey, SpeakControlTip);
+            LACore.Instance.RegisterKeybind(SpeakControlTipKeybindName, SpeakControlTipDefaultKey, SpeakControlTip);
             Debug.Log("ControlTipPatch: Input actions are registered.");
         }
 

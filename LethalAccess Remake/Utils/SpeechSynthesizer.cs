@@ -2,7 +2,7 @@
 using System;
 using GreenBean.LethalSpeechOutput;
 
-namespace Green.LethalAccessPlugin
+namespace LethalAccess
 {
     public static class SpeechSynthesizer
     {

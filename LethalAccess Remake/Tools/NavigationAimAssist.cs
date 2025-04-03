@@ -6,7 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
 
-namespace Green.LethalAccessPlugin
+namespace LethalAccess
 {
     /// <summary>
     /// Provides aim assist functionality for navigation nodes in LethalAccess
@@ -603,8 +603,8 @@ namespace Green.LethalAccessPlugin
         /// </summary>
         private void UpdateReferences()
         {
-            playerTransform = LethalAccess.LethalAccessPlugin.PlayerTransform;
-            cameraTransform = LethalAccess.LethalAccessPlugin.CameraTransform;
+            playerTransform = LACore.PlayerTransform;
+            cameraTransform = LACore.CameraTransform;
 
             if (playerTransform != null)
             {

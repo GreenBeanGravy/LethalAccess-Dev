@@ -3,7 +3,7 @@ using UnityEngine;
 using GameNetcodeStuff;
 using TMPro;
 
-namespace Green.LethalAccessPlugin.Patches
+namespace LethalAccess.Patches
 {
     [HarmonyPatch(typeof(PlayerControllerB))]
     public class HoverTextPatch

@@ -10,7 +10,7 @@ using BepInEx.Logging;
 using DunGen;
 using DunGen.Tags;
 using GameNetcodeStuff;
-using Green.LethalAccessPlugin;
+using LethalAccess;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using Key = UnityEngine.InputSystem.Key;
@@ -177,9 +177,9 @@ namespace LethalAccess
                 markerMaterial = new Material(Shader.Find("Sprites/Default"));
                 markerMaterial.SetFloat("_Mode", 3f);
 
-                LethalAccessPlugin.Instance.RegisterKeybind("CycleNavigationMode", Key.M, CycleNavigationMode);
-                LethalAccessPlugin.Instance.RegisterKeybind("ToggleVisuals", Key.Backspace, ToggleVisuals);
-                LethalAccessPlugin.Instance.RegisterKeybind("AnnounceNearbyNavPoints", Key.U, AnnounceNearbyNavigationPoints);
+                LACore.Instance.RegisterKeybind("CycleNavigationMode", Key.M, CycleNavigationMode);
+                LACore.Instance.RegisterKeybind("ToggleVisuals", Key.Backspace, ToggleVisuals);
+                LACore.Instance.RegisterKeybind("AnnounceNearbyNavPoints", Key.U, AnnounceNearbyNavigationPoints);
 
                 InitializeObjectPool();
 

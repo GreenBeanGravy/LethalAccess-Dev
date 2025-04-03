@@ -1,6 +1,6 @@
 ﻿using HarmonyLib;
 
-namespace Green.LethalAccessPlugin
+namespace LethalAccess
 {
     [HarmonyPatch(typeof(SaveFileUISlot))]
     public static class SaveFileUISlotPatch

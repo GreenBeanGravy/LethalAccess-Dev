@@ -8,8 +8,7 @@ using BepInEx;
 using BepInEx.Configuration;
 using DunGen;
 using GameNetcodeStuff;
-using Green.LethalAccessPlugin;
-using Green.LethalAccessPlugin.Patches;
+using LethalAccess.Patches;
 using HarmonyLib;
 using UnityEngine;
 using UnityEngine.EventSystems;
@@ -23,8 +22,8 @@ using Key = UnityEngine.InputSystem.Key;
 
 namespace LethalAccess
 {
-    [BepInPlugin("Green.LethalAccess", "LethalAccess", "1.0.0.0")]
-    public class LethalAccessPlugin : BaseUnityPlugin
+    [BepInPlugin(modGUID, modName, modVersion)]
+    public class LACore : BaseUnityPlugin
     {
         private const string modGUID = "Green.LethalAccess";
         private const string modName = "LethalAccess";
@@ -68,7 +67,7 @@ namespace LethalAccess
 
         public static TileTracker TileTracker => Instance?.tileTracker;
 
-        public static LethalAccessPlugin Instance { get; private set; }
+        public static LACore Instance { get; private set; }
 
         public static Transform PlayerTransform
         {
@@ -147,7 +146,7 @@ namespace LethalAccess
                 Logger.LogInfo("Navigation aim assist initialized.");
                 uiAccessibilityManager = gameObject.AddComponent<UIAccessibilityManager>();
                 uiAccessibilityManager.Initialize(Logger);
-                Harmony harmony = new Harmony("Green.LethalAccess");
+                Harmony harmony = new Harmony("LethalAccess");
                 harmony.PatchAll(Assembly.GetExecutingAssembly());
                 harmony.PatchAll(typeof(PreInitScenePatch));
                 Logger.LogInfo("PreInitScene skip patch applied successfully.");
@@ -199,63 +198,63 @@ namespace LethalAccess
             uiAccessibilityManager.CreateGroup("MicSettings", "Canvas/MenuContainer/SettingsPanel/MicSettings/SpeakerButton", "Canvas/MenuContainer/SettingsPanel/MicSettings/PushToTalkKey", "Canvas/MenuContainer/SettingsPanel/MicSettings/ChooseDevice");
 
             uiAccessibilityManager.SetCustomText("Canvas/MenuContainer/SettingsPanel/MicSettings/SpeakerButton", new List<Func<string>>
-        {
-            () => "Microphone Toggle: " + Utilities.GetTextFromGameObject("Canvas/MenuContainer/SettingsPanel/MicSettings/SpeakerButton")
-        });
+            {
+                () => "Microphone Toggle: " + Utilities.GetTextFromGameObject("Canvas/MenuContainer/SettingsPanel/MicSettings/SpeakerButton")
+            });
 
             uiAccessibilityManager.SetCustomText("Systems/UI/Canvas/QuickMenu/SettingsPanel/MicSettings/SpeakerButton", new List<Func<string>>
-        {
-            () => "Microphone Toggle: " + Utilities.GetTextFromGameObject("Systems/UI/Canvas/QuickMenu/SettingsPanel/MicSettings/SpeakerButton")
-        });
+            {
+                () => "Microphone Toggle: " + Utilities.GetTextFromGameObject("Systems/UI/Canvas/QuickMenu/SettingsPanel/MicSettings/SpeakerButton")
+            });
 
             uiAccessibilityManager.SetCustomText("Canvas/MenuContainer/SettingsPanel/ControlsOptions/LookSensitivity/Slider", new List<Func<string>>
-        {
-            () => string.Format("{0} {1}", Utilities.GetTextFromGameObject("Canvas/MenuContainer/SettingsPanel/ControlsOptions/LookSensitivity/Text (1)"), Utilities.GetSliderValue("Canvas/MenuContainer/SettingsPanel/ControlsOptions/LookSensitivity/Slider/Handle Slide Area/Handle"))
-        });
+            {
+                () => string.Format("{0} {1}", Utilities.GetTextFromGameObject("Canvas/MenuContainer/SettingsPanel/ControlsOptions/LookSensitivity/Text (1)"), Utilities.GetSliderValue("Canvas/MenuContainer/SettingsPanel/ControlsOptions/LookSensitivity/Slider/Handle Slide Area/Handle"))
+            });
 
             uiAccessibilityManager.SetCustomText("Canvas/MenuContainer/SettingsPanel/MasterVolume/Slider", new List<Func<string>>
-        {
-            () => string.Format("{0} {1}%", Utilities.GetTextFromGameObject("Canvas/MenuContainer/SettingsPanel/MasterVolume/Text (1)"), Utilities.GetSliderValue("Canvas/MenuContainer/SettingsPanel/MasterVolume/Slider/Handle Slide Area/Handle"))
-        });
+            {
+                () => string.Format("{0} {1}%", Utilities.GetTextFromGameObject("Canvas/MenuContainer/SettingsPanel/MasterVolume/Text (1)"), Utilities.GetSliderValue("Canvas/MenuContainer/SettingsPanel/MasterVolume/Slider/Handle Slide Area/Handle"))
+            });
 
             uiAccessibilityManager.SetCustomText("Systems/UI/Canvas/QuickMenu/SettingsPanel/ControlsOptions/LookSensitivity/Slider", new List<Func<string>>
-        {
-            () => string.Format("{0} {1}", Utilities.GetTextFromGameObject("Systems/UI/Canvas/QuickMenu/SettingsPanel/ControlsOptions/LookSensitivity/Text (1)"), Utilities.GetSliderValue("Systems/UI/Canvas/QuickMenu/SettingsPanel/ControlsOptions/LookSensitivity/Slider/Handle Slide Area/Handle"))
-        });
+            {
+                () => string.Format("{0} {1}", Utilities.GetTextFromGameObject("Systems/UI/Canvas/QuickMenu/SettingsPanel/ControlsOptions/LookSensitivity/Text (1)"), Utilities.GetSliderValue("Systems/UI/Canvas/QuickMenu/SettingsPanel/ControlsOptions/LookSensitivity/Slider/Handle Slide Area/Handle"))
+            });
 
             uiAccessibilityManager.SetCustomText("Systems/UI/Canvas/QuickMenu/SettingsPanel/MasterVolume/Slider", new List<Func<string>>
-        {
-            () => string.Format("{0} {1}%", Utilities.GetTextFromGameObject("Systems/UI/Canvas/QuickMenu/SettingsPanel/MasterVolume/Text (1)"), Utilities.GetSliderValue("Systems/UI/Canvas/QuickMenu/SettingsPanel/MasterVolume/Slider/Handle Slide Area/Handle"))
-        });
+            {
+                () => string.Format("{0} {1}%", Utilities.GetTextFromGameObject("Systems/UI/Canvas/QuickMenu/SettingsPanel/MasterVolume/Text (1)"), Utilities.GetSliderValue("Systems/UI/Canvas/QuickMenu/SettingsPanel/MasterVolume/Slider/Handle Slide Area/Handle"))
+            });
 
             uiAccessibilityManager.SetCustomText("Canvas/MenuContainer/SettingsPanel/MicSettings/ChooseDevice", new List<Func<string>>
-        {
-            delegate
             {
-                string textFromGameObject = Utilities.GetTextFromGameObject("Canvas/MenuContainer/SettingsPanel/MicSettings/ChooseDevice");
-                return string.IsNullOrEmpty(textFromGameObject) ? "Current Input Device" : textFromGameObject.Replace("\n", " ").Trim();
-            }
-        });
+                delegate
+                {
+                    string textFromGameObject = Utilities.GetTextFromGameObject("Canvas/MenuContainer/SettingsPanel/MicSettings/ChooseDevice");
+                    return string.IsNullOrEmpty(textFromGameObject) ? "Current Input Device" : textFromGameObject.Replace("\n", " ").Trim();
+                }
+            });
 
             uiAccessibilityManager.SetCustomText("Canvas/MenuContainer/SettingsPanel/ControlsOptions/InvertYAxis", new List<Func<string>>
-        {
-            delegate
             {
-                string result = "Invert Y-Axis";
-                GameObject checkmark = GameObject.Find("Canvas/MenuContainer/SettingsPanel/ControlsOptions/InvertYAxis/Checkmark");
-                if (checkmark != null)
+                delegate
                 {
-                    bool activeSelf = checkmark.activeSelf;
+                    string result = "Invert Y-Axis";
+                    GameObject checkmark = GameObject.Find("Canvas/MenuContainer/SettingsPanel/ControlsOptions/InvertYAxis/Checkmark");
+                    if (checkmark != null)
+                    {
+                        bool activeSelf = checkmark.activeSelf;
+                        return result;
+                    }
                     return result;
                 }
-                return result;
-            }
-        });
+            });
 
             uiAccessibilityManager.SetCustomText("Canvas/MenuContainer/LobbyList/ListPanel/Scroll View/Viewport/Content/LobbyListItem(Clone)/JoinButton", new List<Func<string>>
-        {
-            () => Utilities.GetLobbyInfoFromJoinButton(EventSystem.current.currentSelectedGameObject)
-        });
+            {
+                () => Utilities.GetLobbyInfoFromJoinButton(EventSystem.current.currentSelectedGameObject)
+            });
 
             uiAccessibilityManager.SetNavigation("Canvas/MenuContainer/LobbyHostSettings/FilesPanel/ChallengeMoonButton", "Up", "Canvas/MenuContainer/LobbyHostSettings/FilesPanel/File3");
             uiAccessibilityManager.SetNavigation("Canvas/MenuContainer/LobbyHostSettings/FilesPanel/File3", "Down", "Canvas/MenuContainer/LobbyHostSettings/FilesPanel/ChallengeMoonButton");

@@ -6,9 +6,9 @@ using System.Linq;
 using System.Reflection;
 using UnityEngine;
 
-namespace Green.LethalAccessPlugin
+namespace LethalAccess
 {
-    [BepInPlugin("Green.LethalAccess.NavMesh", "NavMesh", "1.0.0")]
+    [BepInPlugin("LethalAccess.NavMesh", "NavMesh", "1.0.0")]
     public class CompanyNavMesh : BaseUnityPlugin
     {
         private static GameObject navPrefab;

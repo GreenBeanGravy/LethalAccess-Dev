@@ -3,7 +3,7 @@ using DunGen;
 using LethalAccess;
 using UnityEngine;
 
-namespace Green.LethalAccessPlugin
+namespace LethalAccess
 {
     public class TileTriggerListener : MonoBehaviour
     {

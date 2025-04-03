@@ -3,7 +3,7 @@ using HarmonyLib;
 using TMPro;
 using UnityEngine;
 
-namespace Green.LethalAccessPlugin.Patches
+namespace LethalAccess.Patches
 {
     [HarmonyPatch(typeof(PlayerControllerB), "Update")]
     public static class PlayerControllerBUpdatePatch

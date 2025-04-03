@@ -3,7 +3,7 @@ using UnityEngine.AI;
 using System.Collections.Generic;
 using System;
 
-namespace Green.LethalAccessPlugin
+namespace LethalAccess
 {
     public static class PathValidationExtension
     {

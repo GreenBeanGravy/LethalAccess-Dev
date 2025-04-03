@@ -1,7 +1,7 @@
 ﻿using HarmonyLib;
 using GameNetcodeStuff;
 
-namespace Green.LethalAccessPlugin
+namespace LethalAccess
 {
     [HarmonyPatch(typeof(PlayerControllerB))]
     public class PlayerFallAnimationPatch

@@ -12,7 +12,7 @@ using UnityEngine;
 using UnityEngine.Networking;
 using static IngamePlayerSettings;
 
-namespace Green.LethalAccessPlugin
+namespace LethalAccess
 {
     internal class Utilities
     {
@@ -147,19 +147,19 @@ namespace Green.LethalAccessPlugin
 
         public static void LookAtObject(GameObject targetObject)
         {
-            if (targetObject != null && LethalAccess.LethalAccessPlugin.CameraTransform != null)
+            if (targetObject != null && LACore.CameraTransform != null)
             {
                 float maxDistance = 15f;
-                float distanceToTarget = Vector3.Distance(LethalAccess.LethalAccessPlugin.CameraTransform.position, targetObject.transform.position);
+                float distanceToTarget = Vector3.Distance(LACore.CameraTransform.position, targetObject.transform.position);
 
                 if (distanceToTarget <= maxDistance)
                 {
-                    PlayerControllerB playerControllerB = LethalAccess.LethalAccessPlugin.PlayerTransform.GetComponent<PlayerControllerB>();
+                    PlayerControllerB playerControllerB = LACore.PlayerTransform.GetComponent<PlayerControllerB>();
 
                     if (playerControllerB != null)
                     {
-                        Vector3 targetDirection = targetObject.transform.position - LethalAccess.LethalAccessPlugin.CameraTransform.position;
-                        Vector3 relativeDirection = LethalAccess.LethalAccessPlugin.CameraTransform.InverseTransformDirection(targetDirection);
+                        Vector3 targetDirection = targetObject.transform.position - LACore.CameraTransform.position;
+                        Vector3 relativeDirection = LACore.CameraTransform.InverseTransformDirection(targetDirection);
 
                         // Increase the rotation speed by multiplying the input
                         float rotationSpeedMultiplier = 5f; // Adjust this value to change the rotation speed
