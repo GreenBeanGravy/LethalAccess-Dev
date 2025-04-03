@@ -83,12 +83,16 @@ namespace LethalAccess
                     }
                     else
                     {
-                        float realtimeSinceStartup = Time.realtimeSinceStartup;
-                        if (!hasLoggedPlayerTransformWarning || realtimeSinceStartup - lastPlayerTransformWarningTime > playerTransformWarningInterval)
+                        // Only log warnings if we're not in the main menu
+                        if (!IsInMainMenu() && !IsInIntroScene())
                         {
-                            Debug.LogWarning("LocalPlayerController is null. Cannot get PlayerTransform.");
-                            hasLoggedPlayerTransformWarning = true;
-                            lastPlayerTransformWarningTime = realtimeSinceStartup;
+                            float realtimeSinceStartup = Time.realtimeSinceStartup;
+                            if (!hasLoggedPlayerTransformWarning || realtimeSinceStartup - lastPlayerTransformWarningTime > playerTransformWarningInterval)
+                            {
+                                Debug.LogWarning("LocalPlayerController is null. Cannot get PlayerTransform.");
+                                hasLoggedPlayerTransformWarning = true;
+                                lastPlayerTransformWarningTime = realtimeSinceStartup;
+                            }
                         }
                     }
                 }
@@ -110,17 +114,34 @@ namespace LethalAccess
                     }
                     else
                     {
-                        float realtimeSinceStartup = Time.realtimeSinceStartup;
-                        if (!hasLoggedCameraTransformWarning || realtimeSinceStartup - lastCameraTransformWarningTime > cameraTransformWarningInterval)
+                        // Only log warnings if we're not in the main menu
+                        if (!IsInMainMenu() && !IsInIntroScene())
                         {
-                            Debug.LogWarning("LocalPlayerController or gameplayCamera is null. Cannot get CameraTransform.");
-                            hasLoggedCameraTransformWarning = true;
-                            lastCameraTransformWarningTime = realtimeSinceStartup;
+                            float realtimeSinceStartup = Time.realtimeSinceStartup;
+                            if (!hasLoggedCameraTransformWarning || realtimeSinceStartup - lastCameraTransformWarningTime > cameraTransformWarningInterval)
+                            {
+                                Debug.LogWarning("LocalPlayerController or gameplayCamera is null. Cannot get CameraTransform.");
+                                hasLoggedCameraTransformWarning = true;
+                                lastCameraTransformWarningTime = realtimeSinceStartup;
+                            }
                         }
                     }
                 }
                 return cameraTransform;
             }
+        }
+
+        // Helper booleans for active menu
+        private static bool IsInMainMenu()
+        {
+            Scene currentScene = SceneManager.GetActiveScene();
+            return currentScene.name == "MainMenu";
+        }
+
+        private static bool IsInIntroScene()
+        {
+            Scene currentScene = SceneManager.GetActiveScene();
+            return currentScene.name == "InitScene" || currentScene.name == "InitSceneLaunchOptions";
         }
 
         private void Awake()
