@@ -31,7 +31,8 @@ namespace LethalAccess
 
         public static Transform playerTransform;
         public static Transform cameraTransform;
-        public static readonly string reachedPositionAudioFilePath = "LethalAccessAssets\\ReachedPosition.wav";
+        private const string REACHED_POSITION_SOUND_PATH = "LethalAccessAssets/ReachedPosition.wav";
+        private AudioClip reachedPositionSound;
         private static Dictionary<string, ConfigEntry<Key>> keybindConfigEntries = new Dictionary<string, ConfigEntry<Key>>();
         private static Dictionary<string, Action> registeredActions = new Dictionary<string, Action>();
         public static Dictionary<string, List<Func<string>>> overriddenTexts = new Dictionary<string, List<Func<string>>>();
@@ -173,7 +174,7 @@ namespace LethalAccess
                 Logger.LogInfo("PreInitScene skip patch applied successfully.");
                 Logger.LogInfo("LethalAccess initialized.");
                 RegisterKeybinds();
-                StartCoroutine(LoadAudioClip(reachedPositionAudioFilePath));
+                StartCoroutine(LoadReachedPositionSound());
                 RegisterNavigationPoints();
                 RegisterUIElements();
                 instantNavigationManager = new InstantNavigationManager(this);
@@ -182,6 +183,13 @@ namespace LethalAccess
             {
                 Destroy(this);
             }
+        }
+
+        private IEnumerator LoadReachedPositionSound()
+        {
+            // Load the reached position sound using the same pattern as other audio resources
+            yield return StartCoroutine(LoadAudioClip(REACHED_POSITION_SOUND_PATH, clip => reachedPositionSound = clip));
+            Debug.Log("Reached position sound loaded successfully");
         }
 
         private void RegisterNavigationPoints()
@@ -739,8 +747,31 @@ namespace LethalAccess
                                 grabbable.itemProperties.itemName : GetFriendlyObjectName(currentLookTarget.name);
                         }
 
-                        Debug.Log("Attempting to play audio clip for " + objectName);
-                        StartCoroutine(PlayAudioClipCoroutine(reachedPositionAudioFilePath, currentLookTarget, 0f, 5f));
+                        // Play the loaded audio clip directly instead of loading it again
+                        if (reachedPositionSound != null)
+                        {
+                            // Create a temporary audio source on the current look target
+                            GameObject tempAudio = new GameObject("TempReachedPositionAudio");
+                            tempAudio.transform.position = currentLookTarget.transform.position;
+
+                            AudioSource audioSource = tempAudio.AddComponent<AudioSource>();
+                            AudioSystemBypass.ConfigureAudioSourceForBypass(audioSource, 0.7f);
+                            audioSource.clip = reachedPositionSound;
+                            audioSource.spatialBlend = 1f;
+                            audioSource.minDistance = 0f;
+                            audioSource.maxDistance = 5f;
+                            audioSource.Play();
+
+                            // Destroy after playing
+                            Destroy(tempAudio, reachedPositionSound.length + 0.1f);
+
+                            Debug.Log($"Playing reached sound for {objectName}");
+                        }
+                        else
+                        {
+                            Debug.LogWarning("Reached position sound not loaded");
+                        }
+
                         Utilities.SpeakText("Reached " + objectName);
                         hasPlayedReachedSound = true;
                     }
@@ -944,37 +975,42 @@ namespace LethalAccess
             return directions[index];
         }
 
-        private IEnumerator LoadAudioClip(string relativeFilePath)
+        private IEnumerator LoadAudioClip(string resourcePath, System.Action<AudioClip> onLoaded)
         {
             string modDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
-            string fullPath = Path.Combine(modDirectory, relativeFilePath);
+            string fullPath = Path.Combine(modDirectory, resourcePath);
             string fileURL = "file://" + fullPath;
 
-            UnityWebRequest uwr = UnityWebRequestMultimedia.GetAudioClip(fileURL, AudioType.WAV);
-            yield return uwr.SendWebRequest();
+            UnityWebRequest request = UnityWebRequestMultimedia.GetAudioClip(fileURL, AudioType.WAV);
+            yield return request.SendWebRequest();
 
             try
             {
-                if (uwr.result == UnityWebRequest.Result.ConnectionError ||
-                    uwr.result == UnityWebRequest.Result.ProtocolError)
+                if (request.result == UnityWebRequest.Result.Success)
                 {
-                    Debug.LogError("Error While Loading Audio Clip: " + uwr.error);
-                    yield break;
-                }
-
-                AudioClip clip = DownloadHandlerAudioClip.GetContent(uwr);
-                if (clip != null)
-                {
-                    Debug.Log("Successfully loaded audio clip: " + relativeFilePath);
+                    AudioClip clip = DownloadHandlerAudioClip.GetContent(request);
+                    if (clip != null)
+                    {
+                        onLoaded(clip);
+                        Debug.Log($"Successfully loaded audio clip: {resourcePath}");
+                    }
+                    else
+                    {
+                        Debug.LogError($"Failed to load audio clip content: {resourcePath}");
+                    }
                 }
                 else
                 {
-                    Debug.LogError("Failed to load audio clip: " + relativeFilePath);
+                    Debug.LogError($"Error loading audio clip {resourcePath}: {request.error}");
                 }
             }
             catch (Exception ex)
             {
-                Debug.LogError("Exception processing audio request: " + ex.Message);
+                Debug.LogError($"Exception loading audio clip {resourcePath}: {ex.Message}");
+            }
+            finally
+            {
+                request.Dispose();
             }
         }
 

@@ -53,7 +53,6 @@ namespace LethalAccess
         public static bool ShouldPreventFallDamage = false;
         private LineRenderer lineRenderer;
         private AudioSource audioSource;
-        private static readonly string reachedPositionAudioFilePath = "LethalAccessAssets\\ReachedPosition.wav";
         public PlayerControllerB playerController;
         private Vector3 lastPosition;
         private float lastPositionUpdateTime = 0f;
@@ -74,9 +73,8 @@ namespace LethalAccess
         private const float PATH_GENERATION_TIMEOUT = 5f;
         private const float LOADING_ANNOUNCEMENT_INTERVAL = 1f;
         private float lastLoadingAnnouncementTime = 0f;
-        private const float NODE_SPACING_MIN = 2f;
+        private const float NODE_SPACING_MIN = 1f;
         private const float NODE_SPACING_MAX = 2f;
-        private const int CORNER_SMOOTHING_ITERATIONS = 1;
         private bool forcedPathActive = false;
         private List<Vector3> forcedWaypoints = new List<Vector3>();
         private int currentForcedWaypointIndex = 0;
@@ -91,7 +89,6 @@ namespace LethalAccess
         private float nodeAudioPingTimer = 0f;
         private const float NODE_AUDIO_PING_INTERVAL = 0.5f;
         private const float AUDIO_DELAY_BETWEEN_POINTS = 0.15f;
-        private AudioClip clickSound;
         private bool isOnNavMesh = false;
         private const float NAV_MESH_CHECK_INTERVAL = 0.5f;
         private RaycastHit groundHit;
@@ -103,6 +100,16 @@ namespace LethalAccess
         private Mesh nodeSphereMesh;
         private Material nodeBaseMaterial;
         private readonly RaycastHit[] groundHitCache = new RaycastHit[4];
+
+        // Add paths to audio resources
+        private const string ON_TARGET_SOUND_PATH = "LethalAccessAssets/On Target.wav";
+        private const string ALMOST_ON_TARGET_SOUND_PATH = "LethalAccessAssets/Almost On Target.wav";
+        private const string OFF_TARGET_SOUND_PATH = "LethalAccessAssets/Off Target.wav";
+
+        // References to loaded audio clips
+        private AudioClip onTargetSound;
+        private AudioClip almostOnTargetSound;
+        private AudioClip offTargetSound;
 
         public bool IsPathfinding => isPathfinding;
         public static Pathfinder Instance { get; private set; }
@@ -133,7 +140,6 @@ namespace LethalAccess
                 // Setup audio source and load the "reached destination" sound
                 audioSource = gameObject.AddComponent<AudioSource>();
                 AudioSystemBypass.ConfigureAudioSourceForBypass(audioSource);
-                StartCoroutine(LoadAudioClip(reachedPositionAudioFilePath));
 
                 // Setup line renderer for path visualization
                 lineRenderer = GetComponent<LineRenderer>();
@@ -152,8 +158,6 @@ namespace LethalAccess
 
                 // Initialize node object pool
                 InitializeNodePool();
-
-                clickSound = GenerateClickSound();
 
                 // Check for NavMesh agent every 0.5 seconds
                 InvokeRepeating("EnsureNavMeshAgentIsRemoved", 0.5f, 0.5f);
@@ -174,10 +178,65 @@ namespace LethalAccess
                 // Create a reusable material
                 nodeBaseMaterial = new Material(Shader.Find("Sprites/Default"));
                 nodeBaseMaterial.color = Color.cyan;
+
+                // Load audio clips
+                StartCoroutine(LoadAudioResources());
             }
             catch (Exception ex)
             {
                 Debug.LogError($"Exception in InitializeNodeResources: {ex.Message}");
+            }
+        }
+
+        // New method to load all audio resources
+        private IEnumerator LoadAudioResources()
+        {
+            yield return StartCoroutine(LoadAudioClip(ON_TARGET_SOUND_PATH, clip => onTargetSound = clip));
+            yield return StartCoroutine(LoadAudioClip(ALMOST_ON_TARGET_SOUND_PATH, clip => almostOnTargetSound = clip));
+            yield return StartCoroutine(LoadAudioClip(OFF_TARGET_SOUND_PATH, clip => offTargetSound = clip));
+
+            Debug.Log("Pathfinder audio resources loaded successfully");
+        }
+
+        // Helper method to load audio clips from embedded resources
+        private IEnumerator LoadAudioClip(string resourcePath, System.Action<AudioClip> onLoaded)
+        {
+            string modDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+            string fullPath = Path.Combine(modDirectory, resourcePath);
+            string fileURL = "file://" + fullPath;
+
+            UnityWebRequest request = UnityWebRequestMultimedia.GetAudioClip(fileURL, AudioType.WAV);
+
+            // This yield statement is outside any try-catch block
+            yield return request.SendWebRequest();
+
+            try
+            {
+                if (request.result == UnityWebRequest.Result.Success)
+                {
+                    AudioClip clip = DownloadHandlerAudioClip.GetContent(request);
+                    if (clip != null)
+                    {
+                        onLoaded(clip);
+                        Debug.Log($"Successfully loaded audio clip: {resourcePath}");
+                    }
+                    else
+                    {
+                        Debug.LogError($"Failed to load audio clip content: {resourcePath}");
+                    }
+                }
+                else
+                {
+                    Debug.LogError($"Error loading audio clip {resourcePath}: {request.error}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"Exception loading audio clip {resourcePath}: {ex.Message}");
+            }
+            finally
+            {
+                request.Dispose();
             }
         }
 
@@ -259,30 +318,6 @@ namespace LethalAccess
 
             nodeObj.SetActive(false);
             nodeObjectPool.Enqueue(nodeObj);
-        }
-
-        private IEnumerator LoadAudioClip(string relativeFilePath)
-        {
-            string modDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
-            string fullPath = Path.Combine(modDirectory, relativeFilePath);
-            string fileURL = "file://" + fullPath;
-            UnityWebRequest uwr = UnityWebRequestMultimedia.GetAudioClip(fileURL, AudioType.WAV);
-            yield return uwr.SendWebRequest();
-            try
-            {
-                if (uwr.result == UnityWebRequest.Result.ConnectionError || uwr.result == UnityWebRequest.Result.ProtocolError)
-                {
-                    Debug.LogError($"Error While Loading Audio Clip: {uwr.error}");
-                }
-                else
-                {
-                    audioSource.clip = DownloadHandlerAudioClip.GetContent(uwr);
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.LogError($"Exception processing audio request: {ex.Message}");
-            }
         }
         #endregion
 
@@ -492,10 +527,7 @@ namespace LethalAccess
             // Generate node positions first (without creating GameObjects yet)
             yield return StartCoroutine(CalculateNodePositions(path, nodePositions));
 
-            // Apply path smoothing to the positions
-            yield return StartCoroutine(SmoothPath(nodePositions));
-
-            // Create the actual node objects at the smoothed positions
+            // Create the actual node objects at the positions
             yield return StartCoroutine(CreateNodeObjects(nodePositions));
 
             // Path generation is complete
@@ -581,74 +613,7 @@ namespace LethalAccess
                 }
             }
 
-            Debug.Log($"Generated {nodePositions.Count} initial node positions");
-        }
-
-        private IEnumerator SmoothPath(List<Vector3> positions)
-        {
-            // Skip smoothing if we have too few points
-            if (positions.Count < 3)
-                yield break;
-
-            // Apply corner smoothing
-            for (int iteration = 0; iteration < CORNER_SMOOTHING_ITERATIONS; iteration++)
-            {
-                // Create a temporary list to hold the smoothed points
-                List<Vector3> smoothedPoints = new List<Vector3>();
-
-                // Always keep the first point
-                smoothedPoints.Add(positions[0]);
-
-                // Smooth intermediate points using Chaikin's algorithm (corner cutting)
-                for (int i = 0; i < positions.Count - 1; i++)
-                {
-                    Vector3 p0 = positions[i];
-                    Vector3 p1 = positions[i + 1];
-
-                    // Generate two points that are 1/4 and 3/4 along each segment
-                    Vector3 q = p0 + 0.25f * (p1 - p0);
-                    Vector3 r = p0 + 0.75f * (p1 - p0);
-
-                    // Ensure the new points are above ground
-                    q = EnsurePointAboveGround(q);
-                    r = EnsurePointAboveGround(r);
-
-                    smoothedPoints.Add(q);
-                    smoothedPoints.Add(r);
-                }
-
-                // Add the last point
-                smoothedPoints.Add(positions[positions.Count - 1]);
-
-                // Replace original points with smoothed points
-                positions.Clear();
-                positions.AddRange(smoothedPoints);
-
-                // Yield each iteration to prevent frame drops
-                yield return null;
-            }
-
-            // Additional aggressive pass to remove nodes that are too close together
-            for (int i = positions.Count - 2; i > 0; i--)
-            {
-                if (Vector3.Distance(positions[i], positions[i + 1]) < NODE_SPACING_MIN * 0.9f)
-                {
-                    positions.RemoveAt(i);
-                    // Skip checking the next point since we removed one
-                    i--;
-                }
-            }
-
-            // Additional pass to reduce total number of nodes (keep only every other node except start/end)
-            if (positions.Count > 4)
-            {
-                for (int i = positions.Count - 2; i > 1; i -= 2)
-                {
-                    positions.RemoveAt(i);
-                }
-            }
-
-            Debug.Log($"Smoothed path to {positions.Count} nodes");
+            Debug.Log($"Generated {nodePositions.Count} node positions");
         }
 
         private IEnumerator CreateNodeObjects(List<Vector3> positions)
@@ -1775,9 +1740,10 @@ namespace LethalAccess
 
             if (announce)
             {
-                // Play sound when reaching a node
-                if (audioSource != null && clickSound != null)
+                // Play procedurally generated click sound when reaching a node
+                if (audioSource != null)
                 {
+                    AudioClip clickSound = GenerateClickSound();
                     audioSource.PlayOneShot(clickSound, 0.7f);
                 }
             }
@@ -1930,77 +1896,39 @@ namespace LethalAccess
             float volume = AudioSystemBypass.CalculateVolumeBasedOnDistance(
                 distance, minDistance, maxDistance, baseVolume);
 
-            // Generate the appropriate tone based on direction
-            AudioClip clip = GenerateNodePingTone(isInFront, isLeftRight, isBelow, isAbove);
+            // Get the appropriate tone based on direction
+            AudioClip clip = GetNodePingTone(isInFront, isLeftRight, isBelow, isAbove);
 
             // Set up the audio source
-            currentTargetNode.audioSource.clip = clip;
-            currentTargetNode.audioSource.volume = volume;
+            if (clip != null)
+            {
+                currentTargetNode.audioSource.clip = clip;
+                currentTargetNode.audioSource.volume = volume;
 
-            // Play the audio
-            currentTargetNode.audioSource.Play();
+                // Play the audio
+                currentTargetNode.audioSource.Play();
+            }
+            else
+            {
+                Debug.LogWarning("Node ping audio clip not loaded yet");
+            }
         }
 
-        private AudioClip GenerateNodePingTone(bool isInFront, bool isLeftRight, bool isBelow, bool isAbove)
+        private AudioClip GetNodePingTone(bool isInFront, bool isLeftRight, bool isBelow, bool isAbove)
         {
-            int sampleRate = 44100;
-            float baseLowFreq = 330f;
-            float baseHighFreq = 660f;
-            float toneDuration = 0.1f;
-            float pauseDuration = 0.025f;
-            float extraToneDuration = 0.05f;
-
-            bool hasExtraTone = isBelow || isAbove;
-
-            float totalDuration = hasExtraTone ?
-                (toneDuration * 2) + pauseDuration + extraToneDuration + pauseDuration :
-                (toneDuration * 2) + pauseDuration;
-
-            int sampleLength = Mathf.RoundToInt(sampleRate * totalDuration);
-            AudioClip toneClip = AudioClip.Create("NodePingTone", sampleLength, 1, sampleRate, false);
-            float[] samples = new float[sampleLength];
-
-            int index = 0;
-
-            // First tone
-            float freq1 = isInFront ? baseHighFreq : baseLowFreq;
-            for (int i = 0; i < Mathf.RoundToInt(sampleRate * toneDuration) && index < sampleLength; i++)
+            // Use the appropriate audio clip based on direction
+            if (isInFront)
             {
-                float t = (float)i / (sampleRate * toneDuration);
-                float envelope = Mathf.Sin(t * Mathf.PI);
-                samples[index++] = Mathf.Sin(2 * Mathf.PI * freq1 * i / sampleRate) * envelope * 0.5f;
+                return onTargetSound; // "On Target.wav" for when looking right at it
             }
-
-            // Short pause
-            index = Mathf.Min(index + Mathf.RoundToInt(sampleRate * pauseDuration), sampleLength);
-
-            // Second tone
-            float freq2 = isLeftRight ? baseHighFreq : (isInFront ? baseHighFreq : baseLowFreq);
-            for (int i = 0; i < Mathf.RoundToInt(sampleRate * toneDuration) && index < sampleLength; i++)
+            else if (isLeftRight)
             {
-                float t = (float)i / (sampleRate * toneDuration);
-                float envelope = Mathf.Sin(t * Mathf.PI);
-                samples[index++] = Mathf.Sin(2 * Mathf.PI * freq2 * i / sampleRate) * envelope * 0.5f;
+                return almostOnTargetSound; // "Almost On Target.wav" for left/right
             }
-
-            // Extra tone for height difference
-            if (hasExtraTone)
+            else // behind
             {
-                // Another short pause
-                index = Mathf.Min(index + Mathf.RoundToInt(sampleRate * pauseDuration), sampleLength);
-
-                // Height indicator tone
-                float heightFreq = isAbove ? baseHighFreq * 1.2f : baseLowFreq * 0.8f;
-                for (int i = 0; i < Mathf.RoundToInt(sampleRate * extraToneDuration) && index < sampleLength; i++)
-                {
-                    float t = (float)i / (sampleRate * extraToneDuration);
-                    float envelope = Mathf.Sin(t * Mathf.PI);
-                    samples[index++] = Mathf.Sin(2 * Mathf.PI * heightFreq * i / sampleRate) * envelope * 0.5f;
-                }
+                return offTargetSound; // "Off Target.wav" for behind
             }
-
-            toneClip.SetData(samples, 0);
-            return toneClip;
         }
 
         private AudioClip GenerateClickSound()
@@ -2657,56 +2585,6 @@ namespace LethalAccess
 
             Destroy(tempSphere);
             return mesh;
-        }
-
-        public IEnumerator PlayAudioClipCoroutine(string audioFilePath, GameObject targetGameObject, float minDistance, float maxDistance)
-        {
-            if (targetGameObject == null)
-            {
-                Debug.LogError("Target GameObject is null. Cannot play audio clip.");
-                yield break;
-            }
-
-            string modDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
-            string fullPath = Path.Combine(modDirectory, audioFilePath);
-            string fileURL = "file://" + fullPath;
-            UnityWebRequest uwr = UnityWebRequestMultimedia.GetAudioClip(fileURL, AudioType.WAV);
-            yield return uwr.SendWebRequest();
-
-            try
-            {
-                if (uwr.result == UnityWebRequest.Result.ConnectionError || uwr.result == UnityWebRequest.Result.ProtocolError)
-                {
-                    Debug.LogError($"Error loading audio clip: {uwr.error}");
-                    yield break;
-                }
-
-                AudioClip clip = DownloadHandlerAudioClip.GetContent(uwr);
-                if (clip != null)
-                {
-                    AudioSource audioSource = targetGameObject.GetComponent<AudioSource>();
-                    if (audioSource == null)
-                    {
-                        audioSource = targetGameObject.AddComponent<AudioSource>();
-                    }
-
-                    audioSource.clip = clip;
-                    audioSource.spatialBlend = 1f;
-                    audioSource.rolloffMode = AudioRolloffMode.Linear;
-                    audioSource.minDistance = minDistance;
-                    audioSource.maxDistance = maxDistance;
-                    audioSource.Play();
-                    Debug.Log($"Playing audio clip: {audioFilePath}");
-                }
-                else
-                {
-                    Debug.LogError($"Failed to load audio clip: {audioFilePath}");
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.LogError($"Exception processing audio clip: {ex.Message}");
-            }
         }
         #endregion
 
