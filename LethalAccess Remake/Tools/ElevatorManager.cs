@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using LethalAccess;
-using LethalAccess;
 using UnityEngine;
 
 public class ElevatorManager

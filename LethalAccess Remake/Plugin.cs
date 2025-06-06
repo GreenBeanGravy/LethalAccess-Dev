@@ -38,7 +38,6 @@ namespace LethalAccess
         public static Dictionary<string, List<Func<string>>> overriddenTexts = new Dictionary<string, List<Func<string>>>();
         private List<GameObject> previouslyFocusedUIElements = new List<GameObject>();
         public static GameObject currentLookTarget;
-        private static GameObject lastAnnouncedObject;
         public static bool enableCustomKeybinds = true;
         private bool hasPlayedReachedSound = false;
         private bool isNavigatingWithPrevKey = false;
@@ -54,8 +53,8 @@ namespace LethalAccess
         private NorthSoundManager northSoundManager;
         private TileTracker tileTracker;
         private InstantNavigationManager instantNavigationManager;
-        private NavigationAimAssist navigationAimAssist;
         private UIAccessibilityManager uiAccessibilityManager;
+        private SettingsMenu settingsMenu;
         private const float MAX_DISTANCE_TO_OBJECT = 15f;
         private const float DEFAULT_STOPPING_RADIUS = 2.2f;
         private float turnSpeed = 90f;
@@ -67,7 +66,6 @@ namespace LethalAccess
         private static readonly float cameraTransformWarningInterval = 5f;
 
         public static TileTracker TileTracker => Instance?.tileTracker;
-
         public static LACore Instance { get; private set; }
 
         public static Transform PlayerTransform
@@ -84,7 +82,6 @@ namespace LethalAccess
                     }
                     else
                     {
-                        // Only log warnings if we're not in the main menu
                         if (!IsInMainMenu() && !IsInIntroScene())
                         {
                             float realtimeSinceStartup = Time.realtimeSinceStartup;
@@ -115,7 +112,6 @@ namespace LethalAccess
                     }
                     else
                     {
-                        // Only log warnings if we're not in the main menu
                         if (!IsInMainMenu() && !IsInIntroScene())
                         {
                             float realtimeSinceStartup = Time.realtimeSinceStartup;
@@ -132,7 +128,6 @@ namespace LethalAccess
             }
         }
 
-        // Helper booleans for active menu
         private static bool IsInMainMenu()
         {
             Scene currentScene = SceneManager.GetActiveScene();
@@ -150,6 +145,10 @@ namespace LethalAccess
             if (Instance == null)
             {
                 Instance = this;
+
+                // Initialize configuration manager
+                ConfigManager.Initialize(Config);
+
                 controlTipAccessPatch = new ControlTipAccessPatch();
                 controlTipAccessPatch.Initialize();
                 profitQuotaPatch = new ProfitQuotaPatch();
@@ -163,11 +162,15 @@ namespace LethalAccess
                 pathfinder = new Pathfinder();
                 northSoundManager = gameObject.AddComponent<NorthSoundManager>();
                 tileTracker = gameObject.AddComponent<TileTracker>();
-                navigationAimAssist = gameObject.AddComponent<NavigationAimAssist>();
-                navigationAimAssist.Initialize();
-                Logger.LogInfo("Navigation aim assist initialized.");
+
+                Logger.LogInfo("TileTracker initialized.");
                 uiAccessibilityManager = gameObject.AddComponent<UIAccessibilityManager>();
                 uiAccessibilityManager.Initialize(Logger);
+
+                // Initialize settings menu
+                settingsMenu = gameObject.AddComponent<SettingsMenu>();
+                settingsMenu.Initialize();
+
                 Harmony harmony = new Harmony("LethalAccess");
                 harmony.PatchAll(Assembly.GetExecutingAssembly());
                 harmony.PatchAll(typeof(PreInitScenePatch));
@@ -187,8 +190,7 @@ namespace LethalAccess
 
         private IEnumerator LoadReachedPositionSound()
         {
-            // Load the reached position sound using the same pattern as other audio resources
-            yield return StartCoroutine(LoadAudioClip(REACHED_POSITION_SOUND_PATH, clip => reachedPositionSound = clip));
+            yield return StartCoroutine(AudioUtils.LoadAudioClip(REACHED_POSITION_SOUND_PATH, clip => reachedPositionSound = clip));
             Debug.Log("Reached position sound loaded successfully");
         }
 
@@ -226,64 +228,28 @@ namespace LethalAccess
             uiAccessibilityManager.CreateGroup("FileSelectionButtons", "Canvas/MenuContainer/LobbyHostSettings/FilesPanel/File1", "Canvas/MenuContainer/LobbyHostSettings/FilesPanel/File2", "Canvas/MenuContainer/LobbyHostSettings/FilesPanel/File3", "Canvas/MenuContainer/LobbyHostSettings/FilesPanel/ChallengeMoonButton");
             uiAccessibilityManager.CreateGroup("MicSettings", "Canvas/MenuContainer/SettingsPanel/MicSettings/SpeakerButton", "Canvas/MenuContainer/SettingsPanel/MicSettings/PushToTalkKey", "Canvas/MenuContainer/SettingsPanel/MicSettings/ChooseDevice");
 
-            uiAccessibilityManager.SetCustomText("Canvas/MenuContainer/SettingsPanel/MicSettings/SpeakerButton", new List<Func<string>>
-            {
-                () => "Microphone Toggle: " + Utilities.GetTextFromGameObject("Canvas/MenuContainer/SettingsPanel/MicSettings/SpeakerButton")
-            });
+            // Set custom text for UI elements using UIUtils
+            UIUtils.SetCustomUIText(uiAccessibilityManager, "Canvas/MenuContainer/SettingsPanel/MicSettings/SpeakerButton",
+                () => "Microphone Toggle: " + UIUtils.GetTextFromGameObject("Canvas/MenuContainer/SettingsPanel/MicSettings/SpeakerButton"));
 
-            uiAccessibilityManager.SetCustomText("Systems/UI/Canvas/QuickMenu/SettingsPanel/MicSettings/SpeakerButton", new List<Func<string>>
-            {
-                () => "Microphone Toggle: " + Utilities.GetTextFromGameObject("Systems/UI/Canvas/QuickMenu/SettingsPanel/MicSettings/SpeakerButton")
-            });
+            UIUtils.SetCustomUIText(uiAccessibilityManager, "Systems/UI/Canvas/QuickMenu/SettingsPanel/MicSettings/SpeakerButton",
+                () => "Microphone Toggle: " + UIUtils.GetTextFromGameObject("Systems/UI/Canvas/QuickMenu/SettingsPanel/MicSettings/SpeakerButton"));
 
-            uiAccessibilityManager.SetCustomText("Canvas/MenuContainer/SettingsPanel/ControlsOptions/LookSensitivity/Slider", new List<Func<string>>
-            {
-                () => string.Format("{0} {1}", Utilities.GetTextFromGameObject("Canvas/MenuContainer/SettingsPanel/ControlsOptions/LookSensitivity/Text (1)"), Utilities.GetSliderValue("Canvas/MenuContainer/SettingsPanel/ControlsOptions/LookSensitivity/Slider/Handle Slide Area/Handle"))
-            });
+            UIUtils.SetCustomUIText(uiAccessibilityManager, "Canvas/MenuContainer/SettingsPanel/ControlsOptions/LookSensitivity/Slider",
+                () => string.Format("{0} {1}", UIUtils.GetTextFromGameObject("Canvas/MenuContainer/SettingsPanel/ControlsOptions/LookSensitivity/Text (1)"),
+                    UIUtils.GetSliderValue("Canvas/MenuContainer/SettingsPanel/ControlsOptions/LookSensitivity/Slider/Handle Slide Area/Handle")));
 
-            uiAccessibilityManager.SetCustomText("Canvas/MenuContainer/SettingsPanel/MasterVolume/Slider", new List<Func<string>>
-            {
-                () => string.Format("{0} {1}%", Utilities.GetTextFromGameObject("Canvas/MenuContainer/SettingsPanel/MasterVolume/Text (1)"), Utilities.GetSliderValue("Canvas/MenuContainer/SettingsPanel/MasterVolume/Slider/Handle Slide Area/Handle"))
-            });
+            UIUtils.SetCustomUIText(uiAccessibilityManager, "Canvas/MenuContainer/SettingsPanel/MasterVolume/Slider",
+                () => string.Format("{0} {1}%", UIUtils.GetTextFromGameObject("Canvas/MenuContainer/SettingsPanel/MasterVolume/Text (1)"),
+                    UIUtils.GetSliderValue("Canvas/MenuContainer/SettingsPanel/MasterVolume/Slider/Handle Slide Area/Handle")));
 
-            uiAccessibilityManager.SetCustomText("Systems/UI/Canvas/QuickMenu/SettingsPanel/ControlsOptions/LookSensitivity/Slider", new List<Func<string>>
-            {
-                () => string.Format("{0} {1}", Utilities.GetTextFromGameObject("Systems/UI/Canvas/QuickMenu/SettingsPanel/ControlsOptions/LookSensitivity/Text (1)"), Utilities.GetSliderValue("Systems/UI/Canvas/QuickMenu/SettingsPanel/ControlsOptions/LookSensitivity/Slider/Handle Slide Area/Handle"))
-            });
+            UIUtils.SetCustomUIText(uiAccessibilityManager, "Systems/UI/Canvas/QuickMenu/SettingsPanel/ControlsOptions/LookSensitivity/Slider",
+                () => string.Format("{0} {1}", UIUtils.GetTextFromGameObject("Systems/UI/Canvas/QuickMenu/SettingsPanel/ControlsOptions/LookSensitivity/Text (1)"),
+                    UIUtils.GetSliderValue("Systems/UI/Canvas/QuickMenu/SettingsPanel/ControlsOptions/LookSensitivity/Slider/Handle Slide Area/Handle")));
 
-            uiAccessibilityManager.SetCustomText("Systems/UI/Canvas/QuickMenu/SettingsPanel/MasterVolume/Slider", new List<Func<string>>
-            {
-                () => string.Format("{0} {1}%", Utilities.GetTextFromGameObject("Systems/UI/Canvas/QuickMenu/SettingsPanel/MasterVolume/Text (1)"), Utilities.GetSliderValue("Systems/UI/Canvas/QuickMenu/SettingsPanel/MasterVolume/Slider/Handle Slide Area/Handle"))
-            });
-
-            uiAccessibilityManager.SetCustomText("Canvas/MenuContainer/SettingsPanel/MicSettings/ChooseDevice", new List<Func<string>>
-            {
-                delegate
-                {
-                    string textFromGameObject = Utilities.GetTextFromGameObject("Canvas/MenuContainer/SettingsPanel/MicSettings/ChooseDevice");
-                    return string.IsNullOrEmpty(textFromGameObject) ? "Current Input Device" : textFromGameObject.Replace("\n", " ").Trim();
-                }
-            });
-
-            uiAccessibilityManager.SetCustomText("Canvas/MenuContainer/SettingsPanel/ControlsOptions/InvertYAxis", new List<Func<string>>
-            {
-                delegate
-                {
-                    string result = "Invert Y-Axis";
-                    GameObject checkmark = GameObject.Find("Canvas/MenuContainer/SettingsPanel/ControlsOptions/InvertYAxis/Checkmark");
-                    if (checkmark != null)
-                    {
-                        bool activeSelf = checkmark.activeSelf;
-                        return result;
-                    }
-                    return result;
-                }
-            });
-
-            uiAccessibilityManager.SetCustomText("Canvas/MenuContainer/LobbyList/ListPanel/Scroll View/Viewport/Content/LobbyListItem(Clone)/JoinButton", new List<Func<string>>
-            {
-                () => Utilities.GetLobbyInfoFromJoinButton(EventSystem.current.currentSelectedGameObject)
-            });
+            UIUtils.SetCustomUIText(uiAccessibilityManager, "Systems/UI/Canvas/QuickMenu/SettingsPanel/MasterVolume/Slider",
+                () => string.Format("{0} {1}%", UIUtils.GetTextFromGameObject("Systems/UI/Canvas/QuickMenu/SettingsPanel/MasterVolume/Text (1)"),
+                    UIUtils.GetSliderValue("Systems/UI/Canvas/QuickMenu/SettingsPanel/MasterVolume/Slider/Handle Slide Area/Handle")));
 
             uiAccessibilityManager.SetNavigation("Canvas/MenuContainer/LobbyHostSettings/FilesPanel/ChallengeMoonButton", "Up", "Canvas/MenuContainer/LobbyHostSettings/FilesPanel/File3");
             uiAccessibilityManager.SetNavigation("Canvas/MenuContainer/LobbyHostSettings/FilesPanel/File3", "Down", "Canvas/MenuContainer/LobbyHostSettings/FilesPanel/ChallengeMoonButton");
@@ -330,24 +296,26 @@ namespace LethalAccess
             // Enhanced turning system with arrow keys and snap turning
             if (GameNetworkManager.Instance?.localPlayerController != null && PlayerTransform != null && CameraTransform != null)
             {
-                // Regular turning with bracket keys (existing functionality)
+                float currentTurnSpeed = ConfigManager.TurnSpeed.Value;
+
+                // Regular turning with bracket keys
                 if (Keyboard.current[Key.LeftBracket].isPressed)
                 {
-                    SafeRotate(-turnSpeed * Time.deltaTime);
+                    SafeRotate(-currentTurnSpeed * Time.deltaTime);
                 }
                 if (Keyboard.current[Key.RightBracket].isPressed)
                 {
-                    SafeRotate(turnSpeed * Time.deltaTime);
+                    SafeRotate(currentTurnSpeed * Time.deltaTime);
                 }
 
                 // Regular turning with arrow keys
                 if (Keyboard.current[Key.LeftArrow].isPressed && !Keyboard.current[Key.LeftShift].isPressed && !Keyboard.current[Key.RightShift].isPressed)
                 {
-                    SafeRotate(-turnSpeed * Time.deltaTime);
+                    SafeRotate(-currentTurnSpeed * Time.deltaTime);
                 }
                 if (Keyboard.current[Key.RightArrow].isPressed && !Keyboard.current[Key.LeftShift].isPressed && !Keyboard.current[Key.RightShift].isPressed)
                 {
-                    SafeRotate(turnSpeed * Time.deltaTime);
+                    SafeRotate(currentTurnSpeed * Time.deltaTime);
                 }
 
                 // Snap turning with shift+arrow keys
@@ -365,7 +333,6 @@ namespace LethalAccess
             }
         }
 
-        // Safe rotation method to prevent "Look rotation viewing vector is zero" errors
         private void SafeRotate(float yawDegrees)
         {
             if (PlayerTransform == null) return;
@@ -380,35 +347,28 @@ namespace LethalAccess
             }
         }
 
-        // New method for snap turning in 45-degree increments
         private void SnapTurn(float degrees)
         {
             if (PlayerTransform == null) return;
 
             try
             {
-                // Get current rotation angle
                 Vector3 forward = PlayerTransform.forward;
 
-                // Make sure the forward vector is not zero
                 if (forward.magnitude < 0.001f)
                 {
                     Debug.LogWarning("Forward vector is too small, using default forward");
-                    forward = Vector3.forward; // Use default forward if the vector is too small
+                    forward = Vector3.forward;
                 }
 
                 float currentAngle = Mathf.Atan2(forward.x, forward.z) * Mathf.Rad2Deg;
                 if (currentAngle < 0f) currentAngle += 360f;
 
-                // Calculate new angle with the turn
                 float newAngle = currentAngle + degrees;
-
-                // Snap to the nearest 45-degree cardinal direction
                 newAngle = Mathf.Round(newAngle / 45f) * 45f;
                 if (newAngle >= 360f) newAngle -= 360f;
                 if (newAngle < 0f) newAngle += 360f;
 
-                // Apply the rotation safely
                 Vector3 newForward = new Vector3(
                     Mathf.Sin(newAngle * Mathf.Deg2Rad),
                     0f,
@@ -417,7 +377,6 @@ namespace LethalAccess
 
                 if (newForward.magnitude > 0.001f)
                 {
-                    // Use Quaternion.LookRotation which is safer when vectors are normalized
                     PlayerTransform.rotation = Quaternion.LookRotation(newForward, Vector3.up);
                 }
                 else
@@ -425,9 +384,8 @@ namespace LethalAccess
                     Debug.LogWarning("Calculated forward vector is too small, skipping rotation");
                 }
 
-                // Announce just the cardinal direction (not the angle)
                 string compassDirection = GetCompassDirection(newAngle);
-                Utilities.SpeakText(compassDirection);
+                SpeechUtils.SpeakText(compassDirection);
             }
             catch (Exception ex)
             {
@@ -441,11 +399,11 @@ namespace LethalAccess
             {
                 string currentTileName = tileTracker.GetCurrentTileName();
                 string pathType = tileTracker.IsOnMainPath() ? "main path" : "branch";
-                Utilities.SpeakText("You are in " + currentTileName + ", " + pathType);
+                SpeechUtils.SpeakText("You are in " + currentTileName + ", " + pathType);
             }
             else
             {
-                Utilities.SpeakText("Room information not available");
+                SpeechUtils.SpeakText("Room information not available");
             }
         }
 
@@ -463,21 +421,21 @@ namespace LethalAccess
             MineshaftElevatorController elevatorController = FindObjectOfType<MineshaftElevatorController>();
             if (elevatorController == null)
             {
-                Utilities.SpeakText("Elevator not found.");
+                SpeechUtils.SpeakText("Elevator not found.");
                 return;
             }
 
             Transform elevatorInsidePoint = elevatorController.elevatorInsidePoint;
             if (elevatorInsidePoint == null)
             {
-                Utilities.SpeakText("Elevator entry point not found.");
+                SpeechUtils.SpeakText("Elevator entry point not found.");
                 return;
             }
 
             Transform camTransform = CameraTransform;
             if (camTransform == null)
             {
-                Utilities.SpeakText("Main camera not found.");
+                SpeechUtils.SpeakText("Main camera not found.");
                 return;
             }
 
@@ -521,7 +479,7 @@ namespace LethalAccess
 
             Vector3 offset = hitPoint - elevatorInsidePoint.position;
             string message = $"Relative position from elevator base: X={offset.x:F2}, Y={offset.y:F2}, Z={offset.z:F2}";
-            Utilities.SpeakText(message);
+            SpeechUtils.SpeakText(message);
             Debug.Log(message);
         }
 
@@ -747,10 +705,8 @@ namespace LethalAccess
                                 grabbable.itemProperties.itemName : GetFriendlyObjectName(currentLookTarget.name);
                         }
 
-                        // Play the loaded audio clip directly instead of loading it again
                         if (reachedPositionSound != null)
                         {
-                            // Create a temporary audio source on the current look target
                             GameObject tempAudio = new GameObject("TempReachedPositionAudio");
                             tempAudio.transform.position = currentLookTarget.transform.position;
 
@@ -762,7 +718,6 @@ namespace LethalAccess
                             audioSource.maxDistance = 5f;
                             audioSource.Play();
 
-                            // Destroy after playing
                             Destroy(tempAudio, reachedPositionSound.length + 0.1f);
 
                             Debug.Log($"Playing reached sound for {objectName}");
@@ -772,7 +727,7 @@ namespace LethalAccess
                             Debug.LogWarning("Reached position sound not loaded");
                         }
 
-                        Utilities.SpeakText("Reached " + objectName);
+                        SpeechUtils.SpeakText("Reached " + objectName);
                         hasPlayedReachedSound = true;
                     }
                 }
@@ -843,7 +798,7 @@ namespace LethalAccess
             RegisterKeybind("SpeakPlayerDirection", Key.L, SpeakPlayerDirection);
             RegisterKeybind("DrawElevatorRay", Key.K, DrawElevatorRay);
             RegisterKeybind("AnnounceCurrentRoom", Key.R, AnnounceCurrentRoom);
-            RegisterKeybind("ToggleAimAssist", Key.G, ToggleAimAssist);
+            RegisterKeybind("OpenSettingsMenu", Key.F10, OpenSettingsMenu);
 
             foreach (string key in registeredActions.Keys)
             {
@@ -880,14 +835,14 @@ namespace LethalAccess
             if (currentLookTarget != null)
             {
                 string objectName = navMenu?.GetDisplayNameForObject(currentLookTarget) ?? "Unknown Object";
-                Utilities.SpeakText("Stopped looking at " + objectName);
+                SpeechUtils.SpeakText("Stopped looking at " + objectName);
                 currentLookTarget = null;
             }
 
             if (pathfinder != null && pathfinder.IsPathfinding)
             {
                 pathfinder.StopPathfinding();
-                Utilities.SpeakText("Stopped pathfinding");
+                SpeechUtils.SpeakText("Stopped pathfinding");
             }
         }
 
@@ -925,7 +880,7 @@ namespace LethalAccess
                 if (currentLookTarget == null)
                 {
                     Debug.Log("Pathfinding not initiated: No object selected or object not found.");
-                    Utilities.SpeakText("Object not found. Make sure you land the ship before attempting to pathfind.");
+                    SpeechUtils.SpeakText("Object not found. Make sure you land the ship before attempting to pathfind.");
                 }
             }
         }
@@ -934,15 +889,14 @@ namespace LethalAccess
         {
             northSoundManager.ToggleNorthSound();
             string toggleState = northSoundManager.isEnabled ? "enabled" : "disabled";
-            Utilities.SpeakText("North Sound " + toggleState);
+            SpeechUtils.SpeakText("North Sound " + toggleState);
         }
 
-        private void ToggleAimAssist()
+        private void OpenSettingsMenu()
         {
-            if (navigationAimAssist != null)
+            if (settingsMenu != null)
             {
-                Utilities.SpeakText(navigationAimAssist.ToggleEnabled() ? "Aim assist enabled." : "Aim assist disabled.");
-                navigationAimAssist.enabled = true;
+                settingsMenu.ToggleMenu();
             }
         }
 
@@ -960,11 +914,11 @@ namespace LethalAccess
                 string compassDirection = GetCompassDirection(angle);
                 int roundedAngle = Mathf.RoundToInt(angle);
                 string message = $"Facing {compassDirection} at {roundedAngle} degrees";
-                Utilities.SpeakText(message);
+                SpeechUtils.SpeakText(message);
             }
             else
             {
-                Utilities.SpeakText("Player position not available");
+                SpeechUtils.SpeakText("Player position not available");
             }
         }
 
@@ -975,45 +929,6 @@ namespace LethalAccess
             return directions[index];
         }
 
-        private IEnumerator LoadAudioClip(string resourcePath, System.Action<AudioClip> onLoaded)
-        {
-            string modDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
-            string fullPath = Path.Combine(modDirectory, resourcePath);
-            string fileURL = "file://" + fullPath;
-
-            UnityWebRequest request = UnityWebRequestMultimedia.GetAudioClip(fileURL, AudioType.WAV);
-            yield return request.SendWebRequest();
-
-            try
-            {
-                if (request.result == UnityWebRequest.Result.Success)
-                {
-                    AudioClip clip = DownloadHandlerAudioClip.GetContent(request);
-                    if (clip != null)
-                    {
-                        onLoaded(clip);
-                        Debug.Log($"Successfully loaded audio clip: {resourcePath}");
-                    }
-                    else
-                    {
-                        Debug.LogError($"Failed to load audio clip content: {resourcePath}");
-                    }
-                }
-                else
-                {
-                    Debug.LogError($"Error loading audio clip {resourcePath}: {request.error}");
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.LogError($"Exception loading audio clip {resourcePath}: {ex.Message}");
-            }
-            finally
-            {
-                request.Dispose();
-            }
-        }
-
         public IEnumerator PlayAudioClipCoroutine(string audioFilePath, GameObject targetGameObject, float minDistance, float maxDistance)
         {
             if (targetGameObject == null)
@@ -1022,65 +937,19 @@ namespace LethalAccess
                 yield break;
             }
 
-            string modDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
-            string fullPath = Path.Combine(modDirectory, audioFilePath);
-            string fileURL = "file://" + fullPath;
-
-            UnityWebRequest uwr = UnityWebRequestMultimedia.GetAudioClip(fileURL, AudioType.WAV);
-            yield return uwr.SendWebRequest();
-
-            try
-            {
-                if (uwr.result == UnityWebRequest.Result.ConnectionError ||
-                    uwr.result == UnityWebRequest.Result.ProtocolError)
-                {
-                    Debug.LogError("Error loading audio clip: " + uwr.error);
-                    yield break;
-                }
-
-                AudioClip clip = DownloadHandlerAudioClip.GetContent(uwr);
-                if (clip != null)
-                {
-                    AudioSource audioSource = targetGameObject.GetComponent<AudioSource>();
-                    if (audioSource == null)
-                    {
-                        audioSource = targetGameObject.AddComponent<AudioSource>();
-                    }
-
-                    audioSource.clip = clip;
-                    audioSource.spatialBlend = 1f;
-                    audioSource.rolloffMode = AudioRolloffMode.Linear;
-                    audioSource.minDistance = minDistance;
-                    audioSource.maxDistance = maxDistance;
-                    audioSource.Play();
-                    Debug.Log("Playing audio clip: " + audioFilePath);
-                }
-                else
-                {
-                    Debug.LogError("Failed to load audio clip: " + audioFilePath);
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.LogError("Exception processing audio clip: " + ex.Message);
-            }
-        }
-
-        public NavigationAimAssist GetNavigationAimAssist()
-        {
-            return navigationAimAssist;
+            yield return StartCoroutine(AudioUtils.LoadAndPlayAudioClip(audioFilePath, targetGameObject, minDistance, maxDistance));
         }
 
         private void OnDestroy()
         {
             SpeechSynthesizer.Cleanup();
-            if (navigationAimAssist != null)
-            {
-                Destroy(navigationAimAssist);
-            }
             if (uiAccessibilityManager != null)
             {
                 Destroy(uiAccessibilityManager);
+            }
+            if (settingsMenu != null)
+            {
+                Destroy(settingsMenu);
             }
         }
     }

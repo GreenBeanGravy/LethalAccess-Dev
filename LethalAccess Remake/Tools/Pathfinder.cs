@@ -91,7 +91,6 @@ namespace LethalAccess
         private const float AUDIO_DELAY_BETWEEN_POINTS = 0.15f;
         private bool isOnNavMesh = false;
         private const float NAV_MESH_CHECK_INTERVAL = 0.5f;
-        private RaycastHit groundHit;
         private LayerMask groundMask;
         private const float TERRAIN_CHECK_DISTANCE = 50f;
         private const float PATH_HEIGHT_CLEARANCE = 2f;

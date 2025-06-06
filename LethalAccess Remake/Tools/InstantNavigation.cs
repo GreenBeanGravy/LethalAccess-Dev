@@ -12,15 +12,14 @@ namespace LethalAccess
         private LACore plugin;
         private Dictionary<string, ConfigEntry<Key>> keybindConfigEntries = new Dictionary<string, ConfigEntry<Key>>();
         private Dictionary<string, ConfigEntry<string>> destinationConfigEntries = new Dictionary<string, ConfigEntry<string>>();
-        private LACore lethalAccessPlugin;
         private static readonly Dictionary<string, Key> defaultKeys = new Dictionary<string, Key>
     {
-        { "InstantNavigation1", Key.Digit1 },
-        { "InstantNavigation2", Key.Digit2 },
-        { "InstantNavigation3", Key.Digit3 },
-        { "InstantNavigation4", Key.Digit4 },
-        { "InstantNavigation5", Key.Digit5 },
-        { "InstantNavigation6", Key.Digit6 }
+        { "InstantNavigation1", Key.Digit5 },
+        { "InstantNavigation2", Key.Digit6 },
+        { "InstantNavigation3", Key.Digit7 },
+        { "InstantNavigation4", Key.Digit8 },
+        { "InstantNavigation5", Key.Digit9 },
+        { "InstantNavigation6", Key.Digit0 }
     };
 
         private static readonly Dictionary<string, string> defaultDestinations = new Dictionary<string, string>
