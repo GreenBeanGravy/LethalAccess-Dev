@@ -41,18 +41,14 @@ namespace LethalAccess.Patches
             // Check specific texts and decide whether to speak them
             if (!string.IsNullOrWhiteSpace(text))
             {
-                if (text == "Climb : [E]") // Ignore "Climb : [E]"
-                {
-                    // Do nothing for "Climb : [E]"
-                }
-                else if (text == "Use door : [E]") // Customize or ignore "Use door : [E]"
+                if (text == "Use door : [E]") // Customize or ignore "Use door : [E]"
                 {
                     // If you want to customize the message:
                     // Utilities.SpeakText("Custom message here.");
 
                     // Or simply do nothing if you want to ignore it.
                 }
-                else // Speak all other texts
+                else // Speak all other texts, including "Climb : [E]"
                 {
                     Utilities.SpeakText(text);
                 }

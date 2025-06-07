@@ -293,22 +293,12 @@ namespace LethalAccess
                 CheckQuickMenuActivation();
             });
 
-            // Enhanced turning system with arrow keys and snap turning
+            // Enhanced turning system with arrow keys and snap turning - REMOVED BRACKET KEYS
             if (GameNetworkManager.Instance?.localPlayerController != null && PlayerTransform != null && CameraTransform != null)
             {
                 float currentTurnSpeed = ConfigManager.TurnSpeed.Value;
 
-                // Regular turning with bracket keys
-                if (Keyboard.current[Key.LeftBracket].isPressed)
-                {
-                    SafeRotate(-currentTurnSpeed * Time.deltaTime);
-                }
-                if (Keyboard.current[Key.RightBracket].isPressed)
-                {
-                    SafeRotate(currentTurnSpeed * Time.deltaTime);
-                }
-
-                // Regular turning with arrow keys
+                // Regular turning with arrow keys ONLY
                 if (Keyboard.current[Key.LeftArrow].isPressed && !Keyboard.current[Key.LeftShift].isPressed && !Keyboard.current[Key.RightShift].isPressed)
                 {
                     SafeRotate(-currentTurnSpeed * Time.deltaTime);
@@ -679,6 +669,8 @@ namespace LethalAccess
             }
         }
 
+        // Replace the CheckReachedTrackedObject method in Plugin.cs with this fixed version:
+
         private void CheckReachedTrackedObject()
         {
             try
@@ -690,6 +682,13 @@ namespace LethalAccess
 
                 float distance = Vector3.Distance(PlayerTransform.position, currentLookTarget.transform.position);
                 float stoppingDistance = pathfinder != null ? pathfinder.stoppingRadius : DEFAULT_STOPPING_RADIUS;
+
+                // For factory entrances/exits and other registered items, use a slightly larger stopping distance
+                bool isRegisteredItem = NavMenu.IsRegisteredMenuItem(currentLookTarget.name);
+                if (isRegisteredItem)
+                {
+                    stoppingDistance = Mathf.Max(stoppingDistance, 3.0f); // Ensure minimum 3.0f for registered items
+                }
 
                 if (distance <= stoppingDistance)
                 {
@@ -720,7 +719,7 @@ namespace LethalAccess
 
                             Destroy(tempAudio, reachedPositionSound.length + 0.1f);
 
-                            Debug.Log($"Playing reached sound for {objectName}");
+                            Debug.Log($"Playing reached sound for {objectName} at distance {distance:F2}m");
                         }
                         else
                         {
@@ -729,11 +728,17 @@ namespace LethalAccess
 
                         SpeechUtils.SpeakText("Reached " + objectName);
                         hasPlayedReachedSound = true;
+
+                        Debug.Log($"Reached {objectName} (distance: {distance:F2}m, stopping distance: {stoppingDistance:F2}m)");
                     }
                 }
                 else
                 {
-                    hasPlayedReachedSound = false;
+                    // Reset the flag when we move away from the object
+                    if (distance > stoppingDistance + 1.0f) // Add some hysteresis to prevent flickering
+                    {
+                        hasPlayedReachedSound = false;
+                    }
                 }
             }
             catch (Exception ex)
@@ -786,11 +791,12 @@ namespace LethalAccess
             RegisterKeybind("NavigateToLookingObject", Key.P, PathfindToSelected);
             RegisterKeybind("StopLookingAndPathfinding", Key.O, StopLookingAndPathfinding);
             RegisterKeybind("FocusPreviousUIElement", Key.Tab, FocusPreviousUIElement);
-            RegisterKeybind("LeftClickHold", Key.Semicolon, delegate
+            // FIXED: Changed from Semicolon/Quote to LeftAlt/RightAlt
+            RegisterKeybind("LeftClickHold", Key.LeftAlt, delegate
             {
                 SimulateMouseClick(0, true);
             });
-            RegisterKeybind("RightClickHold", Key.Quote, delegate
+            RegisterKeybind("RightClickHold", Key.RightAlt, delegate
             {
                 SimulateMouseClick(1, true);
             });

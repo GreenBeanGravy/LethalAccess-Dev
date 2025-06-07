@@ -49,6 +49,7 @@
     <Reference Include="BepInEx.Preloader">
       <HintPath>..\..\..\..\..\..\..\Program Files (x86)\Steam\steamapps\common\Lethal Company\BepInEx\core\BepInEx.Preloader.dll</HintPath>
     </Reference>
+    <Reference Include="Facepunch.Steamworks.Win64, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null" />
     <Reference Include="HarmonyXInterop">
       <HintPath>..\..\..\..\..\..\..\Program Files (x86)\Steam\steamapps\common\Lethal Company\BepInEx\core\HarmonyXInterop.dll</HintPath>
     </Reference>
@@ -468,7 +469,9 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Patches\AccessibleInviteFriendsPatch.cs" />
     <Compile Include="Patches\PlayerFallAnimationPatch.cs" />
+    <Compile Include="Tools\AccessibleMenuSystem.cs" />
     <Compile Include="Tools\AudioSystemBypass.cs" />
     <Compile Include="Tools\ConfigManager.cs" />
     <Compile Include="Tools\SettingsMenu.cs" />
@@ -493,7 +496,6 @@
     <Compile Include="Patches\MoonPatch.cs" />
     <Compile Include="Tools\InstantNavigation.cs" />
     <Compile Include="Utils\ItemIdentifier.cs" />
-    <Compile Include="Tools\NavigationAimAssist.cs" />
     <Compile Include="Tools\NorthSoundManager.cs" />
     <Compile Include="Patches\PreInitScenePatch.cs" />
     <Compile Include="Patches\ProfitQuotaPatch.cs" />

@@ -18,11 +18,37 @@ namespace LethalAccess
         // Dictionary to track what base name an instance belongs to (for cleanup)
         private static Dictionary<int, string> instanceIdToBaseName = new Dictionary<int, string>();
 
+        // Objects that should never receive index values
+        private static HashSet<string> excludedFromIndexing = new HashSet<string>
+        {
+            "EntranceTeleportA",
+            "EntranceTeleportA(Clone)",
+            "EntranceTeleportB",
+            "EntranceTeleportB(Clone)",
+            "TerminalScript",
+            "StartGameLever",
+            "ShipInside",
+            "StorageCloset",
+            "Bunkbeds",
+            "LightSwitch",
+            "ItemShip",
+            "RedButton",
+            "BellDinger",
+            "ItemCounter",
+            "PlacementBlocker (5)"
+        };
+
         // Get or create a unique ID for an item
         public static int GetUniqueId(string gameObjectName, GameObject gameObject = null)
         {
             if (gameObject == null)
                 return 0;
+
+            // Check if this object type should be excluded from indexing
+            if (excludedFromIndexing.Contains(gameObjectName))
+            {
+                return 0;
+            }
 
             int instanceId = gameObject.GetInstanceID();
 
@@ -34,6 +60,14 @@ namespace LethalAccess
 
             // Get base name
             string baseName = GetBaseName(gameObjectName);
+
+            // Check if the base name should be excluded from indexing
+            if (excludedFromIndexing.Contains(baseName))
+            {
+                instanceIdToAssignedId[instanceId] = 0;
+                instanceIdToBaseName[instanceId] = baseName;
+                return 0;
+            }
 
             // Count how many instances of this type exist
             bool hasMultipleInstances = false;
