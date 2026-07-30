@@ -65,7 +65,11 @@ namespace LethalAccess
         #region Configuration Properties
 
         private NavigationMode currentMode = NavigationMode.Explore;
-        private bool showVisuals = true;
+        // Seeded from Navigation/EnableVisualMarkers, which was bound in config and listed in the
+        // settings menu but never read. The Backspace keybind still toggles it at runtime.
+        private bool showVisuals = ConfigManager.EnableVisualMarkers != null
+            ? ConfigManager.EnableVisualMarkers.Value
+            : true;
         private float proximityThreshold = 40f;
         private float markerSize = 0.5f;
         private float masterVolume = 2f;
@@ -73,7 +77,66 @@ namespace LethalAccess
         private float audioPingInterval = 0.75f;
         private float audioDelayBetweenPoints = 0.3f;
         private bool checkLineOfSight = true;
-        private LayerMask wallLayerMask;
+        private int wallLayerMaskCache = 0;
+
+        /// <summary>
+        /// Layer mask used for the line-of-sight test that gates navigation-point audio.
+        ///
+        /// This used to be LayerMask.GetMask("Default", "Environment", "Blocking", "Facility").
+        /// None of "Environment", "Blocking" or "Facility" are layers in Lethal Company, and
+        /// LayerMask.GetMask silently contributes nothing for a name it cannot resolve, so the
+        /// mask collapsed to Default alone and every line-of-sight test saw straight through
+        /// facility walls. It was also built once in Initialize(), which can run before
+        /// StartOfRound.Instance exists, so the OR with the game's own mask was a race.
+        ///
+        /// Resolved on first use instead, and preferring the mask the game itself uses for
+        /// line-of-sight (StartOfRound.collidersAndRoomMaskAndDefault, see StartOfRound.Update's
+        /// Physics.Linecast against shipDoorNode).
+        /// </summary>
+        private int WallLayerMask
+        {
+            get
+            {
+                if (wallLayerMaskCache != 0)
+                {
+                    return wallLayerMaskCache;
+                }
+
+                int mask = ResolveLayerMask("Default", "Room", "Colliders", "MiscLevelGeometry", "Terrain");
+
+                if (StartOfRound.Instance != null)
+                {
+                    mask |= StartOfRound.Instance.collidersAndRoomMaskAndDefault;
+                    // Only latch the value once the game's mask is available, so an early call
+                    // cannot freeze in a degraded mask for the rest of the session.
+                    wallLayerMaskCache = mask;
+                }
+
+                return mask;
+            }
+        }
+
+        /// <summary>
+        /// LayerMask.GetMask ignores names that do not exist. Resolve each name individually so
+        /// a typo or a game update is reported instead of silently weakening the mask.
+        /// </summary>
+        private int ResolveLayerMask(params string[] layerNames)
+        {
+            int mask = 0;
+            foreach (string name in layerNames)
+            {
+                int layer = LayerMask.NameToLayer(name);
+                if (layer < 0)
+                {
+                    Debug.LogError($"[LethalAccess] Layer '{name}' does not exist in this build of " +
+                                   "Lethal Company; wall detection will be less accurate. " +
+                                   "This needs fixing in TileTracker.WallLayerMask.");
+                    continue;
+                }
+                mask |= 1 << layer;
+            }
+            return mask;
+        }
 
         // Discovery thresholds for different point types
         private Dictionary<NavigationPoint.PointType, float> discoveryThresholds = new Dictionary<NavigationPoint.PointType, float>
@@ -144,6 +207,8 @@ namespace LethalAccess
         private Dictionary<NavigationPoint.PointType, AudioClip> audioClips = new Dictionary<NavigationPoint.PointType, AudioClip>();
 
         // Visualization update
+        private float lastTileCheckTime = -999f;
+        private const float TILE_CHECK_INTERVAL = 1f;
         private int updateFrameCounter = 0;
         private const int VISUALIZATION_UPDATE_INTERVAL = 10;
         private Vector3 cachedPlayerPosition;
@@ -158,6 +223,12 @@ namespace LethalAccess
 
         #region Unity Lifecycle Methods
 
+        /// <summary>
+        /// True once Initialize() has bound a player transform. Replaces the per-frame
+        /// reflective read of the private 'playerTransform' field that LACore.Update used to do.
+        /// </summary>
+        public bool IsInitializedForPlayer => playerTransform != null;
+
         public void Initialize(ManualLogSource logger, Transform player)
         {
             try
@@ -167,12 +238,8 @@ namespace LethalAccess
 
                 LogMessage("TileTracker initialization started");
 
-                // Setup layer mask for wall detection
-                wallLayerMask = LayerMask.GetMask(new string[] { "Default", "Environment", "Blocking", "Facility" });
-                if (StartOfRound.Instance != null)
-                {
-                    wallLayerMask |= StartOfRound.Instance.collidersAndRoomMaskAndDefault;
-                }
+                // Wall mask is resolved lazily by WallLayerMask; see the comment there for why
+                // building it here was unsafe.
 
                 // Add the TileTriggerListener to the player if it doesn't exist
                 if (player != null)
@@ -267,9 +334,14 @@ namespace LethalAccess
 
                 if (isInFactory)
                 {
-                    // Periodically check current tile if needed
-                    if (currentTile == null || Time.frameCount % 60 == 0)
+                    // Periodically check current tile if needed.
+                    // The `currentTile == null` half of the old condition made this run on EVERY
+                    // frame whenever the player was between tiles - exactly the situation where
+                    // the check is most expensive and least likely to succeed. Throttled to the
+                    // same ~1/second cadence in both cases.
+                    if (Time.time - lastTileCheckTime > TILE_CHECK_INTERVAL)
                     {
+                        lastTileCheckTime = Time.time;
                         CheckCurrentTileManually();
                     }
 
@@ -426,31 +498,31 @@ namespace LethalAccess
         /// </summary>
         private bool IsInCompanyBuilding()
         {
-            // Check if the current level name matches the Company Building
+            // The Company building is the only level that contains a DepositItemsDesk, so look
+            // the component up by type. The old probe was GameObject.Find("DepositItemsDesk"),
+            // but the GameObject is named "DepositCounter" - that Find never matched. The
+            // companion probe for "ItemCounter" never matched either; no object of that name
+            // exists in any shipped scene.
+            if (UnityEngine.Object.FindObjectOfType<DepositItemsDesk>() != null)
+            {
+                return true;
+            }
+
+            // Fall back to the moon name. "71 Gordion" is the Company moon.
             if (StartOfRound.Instance != null &&
                 StartOfRound.Instance.currentLevel != null)
             {
                 string planetName = StartOfRound.Instance.currentLevel.PlanetName;
-                if (planetName.Contains("Company") || planetName.Contains("Building"))
+                if (!string.IsNullOrEmpty(planetName) &&
+                    (planetName.Contains("Company") || planetName.Contains("Gordion")))
                 {
                     return true;
                 }
             }
 
-            // Check if we're in a level without enemies (Company Building has no enemies)
-            if (StartOfRound.Instance != null &&
-                StartOfRound.Instance.currentLevel != null &&
-                (StartOfRound.Instance.currentLevel.Enemies == null ||
-                 StartOfRound.Instance.currentLevel.Enemies.Count == 0))
-            {
-                return true;
-            }
-
-            // Check for specific Company Building objects
-            GameObject itemCounter = GameObject.Find("ItemCounter");
-            GameObject sellDesk = GameObject.Find("DepositItemsDesk");
-
-            return itemCounter != null || sellDesk != null;
+            // Removed: a "currentLevel.Enemies.Count == 0" branch that reported *any* moon with
+            // an empty enemy list as the Company building.
+            return false;
         }
 
         /// <summary>
@@ -1267,6 +1339,7 @@ namespace LethalAccess
         private void ToggleVisuals()
         {
             showVisuals = !showVisuals;
+            ConfigManager.EnableVisualMarkers.Value = showVisuals;
             Utilities.SpeakText(showVisuals ? "Navigation markers visible." : "Navigation markers hidden.");
             UpdateAllMarkerVisibility();
         }
@@ -1469,7 +1542,7 @@ namespace LethalAccess
                 Vector3 eyePos = playerPos + Vector3.up * 0.5f;
                 Vector3 pointEyeLevel = point + Vector3.up * 0.5f;
 
-                return !Physics.Linecast(eyePos, pointEyeLevel, wallLayerMask);
+                return !Physics.Linecast(eyePos, pointEyeLevel, WallLayerMask);
             }
 
             return true;

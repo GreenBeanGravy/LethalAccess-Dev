@@ -1,144 +1,215 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using UnityEngine;
-using UnityEngine.UI;
-using TMPro;
+using UnityEngine.SceneManagement;
 
 namespace LethalAccess
 {
     /// <summary>
-    /// Consolidated UI utility functions for LethalAccess
+    /// UI utility functions for LethalAccess.
+    ///
+    /// Text scraping, special-character stripping and hierarchy-path building all live in
+    /// <see cref="Utilities"/>; the versions here are thin forwards. Keep them that way - as
+    /// byte-identical copies a label rule could be fixed in one and silently not apply through the
+    /// other, because LACore's custom text providers go through this class while the announcer
+    /// goes through Utilities.
     /// </summary>
     public static class UIUtils
     {
+        // ------------------------------------------------------------------
+        // Path resolution that sees inactive objects
+        // ------------------------------------------------------------------
+
         /// <summary>
-        /// Get text from a GameObject by path
+        /// Resolve a '/'-separated path below <paramref name="root"/>, traversing inactive
+        /// children.
+        ///
+        /// This exists because <c>GameObject.Find</c> is ACTIVE-ONLY. Every panel in this game
+        /// ships with <c>m_IsActive = false</c> and is turned on by a serialized UnityEvent, so
+        /// <c>GameObject.Find("Canvas/MenuContainer/SettingsPanel/...")</c> returns null right up
+        /// until the panel is on screen - which is why both SetNavigation calls in Plugin.cs never
+        /// applied and why ValidateRegisteredPaths reported every SettingsPanel and
+        /// LobbyHostSettings path as broken on every launch.
+        ///
+        /// <c>Transform.Find</c> has no such restriction: it walks the child list directly.
+        /// </summary>
+        /// <returns>The resolved transform, or null if any segment is missing.</returns>
+        public static Transform FindByPathIncludingInactive(Transform root, string relativePath)
+        {
+            if (root == null)
+            {
+                return null;
+            }
+            if (string.IsNullOrEmpty(relativePath))
+            {
+                return root;
+            }
+
+            Transform current = root;
+            string[] segments = relativePath.Split('/');
+
+            for (int i = 0; i < segments.Length; i++)
+            {
+                string segment = segments[i];
+
+                // Tolerate a leading, trailing or doubled slash rather than failing to resolve a
+                // path that is only cosmetically malformed.
+                if (segment.Length == 0)
+                {
+                    continue;
+                }
+
+                current = current.Find(segment);
+                if (current == null)
+                {
+                    return null;
+                }
+            }
+
+            return current;
+        }
+
+        /// <summary>
+        /// Resolve an absolute scene path ("Canvas/MenuContainer/SettingsPanel/BackButton"),
+        /// traversing inactive objects.
+        ///
+        /// Every loaded scene is searched, active scene first. That matters in this game because
+        /// the menu and the in-game relay scene are loaded together at various points, and the
+        /// active one is not always the one holding the UI being asked about.
+        ///
+        /// KNOWN GAP: the DontDestroyOnLoad pseudo-scene is not returned by SceneManager, so a
+        /// path whose root object has been marked DontDestroyOnLoad will NOT resolve here. Unity
+        /// exposes no API to enumerate that scene's roots. Nothing currently registered by this
+        /// mod lives there (the menu roots are in MainMenu/InitSceneLaunchOptions and "Systems" is
+        /// a root of the in-game relay scene), but a caller that needs it must resolve from a live
+        /// component reference instead of a path.
+        /// </summary>
+        public static Transform FindByPathIncludingInactive(string absolutePath)
+        {
+            if (string.IsNullOrEmpty(absolutePath))
+            {
+                return null;
+            }
+
+            int slash = absolutePath.IndexOf('/');
+            string rootName = slash < 0 ? absolutePath : absolutePath.Substring(0, slash);
+            string remainder = slash < 0 ? string.Empty : absolutePath.Substring(slash + 1);
+
+            Scene active = SceneManager.GetActiveScene();
+            Transform hit = FindInScene(active, rootName, remainder);
+            if (hit != null)
+            {
+                return hit;
+            }
+
+            for (int i = 0; i < SceneManager.sceneCount; i++)
+            {
+                Scene scene = SceneManager.GetSceneAt(i);
+                if (scene == active)
+                {
+                    continue;
+                }
+
+                hit = FindInScene(scene, rootName, remainder);
+                if (hit != null)
+                {
+                    return hit;
+                }
+            }
+
+            return null;
+        }
+
+        private static Transform FindInScene(Scene scene, string rootName, string remainder)
+        {
+            // GetRootGameObjects throws on a scene that is not finished loading.
+            if (!scene.IsValid() || !scene.isLoaded)
+            {
+                return null;
+            }
+
+            GameObject[] roots = scene.GetRootGameObjects();
+            for (int i = 0; i < roots.Length; i++)
+            {
+                GameObject root = roots[i];
+                if (root == null || root.name != rootName)
+                {
+                    continue;
+                }
+
+                // Root names are not unique - keep scanning rather than committing to the first
+                // object that merely has the right name.
+                Transform resolved = remainder.Length == 0
+                    ? root.transform
+                    : FindByPathIncludingInactive(root.transform, remainder);
+
+                if (resolved != null)
+                {
+                    return resolved;
+                }
+            }
+
+            return null;
+        }
+
+        // ------------------------------------------------------------------
+        // Text
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// Get text from a GameObject by absolute path. Resolves inactive objects.
         /// </summary>
         public static string GetTextFromGameObject(string gameObjectPath)
         {
-            GameObject gameObject = GameObject.Find(gameObjectPath);
-            if (gameObject != null)
+            Transform target = FindByPathIncludingInactive(gameObjectPath);
+            if (target != null)
             {
-                return GetTextFromComponent(gameObject);
+                return GetTextFromComponent(target.gameObject);
             }
             return string.Empty;
         }
 
         /// <summary>
-        /// Get text from a GameObject's text components
+        /// Get the label text for a GameObject. See <see cref="Utilities.GetTextFromComponent"/>
+        /// for the rules (blank text is skipped, sliders and buttons fall back to a sibling label).
         /// </summary>
         public static string GetTextFromComponent(GameObject gameObject)
         {
-            if (gameObject == null) return string.Empty;
-
-            // Check if the component has a TextMeshProUGUI component
-            TMPro.TextMeshProUGUI tmpTextComponent = gameObject.GetComponentInChildren<TMPro.TextMeshProUGUI>();
-            if (tmpTextComponent != null)
-            {
-                return tmpTextComponent.text;
-            }
-
-            // If no TextMeshProUGUI component, check for a Text component
-            UnityEngine.UI.Text textComponent = gameObject.GetComponent<UnityEngine.UI.Text>();
-            if (textComponent != null)
-            {
-                return textComponent.text;
-            }
-
-            // If no text component found, recursively check child objects
-            foreach (Transform child in gameObject.transform)
-            {
-                string childText = GetTextFromComponent(child.gameObject);
-                if (!string.IsNullOrEmpty(childText))
-                {
-                    return childText;
-                }
-            }
-
-            // If no text component found, use the name of the GameObject
-            return gameObject.name;
+            return Utilities.GetTextFromComponent(gameObject);
         }
 
         /// <summary>
-        /// Get lobby information from a join button
-        /// </summary>
-        public static string GetLobbyInfoFromJoinButton(GameObject selectedObject)
-        {
-            if (selectedObject != null)
-            {
-                Transform lobbyListItemTransform = selectedObject.transform.parent;
-                if (lobbyListItemTransform != null)
-                {
-                    LobbySlot lobbySlot = lobbyListItemTransform.GetComponent<LobbySlot>();
-                    if (lobbySlot != null)
-                    {
-                        string lobbyName = GetTextFromComponent(lobbySlot.LobbyName.gameObject);
-                        string playerCount = GetTextFromComponent(lobbySlot.playerCount.gameObject);
-                        return $"Lobby: {lobbyName}, Players: {playerCount}";
-                    }
-                }
-            }
-            return string.Empty;
-        }
-
-        /// <summary>
-        /// Remove special characters from text
+        /// Strip bracket characters and trim. Single implementation in <see cref="Utilities"/>.
         /// </summary>
         public static string RemoveSpecialCharacters(string input)
         {
-            if (string.IsNullOrEmpty(input)) return string.Empty;
-
-            string specialCharacters = "[]{}<>()";
-            foreach (char c in specialCharacters)
-            {
-                input = input.Replace(c.ToString(), string.Empty);
-            }
-            return input;
+            return Utilities.RemoveSpecialCharacters(input);
         }
 
         /// <summary>
-        /// Get the full path of a GameObject in the hierarchy
+        /// Full hierarchy path of a GameObject. Single implementation in <see cref="Utilities"/>.
         /// </summary>
         public static string GetGameObjectPath(GameObject gameObject)
         {
-            if (gameObject == null) return string.Empty;
-
-            string path = gameObject.name;
-            Transform parent = gameObject.transform.parent;
-
-            while (parent != null)
-            {
-                path = parent.name + "/" + path;
-                parent = parent.parent;
-            }
-
-            return path;
+            return Utilities.GetGameObjectPath(gameObject);
         }
 
-        /// <summary>
-        /// Get slider value as percentage
-        /// </summary>
-        public static float GetSliderValuePercentage(string sliderHandlePath)
-        {
-            GameObject sliderHandle = GameObject.Find(sliderHandlePath);
-            if (sliderHandle != null)
-            {
-                Vector3 localPosition = sliderHandle.transform.localPosition;
-                float percentage = (localPosition.x + 70f) / 140f * 100f;
-                return Mathf.Clamp(percentage, 0f, 100f);
-            }
-            return 0f;
-        }
+        // ------------------------------------------------------------------
+        // Sliders
+        // ------------------------------------------------------------------
 
         /// <summary>
-        /// Get slider value as integer
+        /// Read a slider's value given the path of its handle. Used by the custom text providers
+        /// registered in Plugin.cs for the master-volume and look-sensitivity rows.
         /// </summary>
         public static int GetSliderValue(string sliderHandlePath)
         {
-            GameObject sliderHandle = GameObject.Find(sliderHandlePath);
+            Transform sliderHandle = FindByPathIncludingInactive(sliderHandlePath);
             if (sliderHandle != null)
             {
-                UnityEngine.UI.Slider slider = sliderHandle.GetComponentInParent<UnityEngine.UI.Slider>();
+                // includeInactive: the handle resolves through inactive parents now, so the parent
+                // walk has to as well or this returns 0 for a panel that is not on screen yet.
+                UnityEngine.UI.Slider slider = sliderHandle.GetComponentInParent<UnityEngine.UI.Slider>(true);
                 if (slider != null)
                 {
                     return Mathf.RoundToInt(slider.value);
@@ -146,6 +217,10 @@ namespace LethalAccess
             }
             return 0;
         }
+
+        // ------------------------------------------------------------------
+        // Registration helpers
+        // ------------------------------------------------------------------
 
         /// <summary>
         /// Set custom text for UI accessibility manager
@@ -159,7 +234,9 @@ namespace LethalAccess
         }
 
         /// <summary>
-        /// Check if a UI element is visible and interactable
+        /// Check if a UI element is visible and interactable.
+        /// The screen registry uses this to decide which entries count towards "n of m", so an
+        /// element hidden behind a zero-alpha or non-interactable CanvasGroup must fail here.
         /// </summary>
         public static bool IsUIElementVisible(GameObject uiElement)
         {
@@ -190,120 +267,111 @@ namespace LethalAccess
             return true;
         }
 
+        // ------------------------------------------------------------------
+        // Server list
+        // ------------------------------------------------------------------
+
         /// <summary>
-        /// Get the display text for different UI element types
+        /// Describe the lobby row that owns <paramref name="selectedObject"/> (typically a
+        /// JoinButton). Resolves the LobbySlot with GetComponentInParent rather than
+        /// transform.parent.GetComponent: SteamLobbyManager instantiates the row prefab and takes
+        /// the LobbySlot with GetComponentInChildren (SteamLobbyManager.loadLobbyListAndFilter), so the component
+        /// is not guaranteed to sit exactly one level above the button.
         /// </summary>
-        public static string GetUIElementDisplayText(GameObject element)
+        public static string GetLobbyInfoFromJoinButton(GameObject selectedObject)
         {
-            if (element == null) return string.Empty;
-
-            // Button
-            Button button = element.GetComponent<Button>();
-            if (button != null)
+            if (selectedObject == null)
             {
-                string buttonText = GetTextFromComponent(element);
-                return string.IsNullOrEmpty(buttonText) ? element.name : buttonText;
+                return string.Empty;
             }
 
-            // Toggle
-            Toggle toggle = element.GetComponent<Toggle>();
-            if (toggle != null)
+            LobbySlot lobbySlot = selectedObject.GetComponentInParent<LobbySlot>(true);
+            if (lobbySlot == null)
             {
-                string toggleText = GetTextFromComponent(element);
-                string state = toggle.isOn ? "checked" : "unchecked";
-                return $"{toggleText}, {state}";
+                return string.Empty;
             }
 
-            // Slider
-            Slider slider = element.GetComponent<Slider>();
-            if (slider != null)
-            {
-                string sliderText = GetTextFromComponent(element);
-                string value = slider.wholeNumbers ?
-                    slider.value.ToString("F0") :
-                    slider.value.ToString("F1");
-                return $"{sliderText}: {value}";
-            }
-
-            // Dropdown
-            Dropdown dropdown = element.GetComponent<Dropdown>();
-            if (dropdown != null)
-            {
-                string dropdownText = GetTextFromComponent(element);
-                if (dropdown.options.Count > 0 && dropdown.value >= 0 && dropdown.value < dropdown.options.Count)
-                {
-                    string selectedOption = dropdown.options[dropdown.value].text;
-                    return $"{dropdownText}: {selectedOption}";
-                }
-                return dropdownText;
-            }
-
-            // TMP Dropdown
-            TMP_Dropdown tmpDropdown = element.GetComponent<TMP_Dropdown>();
-            if (tmpDropdown != null)
-            {
-                string dropdownText = GetTextFromComponent(element);
-                if (tmpDropdown.options.Count > 0 && tmpDropdown.value >= 0 && tmpDropdown.value < tmpDropdown.options.Count)
-                {
-                    string selectedOption = tmpDropdown.options[tmpDropdown.value].text;
-                    return $"{dropdownText}: {selectedOption}";
-                }
-                return dropdownText;
-            }
-
-            // Input Field
-            InputField inputField = element.GetComponent<InputField>();
-            if (inputField != null)
-            {
-                string label = GetTextFromComponent(element.transform.parent?.gameObject);
-                string currentText = string.IsNullOrEmpty(inputField.text) ? "empty" : inputField.text;
-                return $"{label}: {currentText}";
-            }
-
-            // TMP Input Field
-            TMP_InputField tmpInputField = element.GetComponent<TMP_InputField>();
-            if (tmpInputField != null)
-            {
-                string label = GetTextFromComponent(element.transform.parent?.gameObject);
-                string currentText = string.IsNullOrEmpty(tmpInputField.text) ? "empty" : tmpInputField.text;
-                return $"{label}: {currentText}";
-            }
-
-            // Default to text content or name
-            string elementText = GetTextFromComponent(element);
-            return string.IsNullOrEmpty(elementText) ? element.name : elementText;
+            return BuildLobbyRowLabel(lobbySlot, 0, 0);
         }
 
         /// <summary>
-        /// Find UI elements by type in a parent container
+        /// The spoken label for one server-list row.
+        ///
+        /// <paramref name="index"/> is 1-BASED and <paramref name="total"/> is the number of rows
+        /// currently visible, matching UIScreenRegistry.TryGetPosition. Pass 0 for both to omit
+        /// the position - do that when the announcer is already appending one, so the row is not
+        /// numbered twice.
+        ///
+        /// Pass `i + 1` when iterating rows - the index is 1-based so it matches TryGetPosition and
+        /// every other "n of m" in the mod. An index outside 1..total is treated as "no position"
+        /// rather than announced, so an off-by-one shows up as a missing position on row 1 instead
+        /// of as a wrong number on every row.
         /// </summary>
-        public static List<T> FindUIElementsOfType<T>(Transform parent) where T : Component
+        public static string BuildLobbyRowLabel(LobbySlot slot, int index, int total)
         {
-            List<T> elements = new List<T>();
-            if (parent == null) return elements;
-
-            T[] foundElements = parent.GetComponentsInChildren<T>(true);
-            elements.AddRange(foundElements);
-
-            return elements;
-        }
-
-        /// <summary>
-        /// Check if a UI element can be interacted with
-        /// </summary>
-        public static bool CanInteractWithElement(GameObject element)
-        {
-            if (!IsUIElementVisible(element)) return false;
-
-            // Check for Selectable components
-            Selectable selectable = element.GetComponent<Selectable>();
-            if (selectable != null)
+            if (slot == null)
             {
-                return selectable.IsInteractable();
+                return string.Empty;
             }
 
-            // If no Selectable, assume it can be interacted with if visible
-            return true;
+            // SteamLobbyManager writes LobbyName.text directly (SteamLobbyManager.loadLobbyListAndFilter), so this
+            // is the real lobby name, not a scene placeholder.
+            string name = slot.LobbyName != null
+                ? Utilities.RemoveSpecialCharacters(slot.LobbyName.text)
+                : string.Empty;
+
+            if (string.IsNullOrEmpty(name))
+            {
+                // A row with no name is still joinable; saying nothing would make it unreachable.
+                name = "Unnamed lobby";
+            }
+
+            string label = name;
+
+            string players = slot.playerCount != null
+                ? Utilities.RemoveSpecialCharacters(slot.playerCount.text)
+                : string.Empty;
+
+            if (!string.IsNullOrEmpty(players))
+            {
+                // The game formats this as "3 / 4" (SteamLobbyManager.loadLobbyListAndFilter). Spoken verbatim a
+                // slash reads as punctuation or is swallowed entirely, so say the relation.
+                int separator = players.IndexOf('/');
+                if (separator > 0 && separator < players.Length - 1)
+                {
+                    string here = players.Substring(0, separator).Trim();
+                    string cap = players.Substring(separator + 1).Trim();
+                    if (here.Length > 0 && cap.Length > 0)
+                    {
+                        players = here + " of " + cap;
+                    }
+                }
+                label += ", " + players + " players";
+            }
+
+            // LobbySlot.SetModdedIcon only ever ENABLES an icon - the Vanilla case enables neither
+            // and nothing ever disables one - so "both off" and "both on" are equally
+            // uninformative. Only speak a mod state when exactly one icon is showing, rather than
+            // reporting a lobby as modded on the strength of a prefab default.
+            // TODO(verify): open the server list and read the authored Image.enabled values on
+            // LobbySlotPrefab; if Vanilla is provably "both off", this can also say "no mods".
+            bool modded = slot.modStateTrueIcon != null && slot.modStateTrueIcon.enabled;
+            bool unknown = slot.modStateUnknownIcon != null && slot.modStateUnknownIcon.enabled;
+            if (modded && !unknown)
+            {
+                label += ", modded";
+            }
+            else if (unknown && !modded)
+            {
+                label += ", mods unknown";
+            }
+
+            if (total > 0 && index >= 1 && index <= total)
+            {
+                label += ", " + index + " of " + total;
+            }
+
+            return label;
         }
     }
 }

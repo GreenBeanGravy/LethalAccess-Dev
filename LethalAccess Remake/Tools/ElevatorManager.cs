@@ -66,6 +66,22 @@ public class ElevatorManager
         }
     }
 
+    // Created once and repositioned thereafter. Creating them fresh inside
+    // UpdateElevatorObjects() - which runs on every refresh of the Elevator category - leaks three
+    // GameObjects per refresh, because nothing destroys the previous set.
+    private GameObject topButtonMarker;
+    private GameObject bottomButtonMarker;
+    private GameObject controlButtonMarker;
+
+    private GameObject EnsureMarker(ref GameObject marker, string name)
+    {
+        if (marker == null)
+        {
+            marker = new GameObject(name);
+        }
+        return marker;
+    }
+
     private List<GameObject> GetElevatorObjects(MineshaftElevatorController elevator)
     {
         List<GameObject> elevatorObjects = new List<GameObject>();
@@ -89,18 +105,20 @@ public class ElevatorManager
         // Control button offset (relative to elevator inside point)
         Vector3 controlButtonLocalPosition = new Vector3(-0.49f, 1.81f, -1.12f);
 
-        // Create top button
-        GameObject topButton = new GameObject("TopElevatorButton");
+        // Top button
+        GameObject topButton = EnsureMarker(ref topButtonMarker, "TopElevatorButton");
+        topButton.transform.SetParent(null, false);
         topButton.transform.position = basePosition + topButtonOffset;
         elevatorObjects.Add(topButton);
 
-        // Create bottom button
-        GameObject bottomButton = new GameObject("BottomElevatorButton");
+        // Bottom button
+        GameObject bottomButton = EnsureMarker(ref bottomButtonMarker, "BottomElevatorButton");
+        bottomButton.transform.SetParent(null, false);
         bottomButton.transform.position = basePosition + bottomButtonOffset;
         elevatorObjects.Add(bottomButton);
 
-        // Create control button inside elevator
-        GameObject controlButton = new GameObject("ElevatorControlButton");
+        // Control button inside elevator
+        GameObject controlButton = EnsureMarker(ref controlButtonMarker, "ElevatorControlButton");
         controlButton.transform.SetParent(elevator.elevatorInsidePoint, false);
         controlButton.transform.localPosition = controlButtonLocalPosition;
         controlButton.transform.localRotation = Quaternion.identity;

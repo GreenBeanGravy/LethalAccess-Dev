@@ -16,7 +16,12 @@ namespace LethalAccess
     /// </summary>
     public class NavMenu : MonoBehaviour
     {
-        private const float ScanRadius = 80f;
+        // Was `private const float ScanRadius = 80f`, which meant the Navigation/ScanRadius and
+        // Performance/MaxObjectsToScan config entries - both shown in the in-game settings menu -
+        // did nothing at all.
+        private static float ScanRadius => ConfigManager.ScanRadius.Value;
+        private static int MaxObjectsToScan => ConfigManager.MaxObjectsToScan.Value;
+
         private const string ItemsCategoryName = "Items";
         private const string UnlabeledCategoryName = "Unlabeled Nearby Objects";
         private const string ElevatorCategoryName = "Elevator";
@@ -318,10 +323,7 @@ namespace LethalAccess
                     {
                         currentIndices.itemIndex = (currentIndices.itemIndex + 1) % items.Count;
                         string uniqueKey = items[currentIndices.itemIndex];
-                        UnityMainThreadDispatcher.Instance().Enqueue(() =>
-                        {
-                            AnnounceItemWithDetails(currentCategory, uniqueKey);
-                        });
+                        AnnounceItemWithDetails(currentCategory, uniqueKey);
                     }
                     else
                     {
@@ -348,10 +350,7 @@ namespace LethalAccess
                     {
                         currentIndices.itemIndex = (currentIndices.itemIndex - 1 + items.Count) % items.Count;
                         string uniqueKey = items[currentIndices.itemIndex];
-                        UnityMainThreadDispatcher.Instance().Enqueue(() =>
-                        {
-                            AnnounceItemWithDetails(currentCategory, uniqueKey);
-                        });
+                        AnnounceItemWithDetails(currentCategory, uniqueKey);
                     }
                     else
                     {
@@ -366,7 +365,7 @@ namespace LethalAccess
             }
         }
 
-        private async void MoveToNextCategory()
+        private void MoveToNextCategory()
         {
             try
             {
@@ -416,7 +415,7 @@ namespace LethalAccess
 
                         if (!string.IsNullOrEmpty(currentCategory))
                         {
-                            await RefreshCategory(currentCategory);
+                            RefreshCategory(currentCategory);
                             AnnounceCurrentCategoryAndFirstItem();
                         }
                     }
@@ -434,7 +433,7 @@ namespace LethalAccess
             }
         }
 
-        private async void MoveToPreviousCategory()
+        private void MoveToPreviousCategory()
         {
             try
             {
@@ -484,7 +483,7 @@ namespace LethalAccess
 
                         if (!string.IsNullOrEmpty(currentCategory))
                         {
-                            await RefreshCategory(currentCategory);
+                            RefreshCategory(currentCategory);
                             AnnounceCurrentCategoryAndFirstItem();
                         }
                     }
@@ -619,14 +618,14 @@ namespace LethalAccess
             }
         }
 
-        private async void RefreshCurrentCategory()
+        private void RefreshCurrentCategory()
         {
             try
             {
                 if (categories.Count > 0)
                 {
                     string currentCategory = categories[currentIndices.categoryIndex];
-                    await RefreshCategory(currentCategory);
+                    RefreshCategory(currentCategory);
                     currentIndices.itemIndex = 0;
                     AnnounceCurrentCategoryAndFirstItem();
                     SetCurrentLookTargetToFirstItem();
@@ -639,7 +638,12 @@ namespace LethalAccess
             }
         }
 
-        public async Task RefreshCategory(string category)
+        // Runs entirely on the main thread. This used to be `async Task` and dispatched the
+        // scans through Task.Run; every Unity call inside them (Physics.OverlapSphere,
+        // FindObjectOfType, CompareTag, GetComponent, NavMesh.*) is main-thread-only, threw,
+        // and was swallowed by the catch below - which is why the Items category was always
+        // empty. Keybind handlers already run on the main thread, so no dispatch is needed.
+        public void RefreshCategory(string category)
         {
             if (string.IsNullOrEmpty(category))
             {
@@ -676,7 +680,7 @@ namespace LethalAccess
                 {
                     try
                     {
-                        var result = await ScanForItemsAsync();
+                        var result = ScanForItems();
                         items = result.Item1;
                         temporaryObjectMap = result.Item2;
                     }
@@ -692,7 +696,7 @@ namespace LethalAccess
                 {
                     try
                     {
-                        var result = await ScanForUnlabeledObjectsAsync();
+                        var result = ScanForUnlabeledObjects();
                         items = result.Item1;
                         temporaryObjectMap = result.Item2;
                     }
@@ -713,12 +717,10 @@ namespace LethalAccess
                     }
                 }
 
-                try
+                // Already on the main thread - the dispatcher round-trip that used to wrap
+                // this block is gone along with the Task.Run scans.
                 {
-                    await UnityMainThreadDispatcher.Instance().EnqueueAsync(() =>
                     {
-                        // Add extra null checks here since we're dispatching to the main thread
-                        // and the game state might have changed
                         if (menuItems == null)
                         {
                             Debug.LogError("menuItems dictionary is null");
@@ -784,13 +786,9 @@ namespace LethalAccess
                         }
                         catch (Exception ex)
                         {
-                            Debug.LogError($"Error during menuItems update on main thread: {ex.Message}\n{ex.StackTrace}");
+                            Debug.LogError($"Error during menuItems update: {ex.Message}\n{ex.StackTrace}");
                         }
-                    });
-                }
-                catch (Exception ex)
-                {
-                    Debug.LogError($"Error dispatching to main thread: {ex.Message}");
+                    }
                 }
             }
             catch (Exception ex)
@@ -799,9 +797,8 @@ namespace LethalAccess
             }
         }
 
-        private async Task<(List<string>, Dictionary<string, GameObject>)> ScanForItemsAsync()
+        private (List<string>, Dictionary<string, GameObject>) ScanForItems()
         {
-            return await Task.Run(() =>
             {
                 List<string> items = new List<string>();
                 Dictionary<string, GameObject> objectMap = new Dictionary<string, GameObject>();
@@ -923,17 +920,14 @@ namespace LethalAccess
                                 items.Add(uniqueKey);
                                 objectMap[uniqueKey] = collider.gameObject;
 
-                                UnityMainThreadDispatcher.Instance().Enqueue(() =>
+                                try
                                 {
-                                    try
-                                    {
-                                        RegisterMenuItem(gameObjectName, finalDisplayName, ItemsCategoryName, gameObject: collider.gameObject);
-                                    }
-                                    catch (Exception ex)
-                                    {
-                                        Debug.LogError($"Error registering menu item: {ex.Message}");
-                                    }
-                                });
+                                    RegisterMenuItem(gameObjectName, finalDisplayName, ItemsCategoryName, gameObject: collider.gameObject);
+                                }
+                                catch (Exception ex)
+                                {
+                                    Debug.LogError($"Error registering menu item: {ex.Message}");
+                                }
                             }
                             catch (Exception ex)
                             {
@@ -945,16 +939,15 @@ namespace LethalAccess
                 }
                 catch (Exception ex)
                 {
-                    Debug.LogError($"Global error in ScanForItemsAsync: {ex.Message}\n{ex.StackTrace}");
+                    Debug.LogError($"Global error in ScanForItems: {ex.Message}\n{ex.StackTrace}");
                 }
 
                 return (items, objectMap);
-            });
+            }
         }
 
-        private async Task<(List<string>, Dictionary<string, GameObject>)> ScanForUnlabeledObjectsAsync()
+        private (List<string>, Dictionary<string, GameObject>) ScanForUnlabeledObjects()
         {
-            return await Task.Run(() =>
             {
                 List<string> objects = new List<string>();
                 Dictionary<string, GameObject> objectMap = new Dictionary<string, GameObject>();
@@ -972,58 +965,44 @@ namespace LethalAccess
                     // Cache all objects in the scene once instead of using physics calls which are expensive
                     List<GameObject> nearbyObjects = new List<GameObject>();
 
-                    // Queue this operation to run on main thread
-                    bool objectsFetched = false;
-                    UnityMainThreadDispatcher.Instance().Enqueue(() =>
+                    try
                     {
-                        try
+                        // Find objects efficiently using Scene's root objects
+                        // This is faster than FindObjectsOfType or physics operations
+                        var rootObjects = UnityEngine.SceneManagement.SceneManager.GetActiveScene().GetRootGameObjects();
+
+                        foreach (var rootObj in rootObjects)
                         {
-                            // Find objects efficiently using Scene's root objects
-                            // This is faster than FindObjectsOfType or physics operations
-                            var rootObjects = UnityEngine.SceneManagement.SceneManager.GetActiveScene().GetRootGameObjects();
+                            // Skip ignored objects early
+                            if (ShouldIgnoreObject(rootObj.name))
+                                continue;
 
-                            foreach (var rootObj in rootObjects)
+                            // Only add if within rough distance
+                            Vector3 rootPos = rootObj.transform.position;
+                            float roughDistance = Vector3.Distance(playerPos, rootPos);
+
+                            if (roughDistance <= optimizedScanRadius * 1.2f) // Add some margin
                             {
-                                // Skip ignored objects early
-                                if (ShouldIgnoreObject(rootObj.name))
-                                    continue;
+                                nearbyObjects.Add(rootObj);
 
-                                // Only add if within rough distance
-                                Vector3 rootPos = rootObj.transform.position;
-                                float roughDistance = Vector3.Distance(playerPos, rootPos);
-
-                                if (roughDistance <= optimizedScanRadius * 1.2f) // Add some margin
+                                // Also get immediate children for better coverage
+                                foreach (Transform child in rootObj.transform)
                                 {
-                                    nearbyObjects.Add(rootObj);
-
-                                    // Also get immediate children for better coverage
-                                    foreach (Transform child in rootObj.transform)
+                                    if (child != null && !ShouldIgnoreObject(child.name))
                                     {
-                                        if (child != null && !ShouldIgnoreObject(child.name))
+                                        float childRoughDistance = Vector3.Distance(playerPos, child.position);
+                                        if (childRoughDistance <= optimizedScanRadius * 1.2f)
                                         {
-                                            float childRoughDistance = Vector3.Distance(playerPos, child.position);
-                                            if (childRoughDistance <= optimizedScanRadius * 1.2f)
-                                            {
-                                                nearbyObjects.Add(child.gameObject);
-                                            }
+                                            nearbyObjects.Add(child.gameObject);
                                         }
                                     }
                                 }
                             }
-
-                            objectsFetched = true;
                         }
-                        catch (Exception ex)
-                        {
-                            Debug.LogError($"Error fetching objects: {ex.Message}");
-                            objectsFetched = true;
-                        }
-                    });
-
-                    // Wait for objects to be fetched on main thread
-                    while (!objectsFetched)
+                    }
+                    catch (Exception ex)
                     {
-                        Thread.Sleep(5);
+                        Debug.LogError($"Error fetching objects: {ex.Message}");
                     }
 
                     // Process the objects in batches
@@ -1040,7 +1019,7 @@ namespace LethalAccess
                     }).ToList();
 
                     int totalBatches = Mathf.CeilToInt((float)sortedObjects.Count / batchSize);
-                    int maxProcessedObjects = 75; // Cap the number of processed objects for performance
+                    int maxProcessedObjects = MaxObjectsToScan; // Performance/MaxObjectsToScan
                     int processedCount = 0;
 
                     for (int batchIndex = 0; batchIndex < totalBatches && processedCount < maxProcessedObjects; batchIndex++)
@@ -1070,25 +1049,7 @@ namespace LethalAccess
                                     continue;
 
                                 // Now do more expensive path validation
-                                bool validPath = false;
-
-                                // Queue path validation on main thread
-                                bool validationComplete = false;
-                                UnityMainThreadDispatcher.Instance().Enqueue(() =>
-                                {
-                                    try
-                                    {
-                                        validPath = PathValidationExtension.ShouldIncludeObject(obj, playerPos, true);
-                                    }
-                                    catch { }
-                                    validationComplete = true;
-                                });
-
-                                // Wait for validation to complete
-                                while (!validationComplete)
-                                {
-                                    Thread.Sleep(1);
-                                }
+                                bool validPath = PathValidationExtension.ShouldIncludeObject(obj, playerPos, true);
 
                                 if (!validPath)
                                     continue;
@@ -1096,64 +1057,25 @@ namespace LethalAccess
                                 string gameObjectName = obj.name;
 
                                 // Get the unique ID for this GameObject instance
-                                int uniqueId = 0;
-                                bool idGenerated = false;
-
-                                UnityMainThreadDispatcher.Instance().Enqueue(() =>
-                                {
-                                    try
-                                    {
-                                        uniqueId = ItemIdentifier.GetUniqueId(gameObjectName, obj);
-                                        idGenerated = true;
-                                    }
-                                    catch
-                                    {
-                                        idGenerated = true;
-                                    }
-                                });
-
-                                while (!idGenerated)
-                                {
-                                    Thread.Sleep(1);
-                                }
+                                int uniqueId = ItemIdentifier.GetUniqueId(gameObjectName, obj);
 
                                 // Create a unique key for this specific GameObject instance
                                 string uniqueKey = uniqueId > 0 ? $"{gameObjectName}_{uniqueId}" : gameObjectName;
 
                                 // Get unique display name
-                                string uniqueDisplayName = "";
-                                bool nameGenerated = false;
-
-                                UnityMainThreadDispatcher.Instance().Enqueue(() =>
-                                {
-                                    try
-                                    {
-                                        uniqueDisplayName = ItemIdentifier.GetDisplayName(gameObjectName, obj);
-                                        nameGenerated = true;
-                                    }
-                                    catch
-                                    {
-                                        uniqueDisplayName = gameObjectName;
-                                        nameGenerated = true;
-                                    }
-                                });
-
-                                while (!nameGenerated)
-                                {
-                                    Thread.Sleep(1);
-                                }
+                                string uniqueDisplayName = ItemIdentifier.GetDisplayName(gameObjectName, obj);
 
                                 objects.Add(uniqueKey);
                                 objectMap[uniqueKey] = obj;
 
-                                UnityMainThreadDispatcher.Instance().Enqueue(() =>
+                                try
                                 {
-                                    try
-                                    {
-                                        RegisterMenuItem(gameObjectName, uniqueDisplayName, UnlabeledCategoryName, gameObject: obj);
-                                    }
-                                    catch { }
-                                });
+                                    RegisterMenuItem(gameObjectName, uniqueDisplayName, UnlabeledCategoryName, gameObject: obj);
+                                }
+                                catch (Exception ex)
+                                {
+                                    Debug.LogError($"Error registering unlabeled menu item: {ex.Message}");
+                                }
 
                                 processedCount++;
                             }
@@ -1162,24 +1084,42 @@ namespace LethalAccess
                                 Debug.LogError($"Error processing unlabeled item in batch: {ex.Message}");
                             }
                         }
-
-                        // Small pause between batches to prevent thread hogging
-                        Thread.Sleep(2);
                     }
                 }
                 catch (Exception ex)
                 {
-                    Debug.LogError($"Global error in ScanForUnlabeledObjectsAsync: {ex.Message}\n{ex.StackTrace}");
+                    Debug.LogError($"Global error in ScanForUnlabeledObjects: {ex.Message}\n{ex.StackTrace}");
                 }
 
                 return (objects, objectMap);
-            });
+            }
+        }
+
+        // ignoreKeywords is public and mixed-case, and the old loop called keyword.ToLower()
+        // inside the loop - one string allocation per keyword (~70) per candidate object, on
+        // top of the one for the object name. The lowered copy is built once and rebuilt only
+        // if the public list is edited.
+        private string[] loweredIgnoreKeywords;
+        private int loweredIgnoreKeywordsSourceCount = -1;
+
+        private string[] GetLoweredIgnoreKeywords()
+        {
+            if (loweredIgnoreKeywords == null || loweredIgnoreKeywordsSourceCount != ignoreKeywords.Count)
+            {
+                loweredIgnoreKeywords = new string[ignoreKeywords.Count];
+                for (int i = 0; i < ignoreKeywords.Count; i++)
+                {
+                    loweredIgnoreKeywords[i] = ignoreKeywords[i].ToLowerInvariant();
+                }
+                loweredIgnoreKeywordsSourceCount = ignoreKeywords.Count;
+            }
+            return loweredIgnoreKeywords;
         }
 
         private bool ShouldIgnoreObject(string objectName)
         {
             // Convert to lowercase once for comparison
-            string lowerName = objectName.ToLower();
+            string lowerName = objectName.ToLowerInvariant();
 
             // Quick reject for common ignore patterns
             if (lowerName.Contains("collider") || lowerName.Contains("trigger") ||
@@ -1191,9 +1131,10 @@ namespace LethalAccess
             }
 
             // Check against ignore keywords list
-            foreach (var keyword in ignoreKeywords)
+            string[] keywords = GetLoweredIgnoreKeywords();
+            for (int i = 0; i < keywords.Length; i++)
             {
-                if (lowerName.Contains(keyword.ToLower()))
+                if (lowerName.Contains(keywords[i]))
                 {
                     return true;
                 }
@@ -1263,14 +1204,11 @@ namespace LethalAccess
                     if (menuItems.ContainsKey(currentCategory) && menuItems[currentCategory].Count > 0)
                     {
                         string uniqueKey = menuItems[currentCategory][0];
-                        UnityMainThreadDispatcher.Instance().Enqueue(() =>
+                        GameObject gameObject = FindGameObjectByUniqueKey(uniqueKey);
+                        if (gameObject != null)
                         {
-                            GameObject gameObject = FindGameObjectByUniqueKey(uniqueKey);
-                            if (gameObject != null)
-                            {
-                                LACore.currentLookTarget = gameObject;
-                            }
-                        });
+                            LACore.currentLookTarget = gameObject;
+                        }
                     }
                 }
             }
@@ -1308,70 +1246,84 @@ namespace LethalAccess
                 }
             }
 
-            for (int retry = 0; retry <= 2; retry++)
+            // This runs on the main thread (it is reached from keybind handlers), so the old
+            // 3x retry loop with Thread.Sleep(50) between attempts was a 100 ms freeze of the
+            // whole game that could not help: sleeping the main thread cannot let more objects
+            // finish loading. One pass only.
+            try
             {
-                try
+                // Scene-specific search
+                if (sceneNames != null && sceneNames.TryGetValue(uniqueKey, out string sceneName) && !string.IsNullOrEmpty(sceneName))
                 {
-                    // Scene-specific search
-                    if (sceneNames != null && sceneNames.TryGetValue(uniqueKey, out string sceneName) && !string.IsNullOrEmpty(sceneName))
+                    try
                     {
-                        try
+                        UnityEngine.SceneManagement.Scene scene = UnityEngine.SceneManagement.SceneManager.GetSceneByName(sceneName);
+                        if (scene.isLoaded)
                         {
-                            UnityEngine.SceneManagement.Scene scene = UnityEngine.SceneManagement.SceneManager.GetSceneByName(sceneName);
-                            if (scene.isLoaded)
+                            GameObject[] objectsInScene = scene.GetRootGameObjects();
+                            foreach (GameObject obj in objectsInScene)
                             {
-                                GameObject[] objectsInScene = scene.GetRootGameObjects();
-                                foreach (GameObject obj in objectsInScene)
+                                try
                                 {
-                                    try
+                                    if (obj == null) continue;
+
+                                    GameObject foundObject = null;
+                                    Transform foundTrans = obj.transform.Find(baseGameObjectName);
+                                    if (foundTrans != null)
                                     {
-                                        if (obj == null) continue;
+                                        foundObject = foundTrans.gameObject;
 
-                                        GameObject foundObject = null;
-                                        Transform foundTrans = obj.transform.Find(baseGameObjectName);
-                                        if (foundTrans != null)
+                                        // If we have a uniqueId, verify it's the right instance
+                                        if (uniqueId > 0)
                                         {
-                                            foundObject = foundTrans.gameObject;
-
-                                            // If we have a uniqueId, verify it's the right instance
-                                            if (uniqueId > 0)
-                                            {
-                                                int objId = ItemIdentifier.GetUniqueId(baseGameObjectName, foundObject);
-                                                if (objId != uniqueId) continue;
-                                            }
-                                        }
-
-                                        if (foundObject != null)
-                                        {
-                                            // Store reference for next time
-                                            if (menuItemObjects != null)
-                                            {
-                                                menuItemObjects[uniqueKey] = foundObject;
-                                            }
-                                            return foundObject;
+                                            int objId = ItemIdentifier.GetUniqueId(baseGameObjectName, foundObject);
+                                            if (objId != uniqueId) continue;
                                         }
                                     }
-                                    catch (Exception) { continue; }
+
+                                    if (foundObject != null)
+                                    {
+                                        // Store reference for next time
+                                        if (menuItemObjects != null)
+                                        {
+                                            menuItemObjects[uniqueKey] = foundObject;
+                                        }
+                                        return foundObject;
+                                    }
                                 }
+                                catch (Exception) { continue; }
                             }
                         }
-                        catch (Exception) { /* Continue to next search method */ }
+                    }
+                    catch (Exception) { /* Continue to next search method */ }
+                }
+
+                // Name search. GameObject.Find is a native name lookup and is far cheaper than
+                // FindObjectsOfType<GameObject>(), which materialises a managed array of every
+                // active GameObject in the scene (tens of thousands inside a generated interior).
+                // The exhaustive scan is only needed when an instance id has to be disambiguated
+                // and the first match is the wrong instance.
+                try
+                {
+                    GameObject named = GameObject.Find(baseGameObjectName);
+                    if (named != null && (uniqueId <= 0 || ItemIdentifier.GetUniqueId(baseGameObjectName, named) == uniqueId))
+                    {
+                        if (menuItemObjects != null)
+                        {
+                            menuItemObjects[uniqueKey] = named;
+                        }
+                        return named;
                     }
 
-                    // General search for instances that match the name and id
-                    try
+                    if (uniqueId > 0)
                     {
                         GameObject[] allObjects = UnityEngine.Object.FindObjectsOfType<GameObject>();
                         foreach (GameObject obj in allObjects)
                         {
                             if (obj != null && obj.name == baseGameObjectName)
                             {
-                                // If we have a uniqueId, verify it's the right instance
-                                if (uniqueId > 0)
-                                {
-                                    int objId = ItemIdentifier.GetUniqueId(baseGameObjectName, obj);
-                                    if (objId != uniqueId) continue;
-                                }
+                                int objId = ItemIdentifier.GetUniqueId(baseGameObjectName, obj);
+                                if (objId != uniqueId) continue;
 
                                 // Store reference for next time
                                 if (menuItemObjects != null)
@@ -1382,50 +1334,34 @@ namespace LethalAccess
                             }
                         }
                     }
-                    catch (Exception) { /* Continue to coordinates fallback */ }
-
-                    // Coordinates fallback
-                    if (registeredCoordinates != null && registeredCoordinates.TryGetValue(uniqueKey, out Vector3 coordinates))
-                    {
-                        try
-                        {
-                            GameObject newObject = new GameObject(baseGameObjectName);
-                            newObject.transform.position = coordinates;
-
-                            // Store reference for next time
-                            if (menuItemObjects != null)
-                            {
-                                menuItemObjects[uniqueKey] = newObject;
-                            }
-
-                            Debug.Log($"Created new GameObject '{baseGameObjectName}' at {coordinates}");
-                            return newObject;
-                        }
-                        catch (Exception) { /* Final fallback failed */ }
-                    }
-
-                    // Only log warning on final retry
-                    if (retry == 2)
-                    {
-                        Debug.LogWarning($"GameObject '{uniqueKey}' not found after 3 attempts.");
-                    }
-
-                    // Brief pause between retries to allow potential loading
-                    if (retry < 2)
-                    {
-                        System.Threading.Thread.Sleep(50);
-                    }
                 }
-                catch (Exception ex)
+                catch (Exception) { /* Continue to coordinates fallback */ }
+
+                // Coordinates fallback
+                if (registeredCoordinates != null && registeredCoordinates.TryGetValue(uniqueKey, out Vector3 coordinates))
                 {
-                    Debug.LogError($"Error in FindGameObjectByUniqueKey (retry {retry}): {ex.Message}");
-
-                    // Only do pause on non-final attempts
-                    if (retry < 2)
+                    try
                     {
-                        System.Threading.Thread.Sleep(50);
+                        GameObject newObject = new GameObject(baseGameObjectName);
+                        newObject.transform.position = coordinates;
+
+                        // Store reference for next time
+                        if (menuItemObjects != null)
+                        {
+                            menuItemObjects[uniqueKey] = newObject;
+                        }
+
+                        Debug.Log($"Created new GameObject '{baseGameObjectName}' at {coordinates}");
+                        return newObject;
                     }
+                    catch (Exception) { /* Final fallback failed */ }
                 }
+
+                Debug.LogWarning($"GameObject '{uniqueKey}' not found.");
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"Error in FindGameObjectByUniqueKey: {ex.Message}");
             }
 
             return null;
@@ -1505,19 +1441,27 @@ namespace LethalAccess
 
         private Dictionary<string, bool> previousCategoryVisibility = new Dictionary<string, bool>();
 
-        public void UpdateCategoriesVisibility(bool isShipLanded, string currentPlanetName)
+        /// <summary>
+        /// Track which navigation categories are reachable, and say so when that changes.
+        /// </summary>
+        /// <param name="announceChanges">
+        /// False outside living gameplay. Visibility is still applied and recorded - only the
+        /// speech is withheld - so the categories are correct the moment the player can use them
+        /// and no transition is lost while suppressed.
+        /// </param>
+        public void UpdateCategoriesVisibility(bool isShipLanded, string currentPlanetName, bool announceChanges)
         {
             try
             {
                 if (isShipLanded)
                 {
-                    UpdateCategoryVisibility("Factory", currentPlanetName != "71 Gordion");
-                    UpdateCategoryVisibility("Company Building", currentPlanetName == "71 Gordion");
+                    UpdateCategoryVisibility("Factory", currentPlanetName != "71 Gordion", announceChanges);
+                    UpdateCategoryVisibility("Company Building", currentPlanetName == "71 Gordion", announceChanges);
                 }
                 else
                 {
-                    UpdateCategoryVisibility("Factory", false);
-                    UpdateCategoryVisibility("Company Building", false);
+                    UpdateCategoryVisibility("Factory", false, announceChanges);
+                    UpdateCategoryVisibility("Company Building", false, announceChanges);
                 }
             }
             catch (Exception ex)
@@ -1526,24 +1470,38 @@ namespace LethalAccess
             }
         }
 
-        private void UpdateCategoryVisibility(string category, bool shouldBeVisible)
+        private void UpdateCategoryVisibility(string category, bool shouldBeVisible, bool announceChanges)
         {
             try
             {
-                if (!previousCategoryVisibility.ContainsKey(category) || previousCategoryVisibility[category] != shouldBeVisible)
+                bool known = previousCategoryVisibility.ContainsKey(category);
+                if (known && previousCategoryVisibility[category] == shouldBeVisible)
                 {
-                    if (shouldBeVisible)
-                    {
-                        UnhideCategory(category);
-                        Utilities.SpeakText($"{category} category is now available.");
-                    }
-                    else
-                    {
-                        HideCategory(category);
-                        Utilities.SpeakText($"{category} category is now hidden.");
-                    }
-                    previousCategoryVisibility[category] = shouldBeVisible;
+                    return;
                 }
+
+                if (shouldBeVisible)
+                {
+                    UnhideCategory(category);
+                }
+                else
+                {
+                    HideCategory(category);
+                }
+
+                // Only a genuine TRANSITION is worth saying, and only where the user can act on it.
+                // The first observation of a category is its starting state, not a change - without
+                // the `known` test every launch opened with both categories reporting themselves
+                // hidden, at frame 0, before the menu existed. Recording it either way is what
+                // keeps the next real transition from being missed.
+                if (announceChanges && known)
+                {
+                    Utilities.SpeakText(shouldBeVisible
+                        ? $"{category} category is now available."
+                        : $"{category} category is now hidden.");
+                }
+
+                previousCategoryVisibility[category] = shouldBeVisible;
             }
             catch (Exception ex)
             {
@@ -1552,3 +1510,4 @@ namespace LethalAccess
         }
     }
 }
+

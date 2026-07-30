@@ -19,9 +19,21 @@ namespace LethalAccess
         private ConfigEntry<Key> currentKeybindEntry = null;
         private InputAction toggleAction;
 
+        // Reset-to-defaults confirmation state, so a second request cannot stack a second
+        // coroutine reading the same keypress.
+        private bool isResetConfirmationPending = false;
+
         public void Initialize()
         {
-            // Create F10 toggle action that's always enabled
+            // F10 used to be bound TWICE to this same toggle: this always-enabled InputAction and
+            // a LACore keybind polled from LACore.Update. Opening worked by luck (the action fires
+            // before Update, and OpenMenu clears enableCustomKeybinds first) but closing did not,
+            // because CloseMenu restores that flag before LACore.Update runs in the same frame, so
+            // CheckKeybinds re-toggled and the menu reopened immediately.
+            //
+            // This half is the one that survives: it works while enableCustomKeybinds is false,
+            // which is exactly the state this menu puts the game into. The LACore "OpenSettingsMenu"
+            // keybind registration is deleted in Plugin.cs.
             toggleAction = new InputAction("ToggleSettings", InputActionType.Button, "<Keyboard>/f10");
             toggleAction.performed += _ => ToggleMenu();
             toggleAction.Enable();
@@ -86,8 +98,8 @@ namespace LethalAccess
             AddMenuItem(() => $"Max Objects To Scan: {ConfigManager.MaxObjectsToScan.Value}",
                 onModify: delta => ModifyInt(ConfigManager.MaxObjectsToScan, delta * 5, 50, 500));
 
-            AddMenuItem(() => $"Object Scan Interval: {ConfigManager.ObjectScanInterval.Value:F2}s",
-                onModify: delta => ModifyFloat(ConfigManager.ObjectScanInterval, delta * 0.01f, 0.05f, 1f));
+            // Removed: "Object Scan Interval". Nothing read that setting - scans are triggered by
+            // the category keybinds rather than polled - so the control did nothing.
 
             // Keybinds
             AddKeybindEntries();
@@ -197,7 +209,15 @@ namespace LethalAccess
 
         private void HandleKeybindInput()
         {
-            if (Keyboard.current.escapeKey.wasPressedThisFrame)
+            Keyboard keyboard = Keyboard.current;
+            if (keyboard == null)
+            {
+                // No keyboard device is present, so there is nothing to read this frame. Waiting
+                // is the correct behaviour; throwing an NRE out of Update every frame is not.
+                return;
+            }
+
+            if (keyboard.escapeKey.wasPressedThisFrame)
             {
                 CancelKeybindRebind();
                 return;
@@ -207,25 +227,56 @@ namespace LethalAccess
             {
                 if (IsInvalidRebindKey(key)) continue;
 
-                try
+                // Deliberately unguarded. Every value that reaches here is a real, non-null
+                // KeyControl on this Input System version (see IsInvalidRebindKey), so an
+                // exception out of this indexer means the skip list has gone stale and must be
+                // seen. The try/catch that used to sit here caught ArgumentOutOfRangeException
+                // and continued, which could only ever have hidden that regression: it would
+                // have reached the user as "rebinding ignores some keys" with nothing in the log.
+                if (keyboard[key].wasPressedThisFrame)
                 {
-                    if (Keyboard.current[key].wasPressedThisFrame)
-                    {
-                        SetKeybind(key);
-                        return;
-                    }
-                }
-                catch (System.ArgumentOutOfRangeException)
-                {
-                    continue;
+                    SetKeybind(key);
+                    return;
                 }
             }
         }
 
+        /// <summary>
+        /// Keys that must not be offered as a rebind target. Two unrelated reasons, grouped
+        /// together only because both mean "skip" - they are NOT interchangeable.
+        /// </summary>
         private bool IsInvalidRebindKey(Key key)
         {
-            return key == Key.None ||
-                   key == Key.Escape ||
+            // GROUP 1 - not addressable through Keyboard's indexer. Load-bearing: dropping either
+            // of these reintroduces a per-frame throw out of Update while the rebind prompt is up.
+            //
+            // Keyboard.get_Item is "num = (int)key - 1; if (num < 0 || num >= m_Keys.Length)
+            // throw new ArgumentOutOfRangeException", and m_Keys is a KeyControl[]. Verified
+            // against the running game rather than assumed: m_Keys.Length is 123 == (int)Key.F24,
+            // and indexing every value of Key reports exactly two bad entries and no others -
+            //   None (0)          throws ArgumentOutOfRangeException, since (int)key - 1 == -1.
+            //   IMESelected (111) returns NULL. The device's IMESelected child is a ButtonControl
+            //                     ("Button:/Keyboard/IMESelected"), not a KeyControl, so
+            //                     m_Keys[110] was never filled in. That is an NRE, not an
+            //                     ArgumentOutOfRangeException, so the old catch never covered it.
+            // This enum carries no Count/Begin/End range markers to skip. Its only other oddity
+            // is duplicate-valued aliases (AltGr == RightAlt; LeftWindows/LeftApple/LeftCommand
+            // == LeftMeta, and the Right- equivalents), which are real bindable controls and
+            // merely make the loop visit those values more than once - harmless.
+            //
+            // If a future Unity/Input System upgrade extends Key past m_Keys.Length, or adds
+            // another non-KeyControl slot, this list is wrong and the loop above will throw
+            // loudly. That is intended: a visible failure beats rebinding silently going deaf.
+            if (key == Key.None || key == Key.IMESelected)
+            {
+                return true;
+            }
+
+            // GROUP 2 - policy, not safety. These all index fine; they are reserved because the
+            // menu itself reads them (Escape cancels this prompt, Enter and Space select, the
+            // arrows move the selection, F10 toggles the menu), so binding an action to one of
+            // them would leave the menu unusable.
+            return key == Key.Escape ||
                    key == Key.Enter ||
                    key == Key.Space ||
                    key == Key.UpArrow ||
@@ -239,6 +290,13 @@ namespace LethalAccess
         {
             isWaitingForKey = true;
             currentKeybindEntry = entry;
+
+            // "Press a key" is modal: with the navigation actions still live, the arrow keys move
+            // the menu selection underneath the prompt (they are rejected as bindings, so the user
+            // hears a different entry announced and the rebind is still waiting), and Escape is
+            // read both here and by the Back action.
+            SuspendNavigationActions();
+
             SpeechUtils.SpeakText($"Press a key to rebind this action, or Escape to cancel");
         }
 
@@ -255,6 +313,7 @@ namespace LethalAccess
 
                 currentKeybindEntry.Value = newKey;
                 isWaitingForKey = false;
+                ResumeNavigationActions();
 
                 string keyName = GetKeyDisplayName(newKey);
                 SpeechUtils.SpeakText($"Successfully rebound to {keyName}");
@@ -296,28 +355,69 @@ namespace LethalAccess
 
         private void CancelKeybindRebind()
         {
-            if (currentKeybindEntry != null)
+            // Keyed on isWaitingForKey, not on currentKeybindEntry: those two are set together,
+            // but if they ever diverged the old guard left the menu permanently modal - waiting
+            // for a key, with navigation suspended and no way out.
+            if (!isWaitingForKey)
             {
-                isWaitingForKey = false;
-                currentKeybindEntry = null;
-                SpeechUtils.SpeakText("Cancelled rebinding");
-                RefreshCurrentItem();
+                return;
             }
+
+            isWaitingForKey = false;
+            currentKeybindEntry = null;
+            ResumeNavigationActions();
+            SpeechUtils.SpeakText("Cancelled rebinding");
+            RefreshCurrentItem();
         }
 
         private void ResetAllSettings()
         {
+            if (isResetConfirmationPending)
+            {
+                // Nothing should be able to get here now that navigation is suspended for the
+                // duration, but stacking a second coroutine on the same prompt would mean two
+                // readers of the same Enter and two resets.
+                return;
+            }
+
+            isResetConfirmationPending = true;
             SpeechUtils.SpeakText("Are you sure you want to reset all settings to default? Press Enter to confirm, or Escape to cancel.");
             StartCoroutine(WaitForResetConfirmation());
         }
 
         private System.Collections.IEnumerator WaitForResetConfirmation()
         {
+            // StartCoroutine runs the body synchronously up to the first yield, and the Input
+            // System processes events before MonoBehaviour updates in the same frame - so without
+            // this yield the loop below reads the very Enter that ASKED for the confirmation and
+            // wipes every setting with no chance to cancel. This has to stay the first statement.
+            yield return null;
+
+            // Enter is also bound to the Select action, which would re-invoke whatever entry is
+            // focused ("Reset All Settings") as the user confirms. Escape is likewise read both
+            // here and by the Back action, which would close the whole menu behind the prompt.
+            SuspendNavigationActions();
+
             bool waitingForConfirmation = true;
 
             while (waitingForConfirmation)
             {
-                if (Keyboard.current.enterKey.wasPressedThisFrame)
+                if (!isMenuOpen)
+                {
+                    // The menu went away underneath the prompt; abandon it rather than resetting
+                    // settings for a user who is no longer looking at the question.
+                    SpeechUtils.SpeakText("Reset cancelled");
+                    break;
+                }
+
+                Keyboard keyboard = Keyboard.current;
+                if (keyboard == null)
+                {
+                    yield return null;
+                    continue;
+                }
+
+                if (keyboard.enterKey.wasPressedThisFrame)
                 {
                     try
                     {
@@ -335,15 +435,21 @@ namespace LethalAccess
                         waitingForConfirmation = false;
                     }
                 }
-                else if (Keyboard.current.escapeKey.wasPressedThisFrame)
+                else if (keyboard.escapeKey.wasPressedThisFrame)
                 {
                     SpeechUtils.SpeakText("Reset cancelled");
                     RefreshCurrentItem();
                     waitingForConfirmation = false;
                 }
 
-                yield return null;
+                if (waitingForConfirmation)
+                {
+                    yield return null;
+                }
             }
+
+            isResetConfirmationPending = false;
+            ResumeNavigationActions();
         }
 
         // Helper methods

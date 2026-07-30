@@ -42,6 +42,15 @@ namespace LethalAccess.Patches
                 }
             }
 
+            // HUDManager.buildModeControlTip is a SEPARATE field from controlTipLines[], so the
+            // ControlTip1..3 loop above cannot see it. Without this, the whole of ship build mode
+            // has no readable control tip at all.
+            string buildModeTip = ShipBuildModeAccessPatch.GetBuildModeControlTip();
+            if (!string.IsNullOrEmpty(buildModeTip))
+            {
+                combinedText += buildModeTip + ", ";
+            }
+
             if (!string.IsNullOrEmpty(combinedText))
             {
                 Debug.Log("[ControlTipPatch] Speaking control tips: " + combinedText);

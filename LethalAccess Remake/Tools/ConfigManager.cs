@@ -27,13 +27,17 @@ namespace LethalAccess
 
         // UI Settings
         public static ConfigEntry<bool> EnableUIAnnouncements { get; private set; }
+        public static ConfigEntry<bool> VerticalNavigationOnly { get; private set; }
+        public static ConfigEntry<bool> TabMovesBySection { get; private set; }
+        public static ConfigEntry<string> SectionPrefixMode { get; private set; }
 
         // Accessibility Settings
         public static ConfigEntry<bool> EnableAudioCues { get; private set; }
 
         // Performance Settings
         public static ConfigEntry<int> MaxObjectsToScan { get; private set; }
-        public static ConfigEntry<float> ObjectScanInterval { get; private set; }
+        // Removed: ObjectScanInterval. Scans are triggered by the category keybinds, not polled,
+        // so nothing could ever have read it. It was a dead control in the settings menu.
 
         public static void Initialize(ConfigFile config)
         {
@@ -70,6 +74,20 @@ namespace LethalAccess
             EnableUIAnnouncements = config.Bind("UI", "EnableUIAnnouncements", true,
                 "Enable UI element announcements");
 
+            VerticalNavigationOnly = config.Bind("UI", "VerticalNavigationOnly", true,
+                "Move focus with up and down only. Left and right stop moving focus so they can adjust the " +
+                "focused control instead; sliders keep their value adjustment either way.");
+
+            TabMovesBySection = config.Bind("UI", "TabMovesBySection", true,
+                "Tab jumps to the next section of the current screen and Shift+Tab to the previous one, " +
+                "announcing the section name on arrival.");
+
+            SectionPrefixMode = config.Bind("UI", "SectionPrefixMode", "OnChange",
+                "How much context each announcement carries: \"Graphics, Terrain / Grass Detail, " +
+                "selected: High, dropdown, 1 of 3\". OnChange = only on the first control you focus " +
+                "after entering a different section or screen, so walking one section does not repeat " +
+                "its name on every line. Always = on every announcement. Off = no context at all.");
+
             // Accessibility Settings
             EnableAudioCues = config.Bind("Accessibility", "EnableAudioCues", true,
                 "Enable audio cues for navigation and interaction");
@@ -77,9 +95,6 @@ namespace LethalAccess
             // Performance Settings
             MaxObjectsToScan = config.Bind("Performance", "MaxObjectsToScan", 100,
                 new ConfigDescription("Maximum number of objects to scan at once", new AcceptableValueRange<int>(50, 500)));
-
-            ObjectScanInterval = config.Bind("Performance", "ObjectScanInterval", 0.1f,
-                new ConfigDescription("Interval between object scans in seconds", new AcceptableValueRange<float>(0.05f, 1f)));
         }
 
         /// <summary>
@@ -111,7 +126,10 @@ namespace LethalAccess
 
             categories["UI"] = new List<(string, ConfigEntryBase)>
             {
-                ("Enable UI Announcements", EnableUIAnnouncements)
+                ("Enable UI Announcements", EnableUIAnnouncements),
+                ("Vertical Navigation Only", VerticalNavigationOnly),
+                ("Tab Moves By Section", TabMovesBySection),
+                ("Section Prefix Mode", SectionPrefixMode)
             };
 
             categories["Accessibility"] = new List<(string, ConfigEntryBase)>
@@ -121,8 +139,7 @@ namespace LethalAccess
 
             categories["Performance"] = new List<(string, ConfigEntryBase)>
             {
-                ("Max Objects To Scan", MaxObjectsToScan),
-                ("Object Scan Interval", ObjectScanInterval)
+                ("Max Objects To Scan", MaxObjectsToScan)
             };
 
             return categories;
@@ -150,9 +167,11 @@ namespace LethalAccess
             EnableVisualMarkers.Value = (bool)EnableVisualMarkers.DefaultValue;
             ScanRadius.Value = (float)ScanRadius.DefaultValue;
             EnableUIAnnouncements.Value = (bool)EnableUIAnnouncements.DefaultValue;
+            VerticalNavigationOnly.Value = (bool)VerticalNavigationOnly.DefaultValue;
+            TabMovesBySection.Value = (bool)TabMovesBySection.DefaultValue;
+            SectionPrefixMode.Value = (string)SectionPrefixMode.DefaultValue;
             EnableAudioCues.Value = (bool)EnableAudioCues.DefaultValue;
             MaxObjectsToScan.Value = (int)MaxObjectsToScan.DefaultValue;
-            ObjectScanInterval.Value = (float)ObjectScanInterval.DefaultValue;
 
             SaveConfig();
         }

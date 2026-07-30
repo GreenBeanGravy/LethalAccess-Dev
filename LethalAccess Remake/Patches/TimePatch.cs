@@ -29,8 +29,8 @@ namespace LethalAccess.Patches
             LACore.Instance.RegisterKeybind(SpeakTimeKeybindName, SpeakTimeDefaultKey, SpeakTimeAction);
             Debug.Log("TimeOfDayPatch: Input actions are registered.");
 
-            var harmony = new Harmony("green.lethalaccess.timeofdaypatch");
-            harmony.PatchAll(typeof(TimeOfDayPatch));
+            // Already covered by LACore.Awake's PatchAll(Assembly.GetExecutingAssembly()).
+            // The second Harmony instance here caused duplicate application.
         }
 
         private void SpeakTimeAction()

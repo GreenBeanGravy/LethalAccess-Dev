@@ -50,22 +50,38 @@ namespace LethalAccess.Patches
             }
         }
 
+        // Pure functions of constants, so generated once for the process. Regenerating them when
+        // the AudioSources are rebuilt - which happens on each player-object rebuild, i.e. every
+        // round - allocates a 44100-sample float[] plus a native AudioClip each time, and nothing
+        // destroys the old one.
+        private static AudioClip cachedContinuousClip;
+        private static AudioClip cachedCompletionClip;
+
         private static void InitializeTones()
         {
             if (!isToneInitialized || continuousToneSource == null || completionToneSource == null)
             {
                 if (LACore.PlayerTransform != null)
                 {
+                    if (cachedContinuousClip == null)
+                    {
+                        cachedContinuousClip = GenerateContinuousToneClip(440, 1);
+                    }
+                    if (cachedCompletionClip == null)
+                    {
+                        cachedCompletionClip = GenerateCompletionToneClip();
+                    }
+
                     // Initialize continuous tone
                     continuousToneSource = LACore.PlayerTransform.gameObject.AddComponent<AudioSource>();
                     continuousToneSource.loop = true;
-                    continuousToneSource.clip = GenerateContinuousToneClip(440, 1);
+                    continuousToneSource.clip = cachedContinuousClip;
                     continuousToneSource.volume = 0.3f;
 
                     // Initialize completion tone
                     completionToneSource = LACore.PlayerTransform.gameObject.AddComponent<AudioSource>();
                     completionToneSource.loop = false;
-                    completionToneSource.clip = GenerateCompletionToneClip();
+                    completionToneSource.clip = cachedCompletionClip;
                     completionToneSource.volume = 0.7f;
                     completionToneSource.priority = 0; // Highest priority
                     completionToneSource.bypassEffects = true;

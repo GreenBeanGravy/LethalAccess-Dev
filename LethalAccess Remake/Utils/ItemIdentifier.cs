@@ -38,6 +38,53 @@ namespace LethalAccess
             "PlacementBlocker (5)"
         };
 
+        // Per-frame cache of "how many active GameObjects share this base name".
+        private static Dictionary<string, int> baseNameCounts = new Dictionary<string, int>();
+        private static int baseNameCountsFrame = -1;
+
+        private static int GetBaseNameCount(string baseName)
+        {
+            int frame = Time.frameCount;
+            if (frame != baseNameCountsFrame)
+            {
+                baseNameCountsFrame = frame;
+                baseNameCounts.Clear();
+
+                GameObject[] allObjects = GameObject.FindObjectsOfType<GameObject>();
+                foreach (var obj in allObjects)
+                {
+                    if (obj == null)
+                        continue;
+
+                    string key = GetBaseName(obj.name);
+                    baseNameCounts.TryGetValue(key, out int existing);
+                    baseNameCounts[key] = existing + 1;
+                }
+            }
+
+            baseNameCounts.TryGetValue(baseName, out int count);
+            return count;
+        }
+
+        /// <summary>
+        /// Clear all assigned identifiers. Called at the start of a round.
+        ///
+        /// These dictionaries are static and keyed by GetInstanceID(), and nothing used to clear
+        /// them, so they grew for the lifetime of the process. Worse, Unity reuses instance ids
+        /// after objects are destroyed, so a stale entry could make a fresh item inherit another
+        /// item's number and be announced as e.g. "Key 3" when it is not.
+        /// </summary>
+        public static void ResetForNewRound()
+        {
+            nextAvailableIds.Clear();
+            instanceIdToAssignedId.Clear();
+            assignedIdsByType.Clear();
+            instanceIdToBaseName.Clear();
+            baseNameCounts.Clear();
+            baseNameCountsFrame = -1;
+            Debug.Log("[LethalAccess] ItemIdentifier state reset for new round.");
+        }
+
         // Get or create a unique ID for an item
         public static int GetUniqueId(string gameObjectName, GameObject gameObject = null)
         {
@@ -69,22 +116,12 @@ namespace LethalAccess
                 return 0;
             }
 
-            // Count how many instances of this type exist
-            bool hasMultipleInstances = false;
-            GameObject[] allObjects = GameObject.FindObjectsOfType<GameObject>();
-            int count = 0;
-            foreach (var obj in allObjects)
-            {
-                if (obj != null && GetBaseName(obj.name) == baseName)
-                {
-                    count++;
-                    if (count > 1)
-                    {
-                        hasMultipleInstances = true;
-                        break;
-                    }
-                }
-            }
+            // Count how many instances of this type exist, from the per-frame cache.
+            // Do not reach for GameObject.FindObjectsOfType<GameObject>() here: it materialises a
+            // managed array of every active GameObject in the scene - tens of thousands inside a
+            // generated interior - and this runs once per item being named, so a category refresh
+            // costs O(items x sceneObjects). The cached counts give identical numbering in one pass.
+            bool hasMultipleInstances = GetBaseNameCount(baseName) > 1;
 
             // If this is the only instance, don't assign an ID
             if (!hasMultipleInstances)

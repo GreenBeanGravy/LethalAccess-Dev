@@ -133,8 +133,16 @@ namespace LethalAccess
                 Instance = this;
                 playerController = GetComponent<PlayerControllerB>();
 
-                // Initialize the ground mask for terrain detection
-                groundMask = LayerMask.GetMask("Terrain", "Ground", "Default") | StartOfRound.Instance.collidersAndRoomMaskAndDefault;
+                // Navigation/PathfindingStoppingRadius was bound in config and listed in the
+                // settings menu but never read; the radius stayed at its 1.4f field initialiser.
+                stoppingRadius = ConfigManager.PathfindingStoppingRadius.Value;
+
+                // Initialize the ground mask for terrain detection.
+                // "Ground" is not a layer in Lethal Company - LayerMask.GetMask contributes
+                // nothing for a name it cannot resolve, so it was dead. "Room" and "Colliders"
+                // are the layers facility floors actually live on.
+                groundMask = LayerMask.GetMask("Terrain", "Default", "Room", "Colliders")
+                             | StartOfRound.Instance.collidersAndRoomMaskAndDefault;
 
                 // Setup audio source and load the "reached destination" sound
                 audioSource = gameObject.AddComponent<AudioSource>();
@@ -2269,6 +2277,24 @@ namespace LethalAccess
             }
         }
 
+        // FindObjectsOfType<DoorLock>() walks every loaded component of that type and allocates
+        // a new array each call. DetectAndSpeakDoor runs from FixedUpdate, i.e. 50x a second for
+        // the whole duration of a pathfind. Doors are created with the dungeon and do not appear
+        // mid-round, so the set is cached and refreshed on an interval instead.
+        private DoorLock[] cachedDoors;
+        private float cachedDoorsTime = -999f;
+        private const float DOOR_CACHE_REFRESH_INTERVAL = 2f;
+
+        private DoorLock[] GetDoors()
+        {
+            if (cachedDoors == null || Time.time - cachedDoorsTime > DOOR_CACHE_REFRESH_INTERVAL)
+            {
+                cachedDoors = FindObjectsOfType<DoorLock>();
+                cachedDoorsTime = Time.time;
+            }
+            return cachedDoors;
+        }
+
         void DetectAndSpeakDoor()
         {
             try
@@ -2277,7 +2303,7 @@ namespace LethalAccess
                 DoorLock closestDoor = null;
                 float closestDistance = doorDetectionDistance;
 
-                var doors = FindObjectsOfType<DoorLock>();
+                var doors = GetDoors();
                 if (doors == null)
                     return;
 
@@ -2967,11 +2993,18 @@ namespace LethalAccess
                                 a.isStopped = true;
                                 a.ResetPath();
                             }
-                            DestroyImmediate(a);
-                        }
-                        catch
-                        {
+                            // Destroy, not DestroyImmediate: this runs from OnDestroy, i.e.
+                            // during Unity's own destruction pass (Pathfinder lives on the
+                            // player object, which is destroyed on scene change).
+                            // DestroyImmediate is not supported there. The agent is going away
+                            // with its GameObject anyway, so deferred destruction is fine here -
+                            // unlike the runtime paths in NavMeshProxy, which must complete
+                            // before a replacement agent is added.
                             Destroy(a);
+                        }
+                        catch (Exception agentEx)
+                        {
+                            Debug.LogError($"Error destroying NavMeshAgent during teardown: {agentEx.Message}");
                         }
                     }
                 }
@@ -3081,6 +3114,11 @@ namespace LethalAccess
         {
             try
             {
+                // A new round means every scrap instance is new. ItemIdentifier keys its
+                // numbering on GetInstanceID(), which Unity recycles, so carrying the old table
+                // over can attach a previous item's number to an unrelated new item.
+                ItemIdentifier.ResetForNewRound();
+
                 if (Pathfinder.Instance != null && (StartOfRound.Instance != null && StartOfRound.Instance.shipHasLanded))
                 {
                     if (Pathfinder.Instance.GetComponent<NavMeshAgent>() == null)

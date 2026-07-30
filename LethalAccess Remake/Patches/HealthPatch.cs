@@ -15,8 +15,9 @@ namespace LethalAccess.Patches
             LACore.Instance.RegisterKeybind(SpeakHealthKeybindName, SpeakHealthDefaultKey, SpeakPlayerHealth);
             Debug.Log("PlayerHealthPatch: Input actions are registered.");
 
-            var harmony = new Harmony("green.lethalaccess.playerhealthaccess");
-            harmony.PatchAll(typeof(HUDManagerUpdateHealthUIPatch));
+            // HUDManagerUpdateHealthUIPatch is already applied by LACore.Awake's
+            // PatchAll(Assembly.GetExecutingAssembly()). Patching it again under a second
+            // Harmony id made the postfix run twice per UpdateHealthUI call.
         }
 
         private void SpeakPlayerHealth()

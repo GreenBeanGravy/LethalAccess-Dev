@@ -8,13 +8,20 @@ namespace LethalAccess
     {
         private AudioSource audioSource;
         public bool isEnabled = false;
-        private float playInterval = 1.5f; // Default value
         private float volume = 0.15f;
         private float normalFrequency = 440f;
         private float behindFrequency = 220f; // 50% deeper tone
 
-        // New configuration entry in the "Values" category
-        private static ConfigEntry<float> configPlayInterval;
+        // Both tones are generated once. The previous code built a fresh AudioClip (and a fresh
+        // 8820-sample float[]) on every play - roughly 40 native AudioClips a minute, none of
+        // them ever destroyed, for as long as North Sound stayed on.
+        private AudioClip normalToneClip;
+        private AudioClip behindToneClip;
+
+        // Interval now comes from ConfigManager.NorthSoundInterval, which is the entry exposed in
+        // the in-game settings menu. This class used to Bind its own "Values/NorthSoundPlayInterval"
+        // key and read that instead, so the setting the user could actually see did nothing.
+        private float PlayInterval => ConfigManager.NorthSoundInterval.Value;
 
         void Start()
         {
@@ -28,20 +35,48 @@ namespace LethalAccess
             audioSource.rolloffMode = AudioRolloffMode.Linear;
             audioSource.maxDistance = 1000f;
 
-            // Initialize the configuration entry in the "Values" category
-            configPlayInterval = LACore.Instance.Config.Bind("Values", "NorthSoundPlayInterval", 1.5f, "The delay in seconds between North sound plays");
-
-            // Set the playInterval to the configured value
-            playInterval = configPlayInterval.Value;
+            normalToneClip = GenerateNorthSound(isBehindPlayer: false);
+            behindToneClip = GenerateNorthSound(isBehindPlayer: true);
         }
 
         void Update()
         {
-            if (isEnabled)
+            if (!isEnabled)
             {
-                Vector3 northDirection = Vector3.forward;
-                transform.position = LACore.PlayerTransform.position + northDirection * 10f;
-                transform.LookAt(LACore.PlayerTransform);
+                return;
+            }
+
+            // LACore.PlayerTransform is null in the main menu and between rounds. Dereferencing
+            // it unguarded threw a NullReferenceException every frame once North Sound had been
+            // toggled on and the player then left the round.
+            Transform player = LACore.PlayerTransform;
+            if (player == null)
+            {
+                SetEnabled(false, announce: true, reason: "North Sound disabled, player not available");
+                return;
+            }
+
+            Vector3 northDirection = Vector3.forward;
+            transform.position = player.position + northDirection * 10f;
+            transform.LookAt(player);
+        }
+
+        private void SetEnabled(bool enabled, bool announce, string reason = null)
+        {
+            isEnabled = enabled;
+
+            if (!enabled)
+            {
+                StopAllCoroutines();
+                if (audioSource != null)
+                {
+                    audioSource.Stop();
+                }
+            }
+
+            if (announce && !string.IsNullOrEmpty(reason))
+            {
+                Utilities.SpeakText(reason);
             }
         }
 
@@ -63,10 +98,15 @@ namespace LethalAccess
         {
             while (isEnabled)
             {
+                if (LACore.PlayerTransform == null)
+                {
+                    yield break;
+                }
+
                 bool isBehindPlayer = IsSoundBehindPlayer();
-                audioSource.clip = GenerateNorthSound(isBehindPlayer);
+                audioSource.clip = isBehindPlayer ? behindToneClip : normalToneClip;
                 audioSource.Play();
-                yield return new WaitForSeconds(playInterval);
+                yield return new WaitForSeconds(PlayInterval);
             }
         }
 
@@ -91,8 +131,14 @@ namespace LethalAccess
 
         private bool IsSoundBehindPlayer()
         {
-            Vector3 playerForward = LACore.PlayerTransform.forward;
-            Vector3 toSound = transform.position - LACore.PlayerTransform.position;
+            Transform player = LACore.PlayerTransform;
+            if (player == null)
+            {
+                return false;
+            }
+
+            Vector3 playerForward = player.forward;
+            Vector3 toSound = transform.position - player.position;
             float dotProduct = Vector3.Dot(playerForward, toSound.normalized);
             return dotProduct < 0; // If dot product is negative, sound is behind the player
         }
@@ -100,8 +146,13 @@ namespace LethalAccess
         // Method to update the play interval
         public void UpdatePlayInterval(float newInterval)
         {
-            playInterval = newInterval;
-            configPlayInterval.Value = newInterval;
+            ConfigManager.NorthSoundInterval.Value = newInterval;
+        }
+
+        private void OnDestroy()
+        {
+            if (normalToneClip != null) Destroy(normalToneClip);
+            if (behindToneClip != null) Destroy(behindToneClip);
         }
     }
 }
