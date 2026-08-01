@@ -1086,6 +1086,26 @@ namespace LethalAccess
                 // a re-registration), so nothing announced the screen. Do it once.
                 UIScreenRegistry.ScreenShown(ScreenId);
             }
+
+            // Something later in the panel's open sequence selects its Back button, overwriting the
+            // seed ScreenShown just made - live-confirmed: the flat order resolves 25 bind rows and
+            // FocusOnOpen names the first, yet focus lands on "Panel actions, Back, button, 2 of 2"
+            // and stays there, so the user arrives on the way OUT of a screen they just opened.
+            // A one-shot seed cannot win that race; this re-asserts across it and stops as soon as
+            // it lands.
+            if (IsPanelVisible())
+            {
+                Transform first = ResolveFirstBindRow();
+                if (first != null)
+                {
+                    FocusManager.SeedSticky(first, 12);
+                }
+                else
+                {
+                    Debug.LogWarning("[LethalAccess] Keybinds panel: no visible bind row to focus, so the panel " +
+                                     "opens whereever the game last selected. The rows may not have been built yet.");
+                }
+            }
         }
 
         /// <summary>

@@ -1,0 +1,84 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Single assembly. Split into Core / AccessKit / Unity / Plugin projects once
+    you have a second loader target; the folder layout already matches that
+    split, so it is a mechanical change.
+
+    Build:
+      dotnet build -c Release -p:GameDir="C:\Games\Foo" -p:GameName="Foo"
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net472</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>UnityA11y</AssemblyName>
+    <RootNamespace>UnityA11y</RootNamespace>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <DebugType>portable</DebugType>
+    <Deterministic>true</Deterministic>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+
+    <GameDir Condition="'$(GameDir)' == ''">C:\Path\To\Game</GameDir>
+    <GameName Condition="'$(GameName)' == ''">Game</GameName>
+    <ManagedDir>$(GameDir)\$(GameName)_Data\Managed</ManagedDir>
+    <BepInExDir>$(GameDir)\BepInEx\core</BepInExDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="src\UnityA11y.Core\**\*.cs" />
+    <Compile Include="src\UnityA11y.AccessKit\**\*.cs" />
+    <Compile Include="src\UnityA11y.Unity\**\*.cs" />
+    <Compile Include="src\UnityA11y.Plugin\**\*.cs" />
+  </ItemGroup>
+
+  <!--
+    Reference the game's own Unity assemblies rather than a Unity install.
+    Version drift between the game's UnityEngine and a stock one is a common
+    source of MissingMethodException at runtime.
+
+    Older games have a single monolithic UnityEngine.dll instead of the split
+    modules, which is why every module reference is Condition-guarded on the
+    file existing.
+  -->
+  <ItemGroup>
+    <Reference Include="UnityEngine" Condition="Exists('$(ManagedDir)\UnityEngine.dll')">
+      <HintPath>$(ManagedDir)\UnityEngine.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.CoreModule" Condition="Exists('$(ManagedDir)\UnityEngine.CoreModule.dll')">
+      <HintPath>$(ManagedDir)\UnityEngine.CoreModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.UI" Condition="Exists('$(ManagedDir)\UnityEngine.UI.dll')">
+      <HintPath>$(ManagedDir)\UnityEngine.UI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.UIModule" Condition="Exists('$(ManagedDir)\UnityEngine.UIModule.dll')">
+      <HintPath>$(ManagedDir)\UnityEngine.UIModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.IMGUIModule" Condition="Exists('$(ManagedDir)\UnityEngine.IMGUIModule.dll')">
+      <HintPath>$(ManagedDir)\UnityEngine.IMGUIModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.InputLegacyModule" Condition="Exists('$(ManagedDir)\UnityEngine.InputLegacyModule.dll')">
+      <HintPath>$(ManagedDir)\UnityEngine.InputLegacyModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="BepInEx" Condition="Exists('$(BepInExDir)\BepInEx.dll')">
+      <HintPath>$(BepInExDir)\BepInEx.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="0Harmony" Condition="Exists('$(BepInExDir)\0Harmony.dll')">
+      <HintPath>$(BepInExDir)\0Harmony.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <Target Name="WarnMissingRefs" BeforeTargets="Build">
+    <Warning Condition="!Exists('$(ManagedDir)\UnityEngine.UI.dll')"
+             Text="UnityEngine.UI.dll not found under $(ManagedDir). Set -p:GameDir and -p:GameName." />
+  </Target>
+
+</Project>

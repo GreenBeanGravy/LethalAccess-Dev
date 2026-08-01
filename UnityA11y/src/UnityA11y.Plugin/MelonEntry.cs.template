@@ -1,0 +1,24 @@
+// Rename to MelonEntry.cs and reference MelonLoader.dll to target MelonLoader
+// instead of BepInEx. Ship only one loader entry point per game.
+
+using MelonLoader;
+using UnityA11y.Unity;
+
+[assembly: MelonInfo(typeof(UnityA11y.Plugin.A11yMelonMod), "Unity Accessibility Base", "0.2.0", "you")]
+[assembly: MelonGame(null, null)]
+
+namespace UnityA11y.Plugin
+{
+    public class A11yMelonMod : MelonMod
+    {
+        private bool _started;
+
+        public override void OnUpdate()
+        {
+            if (_started) return;
+            _started = true;
+            var runtime = A11yRuntime.Create();
+            runtime.Log = msg => MelonLogger.Msg(msg);
+        }
+    }
+}

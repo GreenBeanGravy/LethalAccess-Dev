@@ -31,6 +31,10 @@ namespace LethalAccess
         private static float lastRecoveryTime = -1f;
         private static bool warnedNoRecoveryTarget;
 
+        // A seed that re-asserts itself for a few frames. See SeedSticky.
+        private static Transform stickyTarget;
+        private static int stickyUntilFrame;
+
         /// <summary>
         /// Point the EventSystem at a control and make sure it gets announced even if it was the
         /// last thing announced. Announcement itself stays with UIAccessibilityManager - this
@@ -182,6 +186,60 @@ namespace LethalAccess
         /// Only ever acts while a registered screen is visible, so it can never steal focus
         /// during gameplay.
         /// </summary>
+        /// <summary>
+        /// Seed focus, and keep re-asserting it for the next few frames.
+        ///
+        /// For screens where something in the game selects a control of its own AFTER the panel is
+        /// registered, so a single seed is silently overwritten. The keybinds panel is the case:
+        /// the flat order resolves 25 bind rows correctly and FocusOnOpen names the first of them,
+        /// yet focus ends on the panel's Back button, because that selection happens later in the
+        /// open sequence than the seed does.
+        ///
+        /// Deliberately frame-bounded and self-cancelling: it stops the moment focus reaches the
+        /// target, and expires regardless. It must never become a fight with the user - by the time
+        /// anyone can press a key the window is over.
+        /// </summary>
+        public static void SeedSticky(Transform target, int frames)
+        {
+            Seed(target);
+            if (target == null)
+            {
+                return;
+            }
+            stickyTarget = target;
+            stickyUntilFrame = Time.frameCount + Mathf.Max(1, frames);
+        }
+
+        /// <summary>Abandon a sticky seed early - call when the user deliberately moves focus.</summary>
+        public static void CancelSticky()
+        {
+            stickyTarget = null;
+        }
+
+        private static void TickSticky(EventSystem es)
+        {
+            if (stickyTarget == null)
+            {
+                return;
+            }
+
+            // A destroyed target compares equal to null, which is the panel-rebuilt case.
+            if (Time.frameCount > stickyUntilFrame || !UIUtils.IsUIElementVisible(stickyTarget.gameObject))
+            {
+                stickyTarget = null;
+                return;
+            }
+
+            if (es.currentSelectedGameObject == stickyTarget.gameObject)
+            {
+                // Arrived. Stop watching, so the very next thing the user does is theirs.
+                stickyTarget = null;
+                return;
+            }
+
+            Seed(stickyTarget);
+        }
+
         public static void Tick()
         {
             EventSystem es = EventSystem.current;
@@ -189,6 +247,8 @@ namespace LethalAccess
             {
                 return;
             }
+
+            TickSticky(es);
 
             // A destroyed selection already compares equal to null here, which is exactly the
             // case ("Set to defaults" destroyed the focused row) we most need to catch.

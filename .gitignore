@@ -361,3 +361,6 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+# Vendored UnityA11y build output
+UnityA11y/bin/
+UnityA11y/obj/
