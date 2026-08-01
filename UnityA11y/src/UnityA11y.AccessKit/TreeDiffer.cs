@@ -254,7 +254,19 @@ namespace UnityA11y.AccessKitInterop
             if (n.MaxNumericValue.HasValue) AK.accesskit_node_set_max_numeric_value(node, n.MaxNumericValue.Value);
             if (n.NumericValueStep.HasValue) AK.accesskit_node_set_numeric_value_step(node, n.NumericValueStep.Value);
 
-            if (n.PositionInSet.HasValue) AK.accesskit_node_set_position_in_set(node, (UIntPtr)n.PositionInSet.Value);
+            // AccessKit's position_in_set is 0-BASED; its Windows adapter publishes
+            // UIA_PositionInSetPropertyId as position_in_set + 1. size_of_set gets no such
+            // adjustment. Passing our 1-based number straight through therefore shifted every
+            // control up by one, and NVDA speaks "n of m" only while 0 < n <= m, so the LAST
+            // control in every set silently lost its position entirely.
+            //
+            // AccessNode stays 1-based, because that is what the internal announcer speaks and
+            // what every caller means by "the first item". The conversion belongs here, at the
+            // one point where the value crosses into AccessKit.
+            if (n.PositionInSet.HasValue && n.PositionInSet.Value >= 1)
+            {
+                AK.accesskit_node_set_position_in_set(node, (UIntPtr)(n.PositionInSet.Value - 1));
+            }
             if (n.SizeOfSet.HasValue) AK.accesskit_node_set_size_of_set(node, (UIntPtr)n.SizeOfSet.Value);
             if (n.Level.HasValue) AK.accesskit_node_set_level(node, (UIntPtr)n.Level.Value);
 

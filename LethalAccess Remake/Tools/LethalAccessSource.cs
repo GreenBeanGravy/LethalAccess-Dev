@@ -212,6 +212,45 @@ namespace LethalAccess
             node.AddAction(AccessAction.Focus);
 
             ApplyState(node, state);
+
+            if (node.Role == AccessRole.Slider) ApplyRange(node, v.Target);
+        }
+
+        /// <summary>
+        /// Publish a Slider as a numeric range rather than as text.
+        ///
+        /// A screen reader given min/max/value normalises it itself - NVDA reports a slider's
+        /// RangeValue as a percentage of its range - and it fires a value-change announcement
+        /// that speaks the number ALONE while the user holds an arrow key, instead of repeating
+        /// the name and role on every step. A scraped string would get neither.
+        ///
+        /// Left/right still reach the Slider: it returns null from FindSelectableOnLeft/Right on
+        /// a horizontal axis, and Slider.OnMove steps the value whenever the finder returned null.
+        /// </summary>
+        private static void ApplyRange(AccessNode node, Transform target)
+        {
+            UnityEngine.UI.Slider slider = target.GetComponent<UnityEngine.UI.Slider>();
+            if (slider == null)
+            {
+                // Authored as a slider but carrying no Slider component: the path is wrong, or the
+                // scene changed. Publishing it as a valueless slider tells the user a value exists
+                // and then never says one, so say which control is at fault.
+                Debug.LogWarning("[LethalAccess] '" + target.name + "' is registered as a slider but has no " +
+                                 "UnityEngine.UI.Slider, so it is published with no value.");
+                return;
+            }
+
+            node.NumericValue = slider.value;
+            node.MinNumericValue = slider.minValue;
+            node.MaxNumericValue = slider.maxValue;
+
+            // The step the game itself moves by, so a reader that offers its own increment command
+            // lands on the same values arrow keys produce (UnityEngine.UI/Slider.OnMove).
+            node.NumericValueStep = slider.wholeNumbers ? 1.0 : (slider.maxValue - slider.minValue) * 0.1;
+            node.Orientation = slider.direction == UnityEngine.UI.Slider.Direction.BottomToTop ||
+                               slider.direction == UnityEngine.UI.Slider.Direction.TopToBottom
+                ? UnityA11y.Core.Orientation.Vertical
+                : UnityA11y.Core.Orientation.Horizontal;
         }
 
         /// <summary>

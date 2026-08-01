@@ -114,7 +114,12 @@ namespace UnityA11y.Core
         public double? MaxNumericValue;
         public double? NumericValueStep;
 
-        /// <summary>1-based. Drives NVDA's "n of m".</summary>
+        /// <summary>
+        /// 1-based. Drives NVDA's "n of m".
+        ///
+        /// AccessKit's own position_in_set is 0-based, so TreeDiffer subtracts one on the way
+        /// out. Do not pre-subtract here: the internal announcer reads this field directly.
+        /// </summary>
         public int? PositionInSet;
 
         /// <summary>

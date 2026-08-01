@@ -80,8 +80,9 @@ namespace LethalAccess
                 "focused control instead; sliders keep their value adjustment either way.");
 
             TabMovesBySection = config.Bind("UI", "TabMovesBySection", true,
-                "Tab jumps to the next section of the current screen and Shift+Tab to the previous one, " +
-                "announcing the section name on arrival.");
+                "Ctrl+Tab jumps to the next section of the current screen and Ctrl+Shift+Tab to the " +
+                "previous one, announcing the section name on arrival. Turn this off to get the " +
+                "focus-history walk on Ctrl+Tab instead. Tab on its own always moves one control.");
 
             UseAccessibilityTree = config.Bind("UI", "UseAccessibilityTree", true,
                 "Publish menus as a real accessibility tree so your screen reader reads them with " +

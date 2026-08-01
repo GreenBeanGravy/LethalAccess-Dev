@@ -679,11 +679,10 @@ namespace LethalAccess
         /// The Tab key.
         ///
         /// A shim kept for its name only: LACore registers Key.Tab under "FocusPreviousUIElement",
-        /// which dispatches here. The behaviour is now section navigation - Tab moves to the next
-        /// SECTION, Shift+Tab to the previous one, Ctrl+Tab walks the focus history.
+        /// which dispatches here. Renaming that registration would silently drop whatever key the
+        /// user had rebound it to, so the name outlives the behaviour it described.
         ///
-        /// To retire it, point that registration at <see cref="HandleTabNavigation"/> and Ctrl+Tab
-        /// at <see cref="NavigateToPreviousElementInHistory"/>, then delete this method.
+        /// See <see cref="HandleTabNavigation"/> for what the key actually does.
         /// </summary>
         public void NavigateToPreviousElement()
         {
@@ -691,10 +690,15 @@ namespace LethalAccess
         }
 
         /// <summary>
-        /// Section navigation, with the focus-history walk on Ctrl+Tab.
+        /// Tab moves between CONTROLS, Ctrl+Tab between SECTIONS - the Windows convention a
+        /// screen-reader user already has, rather than one this mod invented.
         ///
-        /// Section jumps only exist on screens the registry claims; on anything else Tab falls
-        /// back to the history walk, so unregistered screens keep the behaviour they had.
+        /// Tab used to jump by section and Ctrl+Tab walked the focus history. The history walk
+        /// survives as the fallback on screens the registry does not claim, where there is no
+        /// section model to move through and Tab has nothing better to do.
+        ///
+        /// Arrow keys are unchanged: up/down still move between controls, and left/right still
+        /// reach the focused control itself, which is what adjusts a slider.
         /// </summary>
         public void HandleTabNavigation()
         {
@@ -702,17 +706,22 @@ namespace LethalAccess
             bool ctrl = kb != null && (kb.leftCtrlKey.isPressed || kb.rightCtrlKey.isPressed);
             bool shift = kb != null && (kb.leftShiftKey.isPressed || kb.rightShiftKey.isPressed);
 
-            if (ctrl)
+            EventSystem es = EventSystem.current;
+            GameObject current = es != null ? es.currentSelectedGameObject : null;
+
+            if (current == null || !UIScreenRegistry.ClaimsSelectable(current))
             {
                 NavigateToPreviousElementInHistory();
                 return;
             }
 
-            EventSystem es = EventSystem.current;
-            GameObject current = es != null ? es.currentSelectedGameObject : null;
+            if (!ctrl)
+            {
+                MoveWithinScreen(current, shift ? -1 : 1);
+                return;
+            }
 
-            if (!ConfigManager.TabMovesBySection.Value || current == null ||
-                !UIScreenRegistry.ClaimsSelectable(current))
+            if (!ConfigManager.TabMovesBySection.Value)
             {
                 NavigateToPreviousElementInHistory();
                 return;
@@ -763,7 +772,28 @@ namespace LethalAccess
         }
 
         /// <summary>
-        /// Ctrl+Tab: walk back through recently focused controls.
+        /// Tab / Shift+Tab: the next control in the screen's authored order.
+        ///
+        /// Deliberately identical to what down and up arrow do, including the dead ends: Tab is
+        /// an alternative to the arrows, not a second navigation model with its own edges. The
+        /// silence at the top and bottom is the same silence the arrows already produce there.
+        /// </summary>
+        private void MoveWithinScreen(GameObject current, int delta)
+        {
+            Transform target = UIScreenRegistry.NextInFlatOrder(current, delta);
+            if (target == null)
+            {
+                return;
+            }
+
+            // Seed clears the announcer's memo, so without this the control being left never
+            // reaches the back-trail and the history walk cannot undo a Tab.
+            PushHistory(current);
+            FocusManager.Seed(target);
+        }
+
+        /// <summary>
+        /// Walk back through recently focused controls.
         ///
         /// Loops past candidates that have since been destroyed or hidden instead of consuming
         /// one and giving up, and suppresses the history push the resulting selection change

@@ -171,7 +171,13 @@ namespace LethalAccess
                 {
                     new UISection("Audio",
                         new UIEntry("MicSettings/SpeakerButton", "Microphone", "checkbox"),
-                        new UIEntry("MicSettings/TalkMode", "Microphone mode", "button"),
+                        new UIEntry("MicSettings/TalkMode", "Microphone mode", "button")
+                        {
+                            // Two named modes, and which one is active was announced nowhere:
+                            // the control said only "Microphone mode, button", so the setting it
+                            // exists to show was unreadable.
+                            State = TalkModeState(captured)
+                        },
                         new UIEntry("MicSettings/ChooseDevice", "Input device", "button")
                         {
                             // The device name exists ONLY in this button's own TMP - the
@@ -344,18 +350,68 @@ namespace LethalAccess
             };
         }
 
+        /// <summary>
+        /// Which of the two microphone modes is active.
+        ///
+        /// The button is not a checkbox: its two values are named states ("Push to talk" /
+        /// "Voice activation"), not on and off, so it publishes as a button carrying a value.
+        /// Read from the same TMP the player sees, for the reason MicDeviceState gives; the
+        /// fallback is unsavedSettings.pushToTalk, which is the field
+        /// `IngamePlayerSettings.SetMicPushToTalk` toggles and derives that text from.
+        /// </summary>
+        private static Func<string> TalkModeState(Transform root)
+        {
+            return delegate
+            {
+                if (root == null)
+                {
+                    return null;
+                }
+
+                Transform t = UIUtils.FindByPathIncludingInactive(root, "MicSettings/TalkMode");
+                if (t != null)
+                {
+                    SettingsOption option = t.GetComponent<SettingsOption>();
+                    if (option != null && option.textElement != null)
+                    {
+                        string text = StripCaption(option.textElement.text, "MODE:");
+                        if (!string.IsNullOrEmpty(text))
+                        {
+                            return text;
+                        }
+                    }
+                }
+
+                IngamePlayerSettings settings = IngamePlayerSettings.Instance;
+                if (settings == null)
+                {
+                    return null;
+                }
+
+                return settings.unsavedSettings.pushToTalk ? "Push to talk" : "Voice activation";
+            };
+        }
+
+        // The game writes "Current input device: \n <name>" into this button's TMP. The caption is
+        // already the entry's authored label, and the embedded newline leaves a run of spaces.
         private static string NormaliseDeviceText(string raw)
+        {
+            return StripCaption(raw, "Current input device:");
+        }
+
+        /// <summary>
+        /// One line of the value, with a leading caption removed. These TMP labels carry the
+        /// control's name and its value in a single string, and the name is spoken already.
+        /// </summary>
+        private static string StripCaption(string raw, string caption)
         {
             if (string.IsNullOrEmpty(raw))
             {
                 return null;
             }
 
-            // The game writes "Current input device: \n <name>". The caption is already the entry's
-            // authored label, and the embedded newline leaves a run of spaces behind it.
             string text = raw.Replace('\r', ' ').Replace('\n', ' ').Trim();
 
-            const string caption = "Current input device:";
             if (text.StartsWith(caption, StringComparison.OrdinalIgnoreCase))
             {
                 text = text.Substring(caption.Length);
