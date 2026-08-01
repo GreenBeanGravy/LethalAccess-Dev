@@ -28,10 +28,20 @@ namespace LethalAccess
         private const ulong RootId = 1;
         private const ulong AnnouncerId = 2;
 
-        // Group nodes are allocated from here. Kept well clear of the reserved ids, and
-        // of StableId's output, which is biased above 1024.
-        private const ulong FirstGroupId = 16;
+        // One Dialog node per screen, keyed by screen id so it keeps the same identity while the
+        // user moves around inside a screen and takes a NEW one when the screen changes. That
+        // identity change is the whole mechanism: a screen reader announces an ancestor it has
+        // newly entered, and re-reads nothing whose identity held still.
+        private const ulong FirstDialogId = 4;
+        private const ulong MaxDialogId = 255;
+
+        // Group nodes. Kept well clear of the reserved and dialog ids, and of StableId's output,
+        // which is biased above 1024.
+        private const ulong FirstGroupId = 256;
         private const ulong MaxGroupId = 1023;
+
+        private readonly Dictionary<string, ulong> _dialogIdByScreen = new Dictionary<string, ulong>();
+        private ulong _nextDialogId = FirstDialogId;
 
         private readonly List<UIScreenRegistry.UIEntryView> _views =
             new List<UIScreenRegistry.UIEntryView>();
@@ -114,11 +124,12 @@ namespace LethalAccess
             _screenId = screenId;
             _structureKey = ComputeStructureKey();
 
-            // The root is a Window rather than a Dialog even for modal screens: the game
-            // has exactly one window, and a screen reader reads the root's name as the
-            // application name. The screen's own name goes on the group below it.
+            // The root is the game window and is named for the application, never for the current
+            // screen. A screen reader reads a window's name when the application is switched to,
+            // not when focus moves inside it, so a title put here is read once at startup and
+            // never again - which is what happened to every screen title the mod published.
             AccessNode root = new AccessNode(RootId, AccessRole.Window);
-            root.Label = string.IsNullOrEmpty(title) ? Application.productName : title;
+            root.Label = Application.productName;
             root.Focusable = false;
             into.Add(root);
             into.RootId = RootId;
@@ -129,6 +140,15 @@ namespace LethalAccess
                 return;
             }
 
+            // The screen itself, carrying the title. Dialog because that is what these are -
+            // one screen at a time, owning the keyboard - and because a screen reader announces
+            // a dialog by name on entry, which is the announcement the title needs to be.
+            AccessNode screenNode = new AccessNode(DialogIdFor(screenId), AccessRole.Dialog);
+            screenNode.Label = title;
+            screenNode.Focusable = false;
+            into.Add(screenNode);
+            root.Children.Add(screenNode.Id);
+
             // A screen with one section gets no group node. Its section name is an
             // internal grouping label ("Main", "Buttons") that means nothing aloud, and
             // an unnamed container makes a screen reader announce a level of nesting
@@ -138,7 +158,7 @@ namespace LethalAccess
 
             ulong nextGroupId = FirstGroupId;
             int currentSection = int.MinValue;
-            AccessNode parent = root;
+            AccessNode parent = screenNode;
 
             for (int i = 0; i < _views.Count; i++)
             {
@@ -151,9 +171,9 @@ namespace LethalAccess
                     if (nextGroupId > MaxGroupId)
                     {
                         Debug.LogError("[LethalAccess] Screen '" + screenId + "' has more sections than the " +
-                                       "reserved group-id range allows; the remainder are parented to the root " +
+                                       "reserved group-id range allows; the remainder are parented to the screen " +
                                        "and will announce without their section name.");
-                        parent = root;
+                        parent = screenNode;
                     }
                     else
                     {
@@ -162,7 +182,7 @@ namespace LethalAccess
                         group.Focusable = false;
                         group.SizeOfSet = v.SectionCount;
                         into.Add(group);
-                        root.Children.Add(group.Id);
+                        screenNode.Children.Add(group.Id);
                         parent = group;
                     }
                 }
@@ -194,6 +214,31 @@ namespace LethalAccess
         }
 
         /// <summary>
+        /// A stable id for a screen's Dialog node: same screen, same id for the process lifetime,
+        /// so navigating within a screen never re-announces its title and arriving at a different
+        /// screen always does.
+        /// </summary>
+        private ulong DialogIdFor(string screenId)
+        {
+            ulong id;
+            if (_dialogIdByScreen.TryGetValue(screenId, out id)) return id;
+
+            if (_nextDialogId > MaxDialogId)
+            {
+                // Reusing an id would make a genuinely new screen look like one already visited,
+                // and its title would go unspoken. Reuse the last slot and say so.
+                Debug.LogError("[LethalAccess] More than " + (MaxDialogId - FirstDialogId + 1) +
+                               " screens have been published; '" + screenId + "' shares a node id with " +
+                               "another screen and its title may not be announced on arrival.");
+                return MaxDialogId;
+            }
+
+            id = _nextDialogId++;
+            _dialogIdByScreen[screenId] = id;
+            return id;
+        }
+
+        /// <summary>
         /// Fill everything mutable. Shared by the full build and the per-frame refresh so
         /// the two cannot drift.
         /// </summary>
@@ -213,7 +258,90 @@ namespace LethalAccess
 
             ApplyState(node, state);
 
+            // An authored state is a deliberate override and always wins; this only fills the
+            // silence where no delegate was written, which was most controls.
+            if (string.IsNullOrEmpty(state)) ApplyComponentState(node, v.Target);
+
             if (node.Role == AccessRole.Slider) ApplyRange(node, v.Target);
+        }
+
+        /// <summary>
+        /// Read the control's state off its own components, by role.
+        ///
+        /// Every state a control had was previously reachable ONLY through a hand-written State
+        /// delegate on its UIEntry, and four entries in the whole mod have one. So a checkbox
+        /// published no toggle state, a dropdown published no selection, and an edit field
+        /// published no text - which a screen reader cannot compensate for: with no toggle state
+        /// there is nothing to say on focus and, worse, nothing to CHANGE, so toggling a checkbox
+        /// was silent.
+        ///
+        /// Driven by the authored role rather than by whatever components happen to be attached,
+        /// because a role is a promise about which keys work and must not follow the scene.
+        /// </summary>
+        private static void ApplyComponentState(AccessNode node, Transform target)
+        {
+            GameObject go = target.gameObject;
+
+            switch (node.Role)
+            {
+                case AccessRole.CheckBox:
+                case AccessRole.Switch:
+                {
+                    UnityEngine.UI.Toggle toggle = target.GetComponent<UnityEngine.UI.Toggle>();
+                    if (toggle != null)
+                    {
+                        node.Toggled = toggle.isOn ? Toggled.True : Toggled.False;
+                        return;
+                    }
+
+                    // The settings panel's toggles are plain Buttons whose only indication is a
+                    // swapped Image sprite, so the state lives in IngamePlayerSettings.
+                    bool on;
+                    if (UIAccessibilityManager.TryGetSettingsToggle(go, out on))
+                    {
+                        node.Toggled = on ? Toggled.True : Toggled.False;
+                        return;
+                    }
+
+                    // Published as a checkbox with no state at all: a screen reader says "check box"
+                    // and stops, and the user has no way to tell on from off. Name the control.
+                    Debug.LogWarning("[LethalAccess] '" + go.name + "' is registered as a checkbox but has no " +
+                                     "Toggle and no known SettingsOption, so it is published with no state.");
+                    return;
+                }
+
+                case AccessRole.ComboBox:
+                {
+                    TMPro.TMP_Dropdown dropdown = target.GetComponent<TMPro.TMP_Dropdown>();
+                    if (dropdown == null)
+                    {
+                        Debug.LogWarning("[LethalAccess] '" + go.name + "' is registered as a dropdown but has no " +
+                                         "TMP_Dropdown, so its selected option is published with no value.");
+                        return;
+                    }
+
+                    node.Expanded = dropdown.IsExpanded;
+                    if (dropdown.value >= 0 && dropdown.value < dropdown.options.Count)
+                    {
+                        node.Value = dropdown.options[dropdown.value].text;
+                    }
+                    return;
+                }
+
+                case AccessRole.TextInput:
+                {
+                    TMPro.TMP_InputField field = target.GetComponent<TMPro.TMP_InputField>();
+                    if (field == null) return;
+
+                    node.Value = field.text;
+                    if (field.placeholder != null)
+                    {
+                        TMPro.TMP_Text hint = field.placeholder.GetComponent<TMPro.TMP_Text>();
+                        if (hint != null) node.Placeholder = hint.text;
+                    }
+                    return;
+                }
+            }
         }
 
         /// <summary>
@@ -267,7 +395,11 @@ namespace LethalAccess
             string type = entry != null ? entry.Type : null;
             if (string.IsNullOrEmpty(type)) return AccessRole.Button;
 
-            switch (type)
+            // Spaces removed before matching. The authored vocabulary and the one the legacy
+            // announcer sniffs are the same words spelled differently - "input field" is what
+            // four host-menu entries are registered as and what SniffElementType returns, and it
+            // matched nothing here, so every edit field on that screen published as a button.
+            switch (type.Replace(" ", "").ToLowerInvariant())
             {
                 case "slider": return AccessRole.Slider;
                 case "dropdown": return AccessRole.ComboBox;
@@ -275,10 +407,17 @@ namespace LethalAccess
                 case "toggle": return AccessRole.CheckBox;
                 case "input":
                 case "inputfield": return AccessRole.TextInput;
+                case "radiobutton": return AccessRole.RadioButton;
+                case "scrollbar": return AccessRole.ScrollBar;
+                case "scrollarea": return AccessRole.ScrollView;
                 case "heading":
                 case "text":
                 case "label": return AccessRole.Label;
                 case "tab": return AccessRole.Tab;
+
+                // SniffElementType's fallback for "something focusable we could not identify".
+                // Publishing it as a button would promise Enter/Space works.
+                case "uielement": return AccessRole.Unknown;
             }
 
             // An authored "button" whose live state reads as on/off is really a toggle.

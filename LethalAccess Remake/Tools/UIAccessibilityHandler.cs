@@ -989,12 +989,12 @@ namespace LethalAccess
 
             LogUIElementInfo(element, announcement);
 
-            // When the accessibility tree is live the screen reader composes and speaks the
-            // focused control itself, from its own vocabulary and the user's own verbosity
-            // settings. Speaking here as well would say every control twice, in two different
-            // wordings. Everything above still runs: the log line is how the composed text
-            // stays comparable between the two paths.
-            if (AnnouncementPolicy.UiTreeOwnsSpeech)
+            // When the tree publishes THIS control, the screen reader composes and speaks it from
+            // its own vocabulary and the user's own verbosity settings, and speaking here as well
+            // would say it twice in two different wordings. Asked per control: the tree only
+            // covers registered screens, and anything outside one still needs this path or it is
+            // silent. Everything above still runs, so the log line stays comparable between them.
+            if (AnnouncementPolicy.UiTreeSpeaksFor(element))
             {
                 return;
             }
@@ -1423,6 +1423,42 @@ namespace LethalAccess
         /// </summary>
         private static string GetSettingsOptionState(GameObject element, ref string baseText)
         {
+            bool on;
+            if (!TryGetSettingsToggle(element, out on))
+            {
+                return null;
+            }
+
+            // The mic toggle is the one control in this family whose textElement is wired, and
+            // the game writes the literal "ENABLED"/"DISABLED" into it (SettingsOption.ToggleEnabledImage).
+            // Scraped as a label that is all the user hears - "ENABLED" with no idea what is
+            // enabled - and appending ", on" to it would only make it "ENABLED, on".
+            if (!string.IsNullOrEmpty(baseText))
+            {
+                string trimmed = baseText.Trim();
+                if (string.Equals(trimmed, "ENABLED", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(trimmed, "DISABLED", StringComparison.OrdinalIgnoreCase))
+                {
+                    baseText = SplitCamelCase(element.name.Replace("(Clone)", "").Trim());
+                }
+            }
+
+            return on ? "on" : "off";
+        }
+
+        /// <summary>
+        /// Whether one of the sprite-swap settings is on, read from the same field the game reads
+        /// in SettingsOption.ToggleEnabledImage rather than guessed from a sprite name or a button
+        /// colour. False when this object is not one of them.
+        ///
+        /// Public and shared because the accessibility tree needs the same answer as a boolean,
+        /// to publish as a toggle state. Two copies of this switch would silently disagree the
+        /// first time the game adds an option type.
+        /// </summary>
+        public static bool TryGetSettingsToggle(GameObject element, out bool on)
+        {
+            on = false;
+
             SettingsOption option = element.GetComponent<SettingsOption>();
             if (option == null && element.transform.parent != null)
             {
@@ -1434,18 +1470,17 @@ namespace LethalAccess
 
             if (option == null)
             {
-                return null;
+                return false;
             }
 
             IngamePlayerSettings settings = IngamePlayerSettings.Instance;
             if (settings == null || settings.unsavedSettings == null)
             {
                 // Only reachable before IngamePlayerSettings has initialised, i.e. before any of
-                // these controls can be on screen; say nothing rather than guess a state.
-                return null;
+                // these controls can be on screen; report nothing rather than guess a state.
+                return false;
             }
 
-            bool on;
             switch (option.optionType)
             {
                 case SettingsOptionType.MicEnabled:
@@ -1472,24 +1507,10 @@ namespace LethalAccess
                 default:
                     // Sliders, dropdowns, rebind rows and the mic-device button are also
                     // SettingsOptions; none of them has an on/off state.
-                    return null;
+                    return false;
             }
 
-            // The mic toggle is the one control in this family whose textElement is wired, and
-            // the game writes the literal "ENABLED"/"DISABLED" into it (SettingsOption.ToggleEnabledImage).
-            // Scraped as a label that is all the user hears - "ENABLED" with no idea what is
-            // enabled - and appending ", on" to it would only make it "ENABLED, on".
-            if (!string.IsNullOrEmpty(baseText))
-            {
-                string trimmed = baseText.Trim();
-                if (string.Equals(trimmed, "ENABLED", StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(trimmed, "DISABLED", StringComparison.OrdinalIgnoreCase))
-                {
-                    baseText = SplitCamelCase(element.name.Replace("(Clone)", "").Trim());
-                }
-            }
-
-            return on ? "on" : "off";
+            return true;
         }
 
         /// <summary>

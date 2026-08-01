@@ -231,11 +231,30 @@ namespace LethalAccess
         /// </summary>
         public static bool UiTreeOwnsSpeech;
 
+        /// <summary>
+        /// Whether the tree actually publishes a given control. Supplied by LACore once the
+        /// bridge is up.
+        ///
+        /// The tree covers registered screens and nothing else, so treating
+        /// <see cref="UiTreeOwnsSpeech"/> as a blanket switch made every control the tree does
+        /// NOT publish completely silent - dropdown option lists, the belt bag, the server list,
+        /// this mod's own menu - where before they were announced. A control that no one speaks
+        /// for is the one failure a blind user cannot diagnose, so coverage is asked per control
+        /// rather than assumed.
+        /// </summary>
+        public static Func<GameObject, bool> UiTreeCovers;
+
+        /// <summary>True only when a screen reader is going to speak this exact control.</summary>
+        public static bool UiTreeSpeaksFor(GameObject go)
+        {
+            return UiTreeOwnsSpeech && go != null && UiTreeCovers != null && UiTreeCovers(go);
+        }
+
         public static void AnnounceScreen(string title, Transform focus)
         {
             // Focus is still seeded below: the tree reports where focus IS, so something
             // still has to put it there. Only the spoken title is the screen reader's job.
-            if (UiTreeOwnsSpeech)
+            if (UiTreeSpeaksFor(focus != null ? focus.gameObject : null))
             {
                 if (focus != null)
                 {

@@ -760,6 +760,16 @@ namespace LethalAccess
                 // leave a blind user with no menu speech at all on the paths where the bridge
                 // never attaches.
                 AnnouncementPolicy.UiTreeOwnsSpeech = true;
+
+                // Scoped to what the tree actually publishes. A registered screen has to be the
+                // active one as well as claiming the control, because that is the condition
+                // LethalAccessSource.IsActive builds a snapshot under.
+                AnnouncementPolicy.UiTreeCovers = delegate (GameObject go)
+                {
+                    return !string.IsNullOrEmpty(UIScreenRegistry.ActiveScreenId) &&
+                           UIScreenRegistry.ClaimsSelectable(go);
+                };
+
                 Logger.LogInfo("Accessibility tree attached; your screen reader now reads the menus. " +
                                "Gameplay speech still comes from this mod.");
                 StartCoroutine(ReportTreeReachability(runtime));
