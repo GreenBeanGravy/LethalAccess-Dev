@@ -761,6 +761,115 @@ namespace LethalAccess
         /// at the call site. Returns false when the object is not claimed, or is itself not
         /// visible - announcing a position we cannot stand behind is worse than announcing none.
         /// </summary>
+        /// <summary>
+        /// One visible control on the active screen, flattened for an external consumer.
+        ///
+        /// Exists so an accessibility-tree provider can publish exactly the model the
+        /// announcer speaks from, rather than re-deriving order and position by its own
+        /// rules and drifting out of step with it.
+        /// </summary>
+        public struct UIEntryView
+        {
+            public Transform Target;
+            public UIEntry Entry;
+            public string SectionName;
+            public int SectionIndex;
+
+            /// <summary>1-based within the section, counting only visible entries.</summary>
+            public int IndexInSection;
+
+            /// <summary>Visible entries in this section.</summary>
+            public int SectionCount;
+        }
+
+        /// <summary>
+        /// The active screen's visible controls, in authored order, with the SAME
+        /// visibility test and per-section numbering <see cref="TryGetPosition"/> uses.
+        ///
+        /// While a focus trap is up this reports the TRAPPED screen instead of the
+        /// nominally active one, and only the trapped section when the trap is scoped to
+        /// one. That is what carries modal semantics into a published tree: a screen
+        /// reader exploring the tree must not be able to reach what the keyboard cannot.
+        /// </summary>
+        /// <returns>False when no screen is active or it has no visible entry.</returns>
+        public static bool TryEnumerateActiveScreen(List<UIEntryView> into, out string screenId, out string title)
+        {
+            screenId = null;
+            title = null;
+            if (into == null)
+            {
+                return false;
+            }
+            into.Clear();
+
+            string id = !string.IsNullOrEmpty(trapScreenId) ? trapScreenId : ActiveScreenId;
+            ScreenState s;
+            if (string.IsNullOrEmpty(id) || !screens.TryGetValue(id, out s))
+            {
+                return false;
+            }
+
+            bool sectionScoped = id == trapScreenId && trapSectionIndex >= 0;
+
+            // Two passes so SectionCount is known before any view is emitted; a consumer
+            // that needs "n of m" cannot use a count that is still being accumulated.
+            Dictionary<int, int> counts = new Dictionary<int, int>();
+            for (int i = 0; i < s.Flat.Count; i++)
+            {
+                Resolved e = s.Flat[i];
+                if (sectionScoped && e.SectionIndex != trapSectionIndex) continue;
+                if (!IsVisible(e)) continue;
+                int c;
+                counts[e.SectionIndex] = counts.TryGetValue(e.SectionIndex, out c) ? c + 1 : 1;
+            }
+
+            Dictionary<int, int> seen = new Dictionary<int, int>();
+            for (int i = 0; i < s.Flat.Count; i++)
+            {
+                Resolved e = s.Flat[i];
+                if (sectionScoped && e.SectionIndex != trapSectionIndex) continue;
+                if (!IsVisible(e)) continue;
+
+                int n;
+                n = seen.TryGetValue(e.SectionIndex, out n) ? n + 1 : 1;
+                seen[e.SectionIndex] = n;
+
+                UIEntryView v = new UIEntryView();
+                v.Target = e.T;
+                v.Entry = e.Entry;
+                v.SectionName = e.SectionName;
+                v.SectionIndex = e.SectionIndex;
+                v.IndexInSection = n;
+                v.SectionCount = counts[e.SectionIndex];
+                into.Add(v);
+            }
+
+            if (into.Count == 0)
+            {
+                return false;
+            }
+
+            screenId = id;
+            title = s.Descriptor.Title != null ? s.Descriptor.Title() : null;
+            return true;
+        }
+
+        /// <summary>How many sections currently have at least one visible entry.</summary>
+        public static int VisibleSectionCount(string screenId)
+        {
+            ScreenState s;
+            if (string.IsNullOrEmpty(screenId) || !screens.TryGetValue(screenId, out s))
+            {
+                return 0;
+            }
+            HashSet<int> live = new HashSet<int>();
+            for (int i = 0; i < s.Flat.Count; i++)
+            {
+                if (IsVisible(s.Flat[i])) live.Add(s.Flat[i].SectionIndex);
+            }
+            return live.Count;
+        }
+
         public static bool TryGetPosition(GameObject go, out int index, out int count, out string sectionName)
         {
             index = 0;

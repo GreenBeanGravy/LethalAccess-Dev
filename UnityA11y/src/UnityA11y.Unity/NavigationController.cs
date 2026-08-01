@@ -65,14 +65,118 @@ namespace UnityA11y.Unity
     }
 
     /// <summary>
+    /// Who decides which control is focused.
+    ///
+    /// A screen reader never moves focus - it only observes it - so something in
+    /// the process must. That is either this library (<see cref="NavigationController"/>,
+    /// which takes the keyboard over) or the host game (<see cref="ExternalFocusOwner"/>,
+    /// which leaves the game's own navigation alone and just reports what it picked).
+    ///
+    /// The split exists because taking the keyboard over is not always the right
+    /// call. A game that already routes navigation through its own authored order
+    /// loses that order the moment this library starts polling keys itself.
+    /// </summary>
+    public interface IFocusOwner
+    {
+        ulong CurrentId { get; }
+        event Action<ulong> FocusChanged;
+
+        void SetFocus(ulong id);
+        void Reconcile(IReadOnlyList<ulong> ring, int previousIndex);
+        int IndexOf(IReadOnlyList<ulong> ring);
+
+        /// <summary>Called once per frame from the runtime's Update.</summary>
+        void Tick(IUiSource source);
+
+        void Engage();
+        void Release();
+    }
+
+    /// <summary>
+    /// Focus owner for hosts that keep their own navigation. Reports the host's
+    /// current selection and forwards focus requests back to it; polls no keys,
+    /// suppresses nothing, and never touches the EventSystem.
+    ///
+    /// This is what makes the library usable as a pure PROVIDER: the game keeps
+    /// whatever navigation it already had - including any authored reading order
+    /// the generic scanner knows nothing about - and this library restricts itself
+    /// to publishing a tree and relaying the assistive technology's focus requests.
+    /// </summary>
+    public sealed class ExternalFocusOwner : IFocusOwner
+    {
+        private readonly Func<ulong> _read;
+        private readonly Action<ulong> _request;
+        private ulong _last;
+
+        /// <param name="readCurrentId">
+        /// Returns the node id of the host's currently focused control, or 0.
+        /// </param>
+        /// <param name="requestFocus">
+        /// Asks the host to move focus to a node id. Called when the assistive
+        /// technology issues a Focus action - NVDA's "move focus to navigator
+        /// object". The host may decline; nothing here assumes it succeeded.
+        /// </param>
+        public ExternalFocusOwner(Func<ulong> readCurrentId, Action<ulong> requestFocus)
+        {
+            if (readCurrentId == null) throw new ArgumentNullException("readCurrentId");
+            _read = readCurrentId;
+            _request = requestFocus;
+        }
+
+        public ulong CurrentId { get { return _read(); } }
+
+        public event Action<ulong> FocusChanged;
+
+        public void SetFocus(ulong id)
+        {
+            if (_request != null) _request(id);
+        }
+
+        /// <summary>
+        /// No-op: the host owns the ring, so there is no cursor of ours to repair.
+        /// Whatever it focuses next is the answer.
+        /// </summary>
+        public void Reconcile(IReadOnlyList<ulong> ring, int previousIndex) { }
+
+        public int IndexOf(IReadOnlyList<ulong> ring)
+        {
+            if (ring == null) return -1;
+            ulong id = CurrentId;
+            for (int i = 0; i < ring.Count; i++)
+                if (ring[i] == id) return i;
+            return -1;
+        }
+
+        /// <summary>
+        /// Only watches for the host's selection changing, so the runtime can
+        /// republish focus. Deliberately reads no input and suppresses nothing.
+        /// </summary>
+        public void Tick(IUiSource source)
+        {
+            ulong now = CurrentId;
+            if (now == _last) return;
+            _last = now;
+            var handler = FocusChanged;
+            if (handler != null) handler(now);
+        }
+
+        public void Engage() { }
+        public void Release() { }
+    }
+
+    /// <summary>
     /// Owns the user's position in the focus ring and translates key presses into
     /// focus movement and control manipulation.
     ///
     /// This runs whether or not a screen reader is attached, so keyboard behaviour
     /// is identical either way. That matters: a sighted QA tester can reproduce
     /// exactly what a blind player experiences.
+    ///
+    /// Takes the keyboard over: it suppresses the host's navigation and polls keys
+    /// itself. Hosts that already have navigation worth keeping want
+    /// <see cref="ExternalFocusOwner"/> instead.
     /// </summary>
-    public sealed class NavigationController
+    public sealed class NavigationController : IFocusOwner
     {
         public KeyCode Next = KeyCode.DownArrow;
         public KeyCode Previous = KeyCode.UpArrow;

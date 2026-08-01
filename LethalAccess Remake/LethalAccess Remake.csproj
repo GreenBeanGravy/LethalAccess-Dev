@@ -70,6 +70,16 @@
     <Reference Include="Lethal Speech Output">
       <HintPath>$(SolutionDir)Lethal Speech Output.dll</HintPath>
     </Reference>
+    <!--
+      The accessibility-tree provider. Built separately (src\UnityA11y) because it is
+      game-independent and ships as its own BepInEx plugin; LethalAccess only supplies
+      the game adapter. Private=false so it is referenced, not copied - two copies of
+      the same assembly in BepInEx\plugins would load twice.
+    -->
+    <Reference Include="UnityA11y">
+      <HintPath>$(SolutionDir)UnityA11y\bin\Release\UnityA11y.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
     <Reference Include="Mono.Cecil, Version=0.10.4.0, Culture=neutral, PublicKeyToken=50cebf1cceb9d05e, processorArchitecture=MSIL">
       <SpecificVersion>False</SpecificVersion>
       <HintPath>$(BepInExRefDir)Mono.Cecil.dll</HintPath>
@@ -527,6 +537,7 @@
     <Compile Include="Tools\TileTracker.cs" />
     <Compile Include="Tools\UIAccessibilityHandler.cs" />
     <Compile Include="Tools\UIScreenRegistry.cs" />
+    <Compile Include="Tools\LethalAccessSource.cs" />
     <Compile Include="Tools\FocusManager.cs" />
     <Compile Include="Tools\FocusInjection.cs" />
     <Compile Include="Tools\NavigationEnforcer.cs" />

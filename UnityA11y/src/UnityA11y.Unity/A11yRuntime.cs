@@ -28,7 +28,7 @@ namespace UnityA11y.Unity
         private readonly AccessNode _refreshScratch = new AccessNode();
         private AccessNode _announcer;
         private AccessKitBridge _bridge;
-        private NavigationController _nav;
+        private IFocusOwner _nav;
         private IUiSource _active;
         private int _lastRingIndex;
         private float _nextPollAt;
@@ -46,22 +46,50 @@ namespace UnityA11y.Unity
 
         public Action<string> Log = msg => Debug.Log("[UnityA11y] " + msg);
 
-        public NavigationController Navigation => _nav;
+        public IFocusOwner Focus => _nav;
+
+        /// <summary>The built-in controller, or null when the host owns navigation.</summary>
+        public NavigationController Navigation => _nav as NavigationController;
+
         public IUiSource ActiveSource => _active;
         public bool BridgeRunning => _bridge != null && _bridge.IsRunning;
 
+        /// <summary>
+        /// Start the runtime with the built-in navigation controller, which TAKES OVER
+        /// the keyboard: it suppresses the host's navigation and polls keys itself.
+        /// Registers the generic uGUI scanner.
+        /// </summary>
         public static A11yRuntime Create(INavigationSuppressor suppressor = null)
+        {
+            return Create(null, suppressor, registerUGuiSource: true);
+        }
+
+        /// <summary>
+        /// Start the runtime as a pure provider, leaving navigation to the host.
+        ///
+        /// Pass an <see cref="ExternalFocusOwner"/> and, normally,
+        /// <paramref name="registerUGuiSource"/> = false: a host with its own authored
+        /// reading order does not want the generic scanner's geometric guess competing
+        /// with it.
+        ///
+        /// Nothing is suppressed and no keys are polled in this mode, so the host's
+        /// navigation behaves exactly as it did before this library was loaded.
+        /// </summary>
+        public static A11yRuntime Create(IFocusOwner focusOwner,
+                                         INavigationSuppressor suppressor,
+                                         bool registerUGuiSource)
         {
             if (Instance != null) return Instance;
             var go = new GameObject("UnityA11yRuntime");
             DontDestroyOnLoad(go);
             go.hideFlags = HideFlags.HideAndDontSave;
             var runtime = go.AddComponent<A11yRuntime>();
-            runtime.Initialize(suppressor);
+            runtime.Initialize(focusOwner, suppressor, registerUGuiSource);
             return runtime;
         }
 
-        private void Initialize(INavigationSuppressor suppressor)
+        private void Initialize(IFocusOwner focusOwner, INavigationSuppressor suppressor,
+                                bool registerUGuiSource)
         {
             Instance = this;
 
@@ -72,12 +100,24 @@ namespace UnityA11y.Unity
                     "but nothing will be announced.");
             }
 
-            _nav = new NavigationController(suppressor);
+            if (focusOwner != null)
+            {
+                // Host-owned navigation. Engage() is still called so a custom owner can
+                // do its own setup, but the built-in suppressor is never constructed -
+                // nothing here touches EventSystem.sendNavigationEvents.
+                _nav = focusOwner;
+            }
+            else
+            {
+                var controller = new NavigationController(suppressor);
+                controller.RepeatRequested += RepeatFocused;
+                _nav = controller;
+            }
+
             _nav.FocusChanged += OnFocusChanged;
-            _nav.RepeatRequested += RepeatFocused;
             _nav.Engage();
 
-            Register(new UGuiSource());
+            if (registerUGuiSource) Register(new UGuiSource());
         }
 
         public void Register(IUiSource source)
