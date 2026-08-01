@@ -54,6 +54,9 @@ namespace UnityA11y.Unity
         public IUiSource ActiveSource => _active;
         public bool BridgeRunning => _bridge != null && _bridge.IsRunning;
 
+        /// <summary>The adapter, for diagnostics. Null before Initialize.</summary>
+        public AccessKitBridge Bridge => _bridge;
+
         /// <summary>
         /// Start the runtime with the built-in navigation controller, which TAKES OVER
         /// the keyboard: it suppresses the host's navigation and polls keys itself.

@@ -18,6 +18,7 @@ using UnityEngine.InputSystem.Controls;
 using UnityEngine.InputSystem.LowLevel;
 using UnityEngine.Networking;
 using UnityEngine.SceneManagement;
+using UnityA11y.AccessKitInterop;
 using UnityA11y.Unity;
 using UnityEngine.UI;
 using Key = UnityEngine.InputSystem.Key;
@@ -657,6 +658,48 @@ namespace LethalAccess
         /// the mod's previous behaviour, so a missing accesskit.dll costs braille and NVDA's
         /// own wording - never silence.
         /// </summary>
+        /// <summary>
+        /// Report, once, how far an assistive technology actually got into the tree.
+        ///
+        /// "Attached" only means the WndProc was subclassed. It does NOT mean a screen
+        /// reader ever queried the window, nor that the adapter answered. Those are three
+        /// separate failures with identical symptoms - silence - and telling them apart by
+        /// staring at node content is hopeless, so the counters say which one it is.
+        /// </summary>
+        private IEnumerator ReportTreeReachability(A11yRuntime runtime)
+        {
+            yield return new WaitForSecondsRealtime(10f);
+
+            AccessKitBridge bridge = runtime != null ? runtime.Bridge : null;
+            if (bridge == null)
+            {
+                yield break;
+            }
+
+            Logger.LogInfo(string.Format(
+                "Tree reachability after 10s: wndProc={0} wmGetObject={1} activations={2} " +
+                "updateFactory={3} lastGetObject={4}",
+                bridge.WndProcMessages, bridge.WmGetObject, bridge.Activations,
+                bridge.UpdateFactoryCalls, bridge.LastGetObjectOutcome ?? "<none>"));
+
+            if (bridge.WndProcMessages == 0)
+            {
+                Logger.LogWarning("The window subclass is receiving no messages at all, so the " +
+                                  "subclass did not take even though it reported success.");
+            }
+            else if (bridge.WmGetObject == 0)
+            {
+                Logger.LogWarning("No assistive technology has queried this window (no WM_GETOBJECT). " +
+                                  "Either none is running, or it is not inspecting this process.");
+            }
+            else if (bridge.Activations == 0)
+            {
+                Logger.LogWarning("A screen reader queried the window but the adapter never handed back " +
+                                  "a tree. The WM_GETOBJECT reply is being rejected - suspect the " +
+                                  "accesskit_opt_lresult return-value marshalling.");
+            }
+        }
+
         private void StartAccessibilityTree()
         {
             if (ConfigManager.UseAccessibilityTree == null || !ConfigManager.UseAccessibilityTree.Value)
@@ -719,6 +762,7 @@ namespace LethalAccess
                 AnnouncementPolicy.UiTreeOwnsSpeech = true;
                 Logger.LogInfo("Accessibility tree attached; your screen reader now reads the menus. " +
                                "Gameplay speech still comes from this mod.");
+                StartCoroutine(ReportTreeReachability(runtime));
             }
             else
             {

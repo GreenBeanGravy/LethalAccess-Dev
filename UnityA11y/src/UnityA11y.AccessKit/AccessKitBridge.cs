@@ -102,6 +102,24 @@ namespace UnityA11y.AccessKitInterop
         public int LastUpdateNodeCount => _differ.LastNodeCount;
         public bool LastUpdateWasFull => _differ.LastWasFull;
 
+        /// <summary>
+        /// Counters for the one question that matters when a screen reader stays silent:
+        /// how far down the chain does it get?
+        ///
+        ///   WndProcMessages == 0     the subclass is not receiving anything at all
+        ///   WmGetObject     == 0     no assistive technology has queried this window
+        ///   Activations     == 0     it queried, but the adapter never handed back a tree
+        ///   UpdateFactory   == 0     it activated, but nothing was ever published to it
+        ///
+        /// Without these the failure is indistinguishable from "the tree is wrong", which
+        /// sends you rewriting node content when the messages were never arriving.
+        /// </summary>
+        public long WndProcMessages { get; private set; }
+        public long WmGetObject { get; private set; }
+        public long Activations { get; private set; }
+        public long UpdateFactoryCalls { get; private set; }
+        public string LastGetObjectOutcome { get; private set; }
+
         public bool Start()
         {
             if (IsRunning) return true;
@@ -191,6 +209,7 @@ namespace UnityA11y.AccessKitInterop
             // the whole tree regardless of what changed.
             var self = _instance;
             if (self == null) return IntPtr.Zero;
+            self.Activations++;
             try
             {
                 self._differ.Reset();
@@ -209,6 +228,7 @@ namespace UnityA11y.AccessKitInterop
         {
             var self = _instance;
             if (self == null) return IntPtr.Zero;
+            self.UpdateFactoryCalls++;
             try
             {
                 var update = self._differ.Materialize(forceFull: false);
@@ -269,12 +289,17 @@ namespace UnityA11y.AccessKitInterop
 
         private IntPtr WndProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam)
         {
+            WndProcMessages++;
             try
             {
                 if (msg == WM_GETOBJECT && _adapter != IntPtr.Zero)
                 {
+                    WmGetObject++;
                     var res = AK.accesskit_windows_adapter_handle_wm_getobject(
                         _adapter, wParam, lParam, _activationKeepAlive, IntPtr.Zero);
+                    LastGetObjectOutcome = res.HasValue
+                        ? "handled, lresult=0x" + res.Value.ToInt64().ToString("X")
+                        : "declined (lParam=0x" + lParam.ToInt64().ToString("X") + ")";
                     if (res.HasValue) return res.Value;
                 }
                 else if (msg == WM_ACTIVATE && _adapter != IntPtr.Zero)

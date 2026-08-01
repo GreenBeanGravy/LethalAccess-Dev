@@ -170,7 +170,7 @@ namespace LethalAccess
                 Sections = new List<UISection>
                 {
                     new UISection("Audio",
-                        new UIEntry("MicSettings/SpeakerButton", "Microphone", "button"),
+                        new UIEntry("MicSettings/SpeakerButton", "Microphone", "checkbox"),
                         new UIEntry("MicSettings/TalkMode", "Microphone mode", "button"),
                         new UIEntry("MicSettings/ChooseDevice", "Input device", "button")
                         {
@@ -186,9 +186,9 @@ namespace LethalAccess
 
                     new UISection("Controls",
                         new UIEntry("ControlsOptions/LookSensitivity/Slider", "Look sensitivity", "slider"),
-                        new UIEntry("ControlsOptions/InvertYAxis", "Invert Y-Axis", "button"),
-                        new UIEntry("ToggleSprint", "Toggle Sprint", "button"),
-                        new UIEntry("HeadBobbing", "Head Bobbing", "button"))
+                        new UIEntry("ControlsOptions/InvertYAxis", "Invert Y-Axis", "checkbox"),
+                        new UIEntry("ToggleSprint", "Toggle Sprint", "checkbox"),
+                        new UIEntry("HeadBobbing", "Head Bobbing", "checkbox"))
                     { OrderByScreenPosition = true },
 
                     new UISection("Display",
@@ -201,12 +201,12 @@ namespace LethalAccess
                     new UISection("Graphics",
                         new UIEntry("TerrainDetail", "Terrain / Grass Detail", "dropdown"),
                         new UIEntry("MotionBlur", "Motion Blur", "dropdown"),
-                        new UIEntry("AdvancedLighting", "Indirect lighting", "button"))
+                        new UIEntry("AdvancedLighting", "Indirect lighting", "checkbox"))
                     { OrderByScreenPosition = true },
 
                     new UISection("Accessibility",
-                        new UIEntry("ArachniphobiaMode", "Arachnophobia Mode", "button"),
-                        new UIEntry("InvertScreenOption", "Flip Screen Horizontally", "button")
+                        new UIEntry("ArachniphobiaMode", "Arachnophobia Mode", "checkbox"),
+                        new UIEntry("InvertScreenOption", "Flip Screen Horizontally", "checkbox")
                         {
                             // QuickMenuManager.specialOption: activated only when
                             // IngamePlayerSettings.flipCamera is set, which Awake does on April 1
