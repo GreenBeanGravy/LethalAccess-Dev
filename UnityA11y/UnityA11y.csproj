@@ -29,7 +29,19 @@
     <Compile Include="src\UnityA11y.Core\**\*.cs" />
     <Compile Include="src\UnityA11y.AccessKit\**\*.cs" />
     <Compile Include="src\UnityA11y.Unity\**\*.cs" />
-    <Compile Include="src\UnityA11y.Plugin\**\*.cs" />
+    <!--
+      src\UnityA11y.Plugin is deliberately NOT compiled here.
+
+      That folder is a standalone BepInEx entry point, and it calls the default
+      A11yRuntime.Create() - the one that constructs a NavigationController and engages
+      EventSystemSuppressor, taking the keyboard over. In this game LethalAccess owns
+      navigation and starts the runtime itself with an ExternalFocusOwner.
+
+      Shipping both would be a race: A11yRuntime.Create returns the existing instance, so
+      whichever plugin BepInEx happened to load first would decide whether navigation was
+      seized. BepInEx does not guarantee that order. Building this as a plain library
+      removes the race rather than trying to win it.
+    -->
   </ItemGroup>
 
   <!--

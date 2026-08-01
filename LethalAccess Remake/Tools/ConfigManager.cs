@@ -27,6 +27,7 @@ namespace LethalAccess
 
         // UI Settings
         public static ConfigEntry<bool> EnableUIAnnouncements { get; private set; }
+        public static ConfigEntry<bool> UseAccessibilityTree { get; private set; }
         public static ConfigEntry<bool> VerticalNavigationOnly { get; private set; }
         public static ConfigEntry<bool> TabMovesBySection { get; private set; }
         public static ConfigEntry<string> SectionPrefixMode { get; private set; }
@@ -81,6 +82,13 @@ namespace LethalAccess
             TabMovesBySection = config.Bind("UI", "TabMovesBySection", true,
                 "Tab jumps to the next section of the current screen and Shift+Tab to the previous one, " +
                 "announcing the section name on arrival.");
+
+            UseAccessibilityTree = config.Bind("UI", "UseAccessibilityTree", true,
+                "Publish menus as a real accessibility tree so your screen reader reads them with " +
+                "its own wording, verbosity and braille, instead of this mod composing sentences " +
+                "and pushing them at it. Needs accesskit.dll next to the game executable; if it is " +
+                "missing or fails to attach, the mod falls back to speaking menus itself. " +
+                "Gameplay speech is unaffected either way.");
 
             SectionPrefixMode = config.Bind("UI", "SectionPrefixMode", "OnChange",
                 "How much context each announcement carries: \"Graphics, Terrain / Grass Detail, " +

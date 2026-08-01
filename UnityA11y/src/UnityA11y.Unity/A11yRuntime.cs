@@ -137,6 +137,22 @@ namespace UnityA11y.Unity
         /// <summary>Force a full rebuild on the next frame.</summary>
         public void Invalidate() => _nextPollAt = 0f;
 
+        /// <summary>
+        /// Retry attaching to the game window. Returns true once attached.
+        ///
+        /// Window discovery can legitimately fail on the first attempt: a mod loader runs
+        /// plugin entry points during the first scene load, and GetActiveWindow returns
+        /// nothing until the window is shown and the process has pumped a message. That is
+        /// not a permanent error, so the host is expected to keep calling this for a while
+        /// rather than concluding accessibility is unavailable.
+        /// </summary>
+        public bool TryAttachBridge()
+        {
+            if (_bridge == null) return false;
+            if (_bridge.IsRunning) return true;
+            return _bridge.Start();
+        }
+
         // ---- Announcements ------------------------------------------------------
 
         /// <summary>

@@ -959,6 +959,16 @@ namespace LethalAccess
 
             LogUIElementInfo(element, announcement);
 
+            // When the accessibility tree is live the screen reader composes and speaks the
+            // focused control itself, from its own vocabulary and the user's own verbosity
+            // settings. Speaking here as well would say every control twice, in two different
+            // wordings. Everything above still runs: the log line is how the composed text
+            // stays comparable between the two paths.
+            if (AnnouncementPolicy.UiTreeOwnsSpeech)
+            {
+                return;
+            }
+
             // AnnouncementPolicy, not Utilities.SpeakText: it is the only path that honours a
             // suppression scope, and it normalises through SpeechUtils so "60%" is spoken as
             // "60 percent" whichever layer raised it.

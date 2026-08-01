@@ -18,6 +18,7 @@ using UnityEngine.InputSystem.Controls;
 using UnityEngine.InputSystem.LowLevel;
 using UnityEngine.Networking;
 using UnityEngine.SceneManagement;
+using UnityA11y.Unity;
 using UnityEngine.UI;
 using Key = UnityEngine.InputSystem.Key;
 
@@ -52,6 +53,10 @@ namespace LethalAccess
         private NorthSoundManager northSoundManager;
         private TileTracker tileTracker;
         private InstantNavigationManager instantNavigationManager;
+
+        // The accessibility-tree provider, when it attached. Held so it is not collected and
+        // so its state can be inspected at runtime.
+        private A11yRuntime accessibilityTree;
         private UIAccessibilityManager uiAccessibilityManager;
         private SettingsMenu settingsMenu;
         private const float MAX_DISTANCE_TO_OBJECT = 15f;
@@ -186,6 +191,7 @@ namespace LethalAccess
                 RegisterNavigationPoints();
                 RegisterUIElements();
                 instantNavigationManager = new InstantNavigationManager(this);
+                StartAccessibilityTree();
             }
             else
             {
@@ -634,6 +640,93 @@ namespace LethalAccess
         private static bool IsInShipBuildMode()
         {
             return ShipBuildModeManager.Instance != null && ShipBuildModeManager.Instance.InBuildMode;
+        }
+
+        /// <summary>
+        /// Publish the mod's screens as a real accessibility tree, so a screen reader reads
+        /// them with its own vocabulary, verbosity, braille and review cursor instead of
+        /// being handed sentences this mod wrote.
+        ///
+        /// Navigation is deliberately NOT handed over. An ExternalFocusOwner reports where
+        /// focus already is and relays focus requests back; the Selectable finder patches
+        /// keep owning the arrow keys, so the authored screen order survives. The generic
+        /// uGUI scanner is left unregistered for the same reason - its geometric guess would
+        /// compete with that order.
+        ///
+        /// Falls back to speaking menus itself if the bridge does not attach. That path is
+        /// the mod's previous behaviour, so a missing accesskit.dll costs braille and NVDA's
+        /// own wording - never silence.
+        /// </summary>
+        private void StartAccessibilityTree()
+        {
+            if (ConfigManager.UseAccessibilityTree == null || !ConfigManager.UseAccessibilityTree.Value)
+            {
+                Logger.LogInfo("Accessibility tree disabled by config; menus are spoken by the mod.");
+                return;
+            }
+            StartCoroutine(StartAccessibilityTreeWhenWindowExists());
+        }
+
+        /// <summary>
+        /// Attaching cannot be done from Awake. The adapter needs the game's HWND, and this
+        /// runs during the first scene load - GetActiveWindow returns nothing until the
+        /// window has been shown and the process has pumped a message, so the first attempt
+        /// finds no window and gives up. Live-confirmed: the bridge reported no window while
+        /// the very same lookup, run a few seconds later, returned a valid handle.
+        ///
+        /// So the runtime is created immediately (it is inert until the bridge attaches) and
+        /// the attach is retried until it takes.
+        /// </summary>
+        private IEnumerator StartAccessibilityTreeWhenWindowExists()
+        {
+            const float attachTimeoutSeconds = 20f;
+
+            A11yRuntime runtime;
+            try
+            {
+                LethalAccessSource source = new LethalAccessSource();
+                runtime = A11yRuntime.Create(
+                    new ExternalFocusOwner(source.CurrentFocusId, source.RequestFocus),
+                    null,
+                    registerUGuiSource: false);
+
+                runtime.Log = msg => Logger.LogInfo("[tree] " + msg);
+                runtime.Register(source);
+                accessibilityTree = runtime;
+            }
+            catch (Exception ex)
+            {
+                AnnouncementPolicy.UiTreeOwnsSpeech = false;
+                Logger.LogError("Accessibility tree failed to start, so menus stay on the mod's own speech: " + ex);
+                yield break;
+            }
+
+            float deadline = Time.unscaledTime + attachTimeoutSeconds;
+            while (!runtime.BridgeRunning && Time.unscaledTime < deadline)
+            {
+                // Not wrapped in try/catch: TryAttachBridge already reports its own failures,
+                // and swallowing an exception here would turn "accessibility is off" into a
+                // silent condition, which is the one outcome a blind user cannot diagnose.
+                if (runtime.TryAttachBridge()) break;
+                yield return new WaitForSecondsRealtime(0.25f);
+            }
+
+            if (runtime.BridgeRunning)
+            {
+                // Only now does the mod stop speaking menus. Flipping this any earlier would
+                // leave a blind user with no menu speech at all on the paths where the bridge
+                // never attaches.
+                AnnouncementPolicy.UiTreeOwnsSpeech = true;
+                Logger.LogInfo("Accessibility tree attached; your screen reader now reads the menus. " +
+                               "Gameplay speech still comes from this mod.");
+            }
+            else
+            {
+                Logger.LogWarning("Accessibility tree could not attach within " + attachTimeoutSeconds +
+                                  "s. Menus will be spoken by the mod as before. Check that accesskit.dll " +
+                                  "(x64) sits next to the game executable; the log line above this one " +
+                                  "carries the adapter's own reason.");
+            }
         }
 
         /// <summary>

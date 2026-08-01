@@ -216,8 +216,34 @@ namespace LethalAccess
         /// Seeding happens even while suppressed - suppression silences speech, it must never
         /// leave the keyboard without a focus.
         /// </summary>
+        /// <summary>
+        /// True once the accessibility tree is published and a screen reader is driving it.
+        ///
+        /// Only UI PROPERTY ASSEMBLY is muted by this - the focused control and the screen
+        /// title, which the screen reader now composes itself from the tree. Gameplay
+        /// speech (item names, hazards, "Settings saved.", pathfinding) keeps going through
+        /// Tolk, because none of it is attached to a focusable control and there is no tree
+        /// node for a screen reader to have spoken it from.
+        ///
+        /// Set from LACore only when the AccessKit bridge actually attached. If it did not,
+        /// this stays false and the mod speaks exactly as it always did - the failure mode
+        /// is the old behaviour, never silence.
+        /// </summary>
+        public static bool UiTreeOwnsSpeech;
+
         public static void AnnounceScreen(string title, Transform focus)
         {
+            // Focus is still seeded below: the tree reports where focus IS, so something
+            // still has to put it there. Only the spoken title is the screen reader's job.
+            if (UiTreeOwnsSpeech)
+            {
+                if (focus != null)
+                {
+                    FocusManager.Seed(focus);
+                }
+                return;
+            }
+
             if (!string.IsNullOrEmpty(title))
             {
                 Speak(title);
