@@ -424,6 +424,17 @@ namespace LethalAccess
             if (string.IsNullOrEmpty(state)) ApplyComponentState(node, v.Target);
 
             if (node.Role == AccessRole.Slider) ApplyRange(node, v.Target);
+
+            // The caret is not a state and no authored delegate can be a substitute for it, so
+            // it is published regardless of one. Leaving it inside the state fallback is exactly
+            // the bug that shipped: the host-menu fields have authored State delegates, so their
+            // selection was never set, and a TextPattern whose GetSelection returns nothing has
+            // no caret - the field read fine and the cursor was invisible.
+            if (node.Role == AccessRole.TextInput || node.Role == AccessRole.MultilineTextInput)
+            {
+                TMPro.TMP_InputField input = v.Target.GetComponent<TMPro.TMP_InputField>();
+                if (input != null) ApplySelection(node, input);
+            }
         }
 
         /// <summary>
@@ -500,8 +511,8 @@ namespace LethalAccess
                         TMPro.TMP_Text hint = field.placeholder.GetComponent<TMPro.TMP_Text>();
                         if (hint != null) node.Placeholder = hint.text;
                     }
-
-                    ApplySelection(node, field);
+                    // The selection is applied from PopulateNode for every text input, authored
+                    // state or not; adding it here as well would just be a second copy to drift.
                     return;
                 }
             }
