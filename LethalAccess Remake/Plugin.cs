@@ -606,6 +606,60 @@ namespace LethalAccess
         /// mid-edit while P and R ran pathfinding and room announcements over the top. The server
         /// tag filter and the terminal break in exactly the same way.
         /// </summary>
+        /// <summary>
+        /// Whether the key bound to UI navigation went down this frame. Reads the CONFIGURED key
+        /// rather than Key.Tab, so rebinding it keeps the way out of a text field.
+        /// </summary>
+        private bool NavigationKeyPressedThisFrame()
+        {
+            ConfigEntry<Key> bound;
+            if (Keyboard.current == null ||
+                !keybindConfigEntries.TryGetValue(UiNavigationKeybindName, out bound))
+            {
+                return false;
+            }
+            return Keyboard.current[bound.Value].wasPressedThisFrame;
+        }
+
+        /// <summary>
+        /// Stop the focused text field accepting characters, leaving it selected. False when it
+        /// was left alone, in which case the caller must keep suppressing the keypress.
+        ///
+        /// Only fields on a registered screen are released, because only there is there a next
+        /// control to navigate to. The terminal's field is the case this protects: it is
+        /// deliberately isolated from navigation and stays active for the whole session
+        /// (Terminal.BeginUsingTerminal), so ending its edit would take the keyboard away from
+        /// the one thing the player is using and leave nowhere to go.
+        ///
+        /// Deliberately not a focus change: the caller moves focus itself straight after, and
+        /// doing both here would move twice.
+        /// </summary>
+        private static bool TryEndTextEntry()
+        {
+            EventSystem eventSystem = EventSystem.current;
+            GameObject selected = eventSystem == null ? null : eventSystem.currentSelectedGameObject;
+            if (selected == null || !UIScreenRegistry.ClaimsSelectable(selected))
+            {
+                return false;
+            }
+
+            TMP_InputField tmpField = selected.GetComponent<TMP_InputField>();
+            if (tmpField != null)
+            {
+                tmpField.DeactivateInputField();
+                return true;
+            }
+
+            InputField legacyField = selected.GetComponent<InputField>();
+            if (legacyField != null)
+            {
+                legacyField.DeactivateInputField();
+                return true;
+            }
+
+            return false;
+        }
+
         private static bool IsTextInputFocused()
         {
             EventSystem eventSystem = EventSystem.current;
@@ -875,7 +929,20 @@ namespace LethalAccess
             // so a LeftAlt/RightAlt held when the terminal or an accessible menu opened could never
             // be released. It is now ReleaseHeldSimulatedClicks(), called unconditionally from
             // Update before this method.
-            bool suppressPresses = IsTextInputFocused() || IsInShipBuildMode() || IsRebindInProgress();
+            bool typing = IsTextInputFocused();
+
+            // A text field must not be a trap. Suppressing every keybind while typing also
+            // suppressed the UI navigation key, so the only way out of a field was Enter, which
+            // no screen-reader user has any reason to expect - Tab leaves a field in every other
+            // Windows application. The field is deactivated FIRST so the keypress that leaves is
+            // not also delivered to it as a character, which is the collision this suppression
+            // exists to prevent; every other keybind stays suppressed.
+            if (typing && NavigationKeyPressedThisFrame() && TryEndTextEntry())
+            {
+                typing = false;
+            }
+
+            bool suppressPresses = typing || IsInShipBuildMode() || IsRebindInProgress();
 
             foreach (KeyValuePair<string, ConfigEntry<Key>> keybindEntry in keybindConfigEntries)
             {
@@ -1197,11 +1264,15 @@ namespace LethalAccess
             }
         }
 
+        // The stored name of the UI navigation bind. Kept as-is because it is a config key: a
+        // rename would silently discard whatever the user had rebound it to.
+        private const string UiNavigationKeybindName = "FocusPreviousUIElement";
+
         private void RegisterKeybinds()
         {
             RegisterKeybind("NavigateToLookingObject", Key.P, PathfindToSelected);
             RegisterKeybind("StopLookingAndPathfinding", Key.O, StopLookingAndPathfinding);
-            RegisterKeybind("FocusPreviousUIElement", Key.Tab, FocusPreviousUIElement);
+            RegisterKeybind(UiNavigationKeybindName, Key.Tab, FocusPreviousUIElement);
             // FIXED: Changed from Semicolon/Quote to LeftAlt/RightAlt
             RegisterKeybind("LeftClickHold", Key.LeftAlt, delegate
             {

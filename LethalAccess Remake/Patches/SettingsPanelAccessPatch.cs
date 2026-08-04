@@ -257,6 +257,7 @@ namespace LethalAccess
                         : UIUtils.FindByPathIncludingInactive(captured, ConfirmPanelPath);
                 },
                 Title = delegate { return "Unsaved changes. Confirm or discard."; },
+                Modal = true,
 
                 // Matches what the game does: DisplayConfirmChangesScreen selects Discard
                 // (IngamePlayerSettings.DisplayConfirmChangesScreen) immediately after activating the panel. Naming

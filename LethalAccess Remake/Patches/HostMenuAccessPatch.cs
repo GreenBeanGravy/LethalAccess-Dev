@@ -245,11 +245,19 @@ namespace LethalAccess
                 new Ctl(PathLocal, "Local connections only", "button") { Optional = true }
             };
 
+            // Each file is followed by its own delete button. Requested, and it does put a
+            // destructive control one Down press from every save: the deletes used to sit in a
+            // section of their own at the very end, which is a stronger guard than a label. They
+            // keep the label that names the file they delete, and they now also announce
+            // themselves as destructive, which is the same warning "Reset all to default" carries.
             List<Ctl> files = new List<Ctl>
             {
                 new Ctl(PathFile1, "Save file 1", "button") { State = SaveFileState(PathFile1, 0) },
+                new Ctl(PathDelete1, "Delete save file 1", "button") { State = DestructiveState, Optional = true },
                 new Ctl(PathFile2, "Save file 2", "button") { State = SaveFileState(PathFile2, 1) },
+                new Ctl(PathDelete2, "Delete save file 2", "button") { State = DestructiveState, Optional = true },
                 new Ctl(PathFile3, "Save file 3", "button") { State = SaveFileState(PathFile3, 2) },
+                new Ctl(PathDelete3, "Delete save file 3", "button") { State = DestructiveState, Optional = true },
                 new Ctl(PathChallengeMoon, "Challenge moon", "button") { State = ChallengeMoonState }
             };
 
@@ -261,31 +269,24 @@ namespace LethalAccess
 
             // The scene puts each row's DeleteButton on FileN.selectOnRight, and that button's
             // onClick opens the delete confirmation and hides this panel - one keypress from an
-            // unguarded delete with no announcement in between. BuildChain nulls every horizontal
-            // link, so the only route left is this section, at the very end of the order, where
-            // each button says out loud which file it deletes.
+            // unguarded delete with no announcement in between. BuildChain still nulls every
+            // horizontal link, so right-arrow cannot reach a delete button; the only route to one
+            // is down onto it, where it names the file and says it is destructive.
             //
             // To offer the right-arrow shortcut back as an opt-in, add a `DeleteOnRightArrow`
             // entry to ConfigManager and OR it into RebuildHostChain.
-            List<Ctl> deletes = new List<Ctl>
-            {
-                new Ctl(PathDelete1, "Delete save file 1", "button") { Optional = true },
-                new Ctl(PathDelete2, "Delete save file 2", "button") { Optional = true },
-                new Ctl(PathDelete3, "Delete save file 3", "button") { Optional = true }
-            };
-
             UIScreenDescriptor d = new UIScreenDescriptor
             {
                 Id = HostScreenId,
                 ResolveRoot = HostRoot,
-                Title = () => "Host settings. Press Enter when you finish typing in a text field, " +
-                              "then use up and down arrows.",
+                // Said on every arrival, so it stays one sentence. Enter was the only way out of a
+                // text field when this was written; Tab and Escape now work too.
+                Title = () => "Host settings. Tab, Enter or Escape leaves a text field.",
                 FocusOnOpen = ResolveNameField
             };
             d.Sections.Add(Section("Host options", options));
             d.Sections.Add(Section("Save files", files));
             d.Sections.Add(Section("Host actions", actions));
-            d.Sections.Add(Section("Delete save files", deletes));
 
             UIScreenRegistry.Register(d);
         }
@@ -337,6 +338,10 @@ namespace LethalAccess
         #endregion
 
         #region State providers
+
+        // Said on arrival, before the button is pressed. The delete confirmation that follows is
+        // the real guard; this is what stops the user reaching it by accident in the first place.
+        private static readonly Func<string> DestructiveState = delegate { return "destructive"; };
 
         private static Func<string> InputFieldState(string relativePath)
         {

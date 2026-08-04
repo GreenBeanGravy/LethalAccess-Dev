@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using HarmonyLib;
 using TMPro;
 using UnityEngine;
@@ -631,6 +631,7 @@ namespace LethalAccess
 
             // Cancel, not Kick: this is destructive and one Enter away.
             d.FocusOnOpen = () => KickChild("Panel/Deny");
+            d.Modal = true;
 
             d.Sections.Add(new UISection(
                 "Prompt",

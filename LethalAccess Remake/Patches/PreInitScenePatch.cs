@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections;
 using System.Collections.Generic;
 using HarmonyLib;
@@ -652,6 +652,9 @@ namespace LethalAccess
             // The notice itself is the title, read live. It is the sentence that explains why the
             // game stopped and what the button is about to do.
             d.Title = CorruptedNotice;
+
+            // The game has stopped and is asking a question; its one button deletes every save.
+            d.Modal = true;
 
             // Match what the game does on the last line of EnableFileCorruptedScreen rather than
             // fight it: seeding anything else would be immediately overwritten. The notice has

@@ -140,10 +140,13 @@ namespace LethalAccess
                 return;
             }
 
-            // The screen itself, carrying the title. Dialog because that is what these are -
-            // one screen at a time, owning the keyboard - and because a screen reader announces
-            // a dialog by name on entry, which is the announcement the title needs to be.
-            AccessNode screenNode = new AccessNode(DialogIdFor(screenId), AccessRole.Dialog);
+            // The screen itself, carrying the title. Pane rather than Dialog unless the screen
+            // really is one: a screen reader suppresses a pane's role and speaks only its name,
+            // which is the announcement a title needs to be, whereas "Main menu, dialog" is both
+            // untrue and the reason the word stops meaning anything when a real dialog appears.
+            AccessNode screenNode = new AccessNode(
+                DialogIdFor(screenId),
+                UIScreenRegistry.IsModalScreen(screenId) ? AccessRole.Dialog : AccessRole.Pane);
             screenNode.Label = title;
             screenNode.Focusable = false;
             into.Add(screenNode);

@@ -125,6 +125,20 @@ namespace LethalAccess
         public string TrapSection;
 
         /// <summary>
+        /// A dialog: something that opened ON TOP of what the user was doing and has to be dealt
+        /// with. Confirmations, pop-ups, error screens.
+        ///
+        /// It changes one thing - how a screen reader names this screen on arrival. An ordinary
+        /// screen is a pane, whose name is read with no role after it; a dialog is announced as
+        /// one, and a screen reader reads a dialog's body text before the focused control so the
+        /// question arrives before the buttons. Calling the main menu a dialog is just wrong, and
+        /// it costs the word its meaning when a real one appears.
+        ///
+        /// A screen that traps focus is a dialog by definition, so it does not also need this.
+        /// </summary>
+        public bool Modal;
+
+        /// <summary>
         /// Seed focus when this screen appears, but let something else say its name.
         ///
         /// For screens whose content is still changing at the instant the root becomes visible, so
@@ -852,6 +866,22 @@ namespace LethalAccess
             screenId = id;
             title = s.Descriptor.Title != null ? s.Descriptor.Title() : null;
             return true;
+        }
+
+        /// <summary>
+        /// Whether this screen should be announced as a dialog. True when it says so, and when it
+        /// traps focus - a screen nothing can be focused outside of IS a modal, whatever it called
+        /// itself.
+        /// </summary>
+        public static bool IsModalScreen(string screenId)
+        {
+            ScreenState s;
+            if (string.IsNullOrEmpty(screenId) || !screens.TryGetValue(screenId, out s) ||
+                s.Descriptor == null)
+            {
+                return false;
+            }
+            return s.Descriptor.Modal || s.Descriptor.TrapsFocus;
         }
 
         /// <summary>How many sections currently have at least one visible entry.</summary>
