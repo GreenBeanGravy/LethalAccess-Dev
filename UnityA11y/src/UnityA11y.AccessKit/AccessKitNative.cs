@@ -54,6 +54,25 @@ namespace UnityA11y.AccessKitInterop
         }
 
         /// <summary>
+        /// accesskit_text_position. `character_index` is size_t, so UIntPtr - it is 8 bytes in
+        /// this process and an int field would misalign everything after it.
+        /// </summary>
+        [StructLayout(LayoutKind.Sequential)]
+        internal struct TextPosition
+        {
+            public ulong Node;
+            public UIntPtr CharacterIndex;
+        }
+
+        /// <summary>accesskit_text_selection. Passed BY VALUE, matching the header.</summary>
+        [StructLayout(LayoutKind.Sequential)]
+        internal struct TextSelection
+        {
+            public TextPosition Anchor;
+            public TextPosition Focus;
+        }
+
+        /// <summary>
         /// Byte offsets inside accesskit_action_request, measured by compiling
         /// accesskit.h with gcc and printing offsetof rather than hand-computing
         /// alignment. All enums in the header are uint8_t.
@@ -146,6 +165,22 @@ namespace UnityA11y.AccessKitInterop
 
         [DllImport(DLL, CallingConvention = CallingConvention.Cdecl)]
         internal static extern void accesskit_node_set_level(IntPtr node, UIntPtr value);
+
+        // Text. The slice setters take (length, values) and AccessKit copies immediately, so
+        // the managed array only has to survive the call.
+        [DllImport(DLL, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern void accesskit_node_set_character_lengths(
+            IntPtr node, UIntPtr length, byte[] values);
+
+        [DllImport(DLL, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern void accesskit_node_set_word_starts(
+            IntPtr node, UIntPtr length, byte[] values);
+
+        [DllImport(DLL, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern void accesskit_node_set_text_direction(IntPtr node, byte value);
+
+        [DllImport(DLL, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern void accesskit_node_set_text_selection(IntPtr node, TextSelection value);
 
         [DllImport(DLL, CallingConvention = CallingConvention.Cdecl)]
         internal static extern void accesskit_node_set_bounds(IntPtr node, Rect bounds);

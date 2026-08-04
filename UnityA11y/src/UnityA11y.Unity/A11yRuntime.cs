@@ -283,7 +283,24 @@ namespace UnityA11y.Unity
             var live = _snapshot.Find(_nav.CurrentId);
             if (live == null) return false;
 
-            if (!_active.TryRefreshNode(_nav.CurrentId, _refreshScratch)) return false;
+            bool changed = RefreshNode(_nav.CurrentId);
+
+            // A text field keeps its characters in a TextRun child, so refreshing only the
+            // focused node would leave what the user is typing frozen at whatever it was when
+            // the tree was last rebuilt. Children are content-refreshed, never re-parented:
+            // the child LIST is structural and still belongs to a rebuild.
+            for (int i = 0; i < live.Children.Count; i++)
+                changed |= RefreshNode(live.Children[i]);
+
+            return changed;
+        }
+
+        private bool RefreshNode(ulong id)
+        {
+            var live = _snapshot.Find(id);
+            if (live == null) return false;
+
+            if (!_active.TryRefreshNode(id, _refreshScratch)) return false;
             if (_refreshScratch.ContentHash() == live.ContentHash()) return false;
 
             // Copy in place: the node object is referenced by the snapshot and by
@@ -306,6 +323,14 @@ namespace UnityA11y.Unity
             live.PositionInSet = _refreshScratch.PositionInSet;
             live.SizeOfSet = _refreshScratch.SizeOfSet;
             live.Level = _refreshScratch.Level;
+            live.CharacterLengths = _refreshScratch.CharacterLengths;
+            live.WordStarts = _refreshScratch.WordStarts;
+            live.Direction = _refreshScratch.Direction;
+            live.HasTextSelection = _refreshScratch.HasTextSelection;
+            live.SelectionAnchorNode = _refreshScratch.SelectionAnchorNode;
+            live.SelectionAnchorIndex = _refreshScratch.SelectionAnchorIndex;
+            live.SelectionFocusNode = _refreshScratch.SelectionFocusNode;
+            live.SelectionFocusIndex = _refreshScratch.SelectionFocusIndex;
             live.HasBounds = _refreshScratch.HasBounds;
             live.X = _refreshScratch.X;
             live.Y = _refreshScratch.Y;

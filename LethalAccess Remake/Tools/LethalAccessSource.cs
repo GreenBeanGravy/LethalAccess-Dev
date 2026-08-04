@@ -118,6 +118,7 @@ namespace LethalAccess
             _focusRing.Clear();
             _targetById.Clear();
             _viewById.Clear();
+            _textRunOwner.Clear();
 
             string screenId, title;
             bool have = UIScreenRegistry.TryEnumerateActiveScreen(_views, out screenId, out title);
@@ -208,12 +209,169 @@ namespace LethalAccess
                 _targetById[id] = v.Target;
                 _viewById[id] = v;
                 if (!node.Disabled) _focusRing.Add(id);
+
+                if (node.Role == AccessRole.TextInput) AddTextRun(into, node, v.Target);
             }
 
             ulong focus = CurrentFocusId();
             into.FocusId = into.Contains(focus)
                 ? focus
                 : (_focusRing.Count > 0 ? _focusRing[0] : RootId);
+        }
+
+        // ---- Text fields --------------------------------------------------------
+        //
+        // A text field publishes as TWO nodes: the input node the user focuses, and one TextRun
+        // child holding its characters. That pair is what makes a UIA TextPattern exist, and a
+        // TextPattern is the only way a screen reader can read a field back, run its review
+        // cursor through it, or say which character the caret just moved onto. A plain Value is
+        // spoken once on focus and is silent for every keystroke after it.
+
+        // The run's id sits one bit above everything StableId can produce - that is derived from
+        // a 32-bit instance id, so bit 32 is free and cannot collide with a control.
+        private const ulong TextRunIdBias = 0x100000000UL;
+
+        private readonly Dictionary<ulong, Transform> _textRunOwner = new Dictionary<ulong, Transform>();
+
+        private static ulong TextRunIdFor(ulong fieldId) { return fieldId + TextRunIdBias; }
+
+        private void AddTextRun(AccessSnapshot into, AccessNode field, Transform target)
+        {
+            TMPro.TMP_InputField input = target.GetComponent<TMPro.TMP_InputField>();
+            if (input == null) return;
+
+            ulong runId = TextRunIdFor(field.Id);
+            if (into.Contains(runId)) return;
+
+            AccessNode run = new AccessNode(runId, AccessRole.TextRun);
+            PopulateTextRun(run, input);
+            into.Add(run);
+            field.Children.Add(runId);
+            _textRunOwner[runId] = target;
+        }
+
+        private static void PopulateTextRun(AccessNode run, TMPro.TMP_InputField input)
+        {
+            string text = VisibleText(input);
+
+            run.Focusable = false;
+            run.Value = text;
+            run.Direction = TextDirection.LeftToRight;
+            run.CharacterLengths = CharacterLengths(text);
+
+            // Only while every index fits in the byte AccessKit stores them in. Past that the
+            // indices would wrap and point at the wrong characters, so no word starts at all is
+            // the honest answer - ctrl+arrow then treats the field as one word.
+            run.WordStarts = run.CharacterLengths.Length <= 255 ? WordStarts(text) : null;
+        }
+
+        /// <summary>
+        /// What is actually on screen. A password field shows its mask, and publishing the real
+        /// characters would hand the password to any process that asks the window for its
+        /// accessibility tree.
+        /// </summary>
+        private static string VisibleText(TMPro.TMP_InputField input)
+        {
+            string text = input.text ?? "";
+            if (input.contentType != TMPro.TMP_InputField.ContentType.Password &&
+                input.inputType != TMPro.TMP_InputField.InputType.Password)
+            {
+                return text;
+            }
+            return new string(input.asteriskChar, text.Length);
+        }
+
+        /// <summary>
+        /// One entry per character, holding its length in UTF-8 bytes. Computed from the code
+        /// point rather than by encoding, so it cannot disagree with itself, and it must not:
+        /// AccessKit slices the string by these and a mismatch aborts the process.
+        /// </summary>
+        private static byte[] CharacterLengths(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return new byte[0];
+
+            List<byte> lengths = new List<byte>(text.Length);
+            for (int i = 0; i < text.Length; i++)
+            {
+                char c = text[i];
+                if (char.IsHighSurrogate(c) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]))
+                {
+                    lengths.Add(4);
+                    i++;
+                    continue;
+                }
+                lengths.Add(c < 0x80 ? (byte)1 : c < 0x800 ? (byte)2 : (byte)3);
+            }
+            return lengths.ToArray();
+        }
+
+        /// <summary>Character indices where a word begins, ascending.</summary>
+        private static byte[] WordStarts(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return null;
+
+            List<byte> starts = new List<byte>();
+            int character = 0;
+            bool previousWasSpace = true;
+
+            for (int i = 0; i < text.Length; i++)
+            {
+                bool space = char.IsWhiteSpace(text[i]);
+                if (!space && previousWasSpace) starts.Add((byte)character);
+                previousWasSpace = space;
+
+                if (char.IsHighSurrogate(text[i]) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1])) i++;
+                character++;
+            }
+
+            return starts.Count > 0 ? starts.ToArray() : null;
+        }
+
+        /// <summary>
+        /// The caret, or the selection when there is one, pointing into the field's run. A caret
+        /// is just the case where both ends are the same character.
+        /// </summary>
+        private static void ApplySelection(AccessNode node, TMPro.TMP_InputField input)
+        {
+            string text = VisibleText(input);
+            int characters = CharacterCount(text);
+
+            node.HasTextSelection = true;
+            node.SelectionAnchorNode = TextRunIdFor(node.Id);
+            node.SelectionFocusNode = node.SelectionAnchorNode;
+            node.SelectionAnchorIndex = CharacterIndex(text, input.selectionStringAnchorPosition, characters);
+            node.SelectionFocusIndex = CharacterIndex(text, input.selectionStringFocusPosition, characters);
+        }
+
+        private static int CharacterCount(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return 0;
+            int count = 0;
+            for (int i = 0; i < text.Length; i++)
+            {
+                if (char.IsHighSurrogate(text[i]) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1])) i++;
+                count++;
+            }
+            return count;
+        }
+
+        /// <summary>
+        /// A TMP caret position counts UTF-16 units; AccessKit counts characters. The two agree
+        /// until someone types an emoji into a server name, and then they are off by one for the
+        /// rest of the field. Clamped, because a caret index past the end of the run is one of
+        /// the two things that panics AccessKit.
+        /// </summary>
+        private static int CharacterIndex(string text, int stringIndex, int characterCount)
+        {
+            if (stringIndex <= 0 || string.IsNullOrEmpty(text)) return 0;
+
+            int character = 0;
+            for (int i = 0; i < text.Length && i < stringIndex; i++)
+            {
+                if (char.IsHighSurrogate(text[i]) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1])) i++;
+                character++;
+            }
+            return character > characterCount ? characterCount : character;
         }
 
         /// <summary>
@@ -336,12 +494,14 @@ namespace LethalAccess
                     TMPro.TMP_InputField field = target.GetComponent<TMPro.TMP_InputField>();
                     if (field == null) return;
 
-                    node.Value = field.text;
+                    node.Value = VisibleText(field);
                     if (field.placeholder != null)
                     {
                         TMPro.TMP_Text hint = field.placeholder.GetComponent<TMPro.TMP_Text>();
                         if (hint != null) node.Placeholder = hint.text;
                     }
+
+                    ApplySelection(node, field);
                     return;
                 }
             }
@@ -488,6 +648,18 @@ namespace LethalAccess
 
         public bool TryRefreshNode(ulong id, AccessNode into)
         {
+            Transform owner;
+            if (_textRunOwner.TryGetValue(id, out owner))
+            {
+                if (owner == null) return false;
+                TMPro.TMP_InputField input = owner.GetComponent<TMPro.TMP_InputField>();
+                if (input == null) return false;
+
+                into.Reset(id, AccessRole.TextRun);
+                PopulateTextRun(into, input);
+                return true;
+            }
+
             UIScreenRegistry.UIEntryView v;
             if (!_viewById.TryGetValue(id, out v) || v.Target == null) return false;
 

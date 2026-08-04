@@ -16,6 +16,7 @@ namespace UnityA11y.Core
     public enum AccessRole : byte
     {
         Unknown = 0,              // unknown  (suppressed on focus)
+        TextRun = 1,              // the characters of a text field; child of an input node
         Cell = 2,                 // cell     (suppressed on focus)
         Label = 3,                // static text (suppressed on focus)
         Image = 4,                // graphic
@@ -66,6 +67,15 @@ namespace UnityA11y.Core
     public enum LiveSetting : byte { Off = 0, Polite = 1, Assertive = 2 }
 
     public enum Orientation : byte { Horizontal = 0, Vertical = 1 }
+
+    /// <summary>Ordinals match accesskit_text_direction.</summary>
+    public enum TextDirection : byte
+    {
+        LeftToRight = 0,
+        RightToLeft = 1,
+        TopToBottom = 2,
+        BottomToTop = 3,
+    }
 
     /// <summary>Actions an assistive technology can request. Ordinals match accesskit.h.</summary>
     public enum AccessAction : byte
@@ -134,6 +144,42 @@ namespace UnityA11y.Core
         /// <summary>1-based tree depth. Drives NVDA's "level n".</summary>
         public int? Level;
 
+        // ---- Text ---------------------------------------------------------------
+        // A text field is published as an input node with one TextRun child holding the
+        // characters, and the caret/selection on the input node pointing into that run.
+        // Together they are what makes a UIA TextPattern exist, which is the only way a
+        // screen reader can read a field back, move a review cursor through it, or say
+        // which character the caret is on. A plain Value gives none of that - it is read
+        // once on focus and is silent for every keystroke afterwards.
+
+        /// <summary>
+        /// TextRun only. One entry per character, holding that character's length in UTF-8
+        /// BYTES. Must sum to the UTF-8 byte length of <see cref="Value"/>: AccessKit slices
+        /// the string by these and a disagreement is a panic across FFI, which aborts the
+        /// process rather than throwing.
+        /// </summary>
+        public byte[] CharacterLengths;
+
+        /// <summary>
+        /// TextRun only, optional. Character indices where words begin, ascending, for
+        /// ctrl+arrow word movement. Indices are bytes in AccessKit, so a run longer than
+        /// 255 characters cannot describe its later words and simply stops listing them.
+        /// </summary>
+        public byte[] WordStarts;
+
+        /// <summary>TextRun only. Absent means the reader assumes left-to-right.</summary>
+        public TextDirection? Direction;
+
+        /// <summary>
+        /// Input node only. The caret is the degenerate case where anchor equals focus.
+        /// Both point at a TextRun id and a character index within it.
+        /// </summary>
+        public bool HasTextSelection;
+        public ulong SelectionAnchorNode;
+        public int SelectionAnchorIndex;
+        public ulong SelectionFocusNode;
+        public int SelectionFocusIndex;
+
         public double X, Y, Width, Height;
         public bool HasBounds;
 
@@ -171,6 +217,11 @@ namespace UnityA11y.Core
             Orientation = null;
             NumericValue = MinNumericValue = MaxNumericValue = NumericValueStep = null;
             PositionInSet = SizeOfSet = Level = null;
+            CharacterLengths = WordStarts = null;
+            Direction = null;
+            HasTextSelection = false;
+            SelectionAnchorNode = SelectionFocusNode = 0;
+            SelectionAnchorIndex = SelectionFocusIndex = 0;
             HasBounds = false;
             X = Y = Width = Height = 0;
             Children.Clear();
@@ -205,6 +256,18 @@ namespace UnityA11y.Core
                 h = h * 31 + (PositionInSet ?? 0);
                 h = h * 31 + (SizeOfSet ?? 0);
                 h = h * 31 + (Level ?? 0);
+                // Hashed by length only. The characters themselves are in Value, already
+                // hashed above, and these arrays are rebuilt from it - so a change in one is
+                // a change in the other, and hashing every byte would cost a walk of the
+                // whole field on every frame the caret moves.
+                h = h * 31 + (CharacterLengths != null ? CharacterLengths.Length : -1);
+                h = h * 31 + (WordStarts != null ? WordStarts.Length : -1);
+                h = h * 31 + (Direction.HasValue ? (int)Direction.Value + 1 : 0);
+                h = h * 31 + (HasTextSelection ? 1 : 0);
+                h = h * 31 + SelectionAnchorIndex;
+                h = h * 31 + SelectionFocusIndex;
+                h = h * 31 + (int)SelectionAnchorNode;
+                h = h * 31 + (int)SelectionFocusNode;
                 // Bounds are quantised: sub-pixel jitter from animated layouts
                 // would otherwise resend every node every frame.
                 h = h * 31 + (HasBounds ? (int)X * 7 + (int)Y * 13 + (int)Width * 17 + (int)Height * 19 : 0);

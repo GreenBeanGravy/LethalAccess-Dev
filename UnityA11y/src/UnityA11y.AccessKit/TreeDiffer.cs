@@ -227,6 +227,68 @@ namespace UnityA11y.AccessKitInterop
 
     internal static class NodeBuilder
     {
+        /// <summary>
+        /// The text half of a node: the characters of a TextRun, and the caret or selection of
+        /// the input node above it.
+        ///
+        /// character_lengths is validated before it crosses the boundary. AccessKit slices the
+        /// string with these lengths, and a sum that does not match the string's UTF-8 length is
+        /// a Rust panic - which ABORTS THE PROCESS rather than raising something catchable. A
+        /// screen reader losing a text field is recoverable; the game vanishing mid-round is not.
+        /// </summary>
+        private static void WriteText(IntPtr node, AccessNode n)
+        {
+            if (n.CharacterLengths != null)
+            {
+                int declared = 0;
+                for (int i = 0; i < n.CharacterLengths.Length; i++) declared += n.CharacterLengths[i];
+
+                int actual = string.IsNullOrEmpty(n.Value)
+                    ? 0
+                    : System.Text.Encoding.UTF8.GetByteCount(n.Value);
+
+                if (declared != actual)
+                {
+                    UnityEngine.Debug.LogError(
+                        "[UnityA11y] Node " + n.Id + " declares " + declared + " bytes of characters but its " +
+                        "value is " + actual + " UTF-8 bytes. Publishing that would abort the process, so the " +
+                        "text is omitted and this field will not be readable character by character.");
+                }
+                else
+                {
+                    AK.accesskit_node_set_character_lengths(
+                        node, (UIntPtr)n.CharacterLengths.Length, n.CharacterLengths);
+
+                    if (n.WordStarts != null && n.WordStarts.Length > 0)
+                    {
+                        AK.accesskit_node_set_word_starts(
+                            node, (UIntPtr)n.WordStarts.Length, n.WordStarts);
+                    }
+                }
+            }
+
+            if (n.Direction.HasValue)
+                AK.accesskit_node_set_text_direction(node, (byte)n.Direction.Value);
+
+            if (n.HasTextSelection)
+            {
+                AK.TextSelection sel = new AK.TextSelection
+                {
+                    Anchor = new AK.TextPosition
+                    {
+                        Node = n.SelectionAnchorNode,
+                        CharacterIndex = (UIntPtr)(uint)n.SelectionAnchorIndex,
+                    },
+                    Focus = new AK.TextPosition
+                    {
+                        Node = n.SelectionFocusNode,
+                        CharacterIndex = (UIntPtr)(uint)n.SelectionFocusIndex,
+                    },
+                };
+                AK.accesskit_node_set_text_selection(node, sel);
+            }
+        }
+
         public static IntPtr Build(AccessNode n)
         {
             var node = AK.accesskit_node_new((byte)n.Role);
@@ -269,6 +331,8 @@ namespace UnityA11y.AccessKitInterop
             }
             if (n.SizeOfSet.HasValue) AK.accesskit_node_set_size_of_set(node, (UIntPtr)n.SizeOfSet.Value);
             if (n.Level.HasValue) AK.accesskit_node_set_level(node, (UIntPtr)n.Level.Value);
+
+            WriteText(node, n);
 
             if (n.HasBounds)
             {
