@@ -264,6 +264,31 @@ namespace UnityA11y.Unity
             // Push unconditionally when something moved; the differ discards
             // no-op pushes without crossing FFI, so this is cheap.
             if (changed) _bridge.Push(_snapshot);
+
+            TraceFocusPush();
+        }
+
+        private ulong _lastTracedFocus;
+
+        /// <summary>
+        /// One log line per focus change the tree publishes. This is the provider-side half of
+        /// "the screen reader did not announce X": a reader announces a screen from the focus
+        /// EVENT and the ancestors visible at that instant, so when a title goes unspoken the
+        /// question is always which focus ids were pushed, in what order, microseconds apart.
+        /// That sequence is unobservable after the fact from anywhere else.
+        /// </summary>
+        private void TraceFocusPush()
+        {
+            if (_snapshot.FocusId == _lastTracedFocus) return;
+            _lastTracedFocus = _snapshot.FocusId;
+
+            var node = _snapshot.Find(_snapshot.FocusId);
+            var root = _snapshot.Find(_snapshot.RootId);
+            var screen = root != null && root.Children.Count > 0
+                ? _snapshot.Find(root.Children[0])
+                : null;
+            Log("focus -> " + _snapshot.FocusId + " '" + (node != null ? node.Label : "<missing>") +
+                "' screen='" + (screen != null ? screen.Label : "") + "'");
         }
 
         private IUiSource SelectSource()
