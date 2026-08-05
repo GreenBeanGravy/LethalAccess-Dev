@@ -125,6 +125,13 @@ namespace LethalAccess
         public string TrapSection;
 
         /// <summary>
+        /// Optional. What Escape activates on this screen, when the default - the first visible
+        /// entry whose label begins with "Back" - is wrong or absent. A modal whose dismiss
+        /// control is worded differently ("Continue", "Discard changes") names it here.
+        /// </summary>
+        public Func<Transform> EscapeTarget;
+
+        /// <summary>
         /// A dialog: something that opened ON TOP of what the user was doing and has to be dealt
         /// with. Confirmations, pop-ups, error screens.
         ///
@@ -882,6 +889,38 @@ namespace LethalAccess
                 return false;
             }
             return s.Descriptor.Modal || s.Descriptor.TrapsFocus;
+        }
+
+        /// <summary>
+        /// The control Escape should activate on this screen: the authored EscapeTarget when one
+        /// is set, otherwise the first visible entry whose label begins with "Back". Null when
+        /// the screen has neither, which callers must treat as "Escape does nothing here".
+        /// </summary>
+        public static Transform FindBackControl(string screenId)
+        {
+            ScreenState s;
+            if (string.IsNullOrEmpty(screenId) || !screens.TryGetValue(screenId, out s))
+            {
+                return null;
+            }
+
+            if (s.Descriptor != null && s.Descriptor.EscapeTarget != null)
+            {
+                return s.Descriptor.EscapeTarget();
+            }
+
+            for (int i = 0; i < s.Flat.Count; i++)
+            {
+                Resolved e = s.Flat[i];
+                string label = e.Entry != null ? e.Entry.Label : null;
+                if (!string.IsNullOrEmpty(label) &&
+                    label.StartsWith("Back", StringComparison.OrdinalIgnoreCase) &&
+                    IsVisible(e))
+                {
+                    return e.T;
+                }
+            }
+            return null;
         }
 
         /// <summary>How many sections currently have at least one visible entry.</summary>

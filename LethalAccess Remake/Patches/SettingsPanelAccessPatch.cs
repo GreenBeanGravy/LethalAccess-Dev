@@ -259,6 +259,16 @@ namespace LethalAccess
                 Title = delegate { return "Unsaved changes. Confirm or discard."; },
                 Modal = true,
 
+                // Escape backs out the way the game's own Escape path does in gameplay: by
+                // discarding. Neither button is labelled "Back", so without this Escape would
+                // announce there is no back control on a screen that plainly has a way back.
+                EscapeTarget = delegate
+                {
+                    return captured == null
+                        ? null
+                        : UIUtils.FindByPathIncludingInactive(captured, DiscardButtonPath);
+                },
+
                 // Matches what the game does: DisplayConfirmChangesScreen selects Discard
                 // (IngamePlayerSettings.DisplayConfirmChangesScreen) immediately after activating the panel. Naming
                 // the same control here means our seed and the game's Select agree instead of

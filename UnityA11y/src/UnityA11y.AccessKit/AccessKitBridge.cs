@@ -63,6 +63,13 @@ namespace UnityA11y.AccessKitInterop
         [DllImport("kernel32.dll")]
         private static extern void SetLastError(uint code);
 
+        [DllImport("user32.dll")]
+        private static extern void NotifyWinEvent(uint eventId, IntPtr hwnd, int idObject, int idChild);
+
+        private const uint EVENT_OBJECT_FOCUS = 0x8005;
+        private const int OBJID_CLIENT = -4;
+        private const int CHILDID_SELF = 0;
+
         // Static callbacks: IL2CPP's reverse P/Invoke requires static methods, and
         // a single bridge instance is all we ever need.
         private static AccessKitBridge _instance;
@@ -169,6 +176,19 @@ namespace UnityA11y.AccessKitInterop
 
             IsRunning = true;
             Log($"AccessKit adapter attached to HWND 0x{_hwnd.ToInt64():X}.");
+
+            // The window was shown, focused and inspected long before this adapter existed, so
+            // any screen reader already asked WM_GETOBJECT, got nothing, and cached that answer.
+            // Nothing in UIA re-asks on its own - which is why the tree only appeared after an
+            // alt-tab away and back, the one act that re-fires the focus chain. This synthesises
+            // that nudge: a focus WinEvent on the client object makes a screen reader re-query
+            // the window it believes it already knows, and the query now reaches the adapter.
+            // Only when the game is actually foreground; announcing focus for a background
+            // window would yank the reader's attention to a window the user is not in.
+            if (GetForegroundWindow() == _hwnd)
+            {
+                NotifyWinEvent(EVENT_OBJECT_FOCUS, _hwnd, OBJID_CLIENT, CHILDID_SELF);
+            }
             return true;
         }
 

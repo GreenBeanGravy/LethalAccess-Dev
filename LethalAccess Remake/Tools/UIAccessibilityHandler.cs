@@ -99,6 +99,8 @@ namespace LethalAccess
             // the keyboard dead when a panel destroys the focused control.
             FocusManager.Tick();
 
+            HandleEscapeAsBack();
+
             // UI/EnableUIAnnouncements was bound in config and listed in the settings menu but
             // never read by anything; toggling it off had no effect.
             if (!ConfigManager.EnableUIAnnouncements.Value)
@@ -658,6 +660,69 @@ namespace LethalAccess
             supersedeTagForNextAnnouncement = 0;
 
             AnnounceUIElement(selectedObject, supersedeTag);
+        }
+
+        /// <summary>
+        /// Escape activates the current screen's Back control, so leaving a menu is one key
+        /// instead of a walk to the bottom of it - the Windows convention.
+        ///
+        /// Menu scenes only: in gameplay the game owns Escape (the pause menu, and
+        /// `PlayerControllerB` routing in-game settings to the confirm-changes modal), and
+        /// firing as well would back out of two things with one press. In the menu scenes the
+        /// game ignores Escape entirely - Assembly-CSharp has no ICancelHandler at all - so
+        /// claiming it collides with nothing.
+        /// </summary>
+        private void HandleEscapeAsBack()
+        {
+            Keyboard kb = Keyboard.current;
+            if (kb == null || !kb.escapeKey.wasPressedThisFrame)
+            {
+                return;
+            }
+
+            // Gameplay: the game's Escape handling exists precisely there.
+            if (StartOfRound.Instance != null)
+            {
+                return;
+            }
+
+            EventSystem es = EventSystem.current;
+            GameObject current = es != null ? es.currentSelectedGameObject : null;
+
+            // Unclaimed selection covers the states Escape must not touch that live outside the
+            // registry: an expanded dropdown's option list, and any panel the mod does not model.
+            if (current == null || !UIScreenRegistry.ClaimsSelectable(current))
+            {
+                return;
+            }
+
+            // A focused text field owns Escape: TMP cancels the edit and restores the original
+            // text. Leaving the field is what that press means; leaving the screen is the next one.
+            TMP_InputField field = current.GetComponent<TMP_InputField>();
+            if (field != null && field.isFocused)
+            {
+                return;
+            }
+
+            // Mid-rebind, Escape belongs to the rebind operation.
+            IngamePlayerSettings settings = IngamePlayerSettings.Instance;
+            if (settings != null && settings.rebindingOperation != null &&
+                settings.rebindingOperation.started)
+            {
+                return;
+            }
+
+            Transform back = UIScreenRegistry.FindBackControl(UIScreenRegistry.ActiveScreenId);
+            if (back == null)
+            {
+                // A screen with no Back control: modals with their own dismiss wording, the main
+                // menu itself. Saying nothing would read as a dead key; explain instead.
+                AnnouncementPolicy.Speak("No back control on this screen.");
+                return;
+            }
+
+            ExecuteEvents.Execute(back.gameObject,
+                new BaseEventData(es), ExecuteEvents.submitHandler);
         }
 
         private void PushHistory(GameObject go)

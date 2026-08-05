@@ -29,6 +29,11 @@ namespace LethalAccess
 
         private static float nullSince = -1f;
         private static float lastRecoveryTime = -1f;
+
+        // The last claimed control that held focus, so recovery can put the user back where
+        // they were instead of at the top of the screen. A destroyed Transform compares equal
+        // to null through Unity's operator, so staleness handles itself.
+        private static Transform lastGoodSelection;
         private static bool warnedNoRecoveryTarget;
 
         // A seed that re-asserts itself for a few frames. See SeedSticky.
@@ -256,6 +261,10 @@ namespace LethalAccess
             {
                 nullSince = -1f;
                 warnedNoRecoveryTarget = false;
+                if (UIScreenRegistry.ClaimsSelectable(es.currentSelectedGameObject))
+                {
+                    lastGoodSelection = es.currentSelectedGameObject.transform;
+                }
                 return;
             }
 
@@ -286,7 +295,25 @@ namespace LethalAccess
             }
             lastRecoveryTime = now;
 
-            Transform target = UIScreenRegistry.ResolveFocusTarget(screenId);
+            // The control the user was actually on, not the screen's opening target. Recovering
+            // to ResolveFocusTarget put the user at the FIRST entry - on the host screen that is
+            // the server-name field, which TMP re-activates on select, so any transient null
+            // (a panel toggling, a row rebuilding) read as "Down randomly threw me back into the
+            // text field and started editing". Where they were is the only recovery that reads
+            // as nothing having happened.
+            Transform target = null;
+            if (lastGoodSelection != null &&
+                lastGoodSelection.gameObject.activeInHierarchy &&
+                !UIScreenRegistry.TrapRejects(lastGoodSelection.gameObject) &&
+                UIScreenRegistry.ClaimsSelectable(lastGoodSelection.gameObject))
+            {
+                target = lastGoodSelection;
+            }
+
+            if (target == null)
+            {
+                target = UIScreenRegistry.ResolveFocusTarget(screenId);
+            }
             if (target == null)
             {
                 if (!warnedNoRecoveryTarget)

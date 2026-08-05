@@ -133,11 +133,10 @@ namespace UnityA11y.Core
         public int? PositionInSet;
 
         /// <summary>
-        /// Set on BOTH the item and its container. AccessKit documents this as a
-        /// container property, but NVDA reads UIA SizeOfSet from the item itself
-        /// (see UIA._get_positionInfo), so setting only one of the two risks
-        /// losing the "of m" half of the announcement depending on how the
-        /// adapter resolves it.
+        /// Must be set on an ANCESTOR of the items it counts: the Windows adapter resolves UIA
+        /// SizeOfSet via accesskit_consumer's size_of_set_from_container, which walks filtered
+        /// parents and never reads the item's own value. Setting it on the item as well is
+        /// harmless and keeps the internal announcer's "n of m" self-contained.
         /// </summary>
         public int? SizeOfSet;
 

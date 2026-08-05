@@ -237,6 +237,10 @@ namespace LethalAccess
             // main-menu registration landed in the same frame and won. The trap lifts when the
             // panel hides, and the registry then hands focus back to the screen beneath.
             descriptor.TrapsFocus = true;
+
+            // Escape dismisses the pop-up. Its button is not labelled "Back" (the game rewrites
+            // its text per notification), so the default label scan cannot find it.
+            descriptor.EscapeTarget = delegate { return action; };
             if (!focusContent)
             {
                 descriptor.FocusOnOpen = delegate { return action; };

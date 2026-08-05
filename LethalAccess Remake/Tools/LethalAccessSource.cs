@@ -160,6 +160,15 @@ namespace LethalAccess
             int liveSections = UIScreenRegistry.VisibleSectionCount(screenId);
             bool useGroups = liveSections > 1;
 
+            // The set size must be on an ANCESTOR: accesskit_consumer's
+            // size_of_set_from_container walks filtered parents and never reads the item's own,
+            // so a grouped screen spoke "n of m" (the Group carries it) while the main menu and
+            // the startup screens - single section, no group - silently lost the "of m" half.
+            if (!useGroups && _views.Count > 0)
+            {
+                screenNode.SizeOfSet = _views[0].SectionCount;
+            }
+
             ulong nextGroupId = FirstGroupId;
             int currentSection = int.MinValue;
             AccessNode parent = screenNode;
