@@ -1428,6 +1428,8 @@ namespace LethalAccess
                 return;
 
             Vector3 toTarget = currentTargetNode.position - transform.position;
+            if (ManualGapGuide(out Vector3 gapGuide))
+                toTarget = gapGuide - transform.position;
             toTarget.y = 0f;
 
             probeTimer -= Time.deltaTime;
@@ -1600,8 +1602,16 @@ namespace LethalAccess
             if (currentTargetNode == null || currentTargetNode.audioSource == null)
                 return;
 
-            Vector3 playerPos = transform.position;
+            // Before a gap the ping leads to the run-up and along it, not over the hole.
+            AudioSource source = currentTargetNode.audioSource;
             Vector3 nodePos = currentTargetNode.position;
+            if (ManualGapGuide(out Vector3 guide))
+            {
+                source = GapGuideAudio(guide);
+                nodePos = guide;
+            }
+
+            Vector3 playerPos = transform.position;
             Vector3 toNode = nodePos - playerPos;
             Vector3 horizontalToNode = new Vector3(toNode.x, 0, toNode.z).normalized;
             Vector3 horizontalForward = new Vector3(transform.forward.x, 0, transform.forward.z).normalized;
@@ -1611,10 +1621,10 @@ namespace LethalAccess
             if (clip == null)
                 return;
 
-            currentTargetNode.audioSource.clip = clip;
-            currentTargetNode.audioSource.volume = AudioSystemBypass.CalculateVolumeBasedOnDistance(
+            source.clip = clip;
+            source.volume = AudioSystemBypass.CalculateVolumeBasedOnDistance(
                 Vector3.Distance(playerPos, nodePos), 1.0f, 20.0f, 0.6f);
-            currentTargetNode.audioSource.Play();
+            source.Play();
         }
         #endregion
 
@@ -1769,7 +1779,9 @@ namespace LethalAccess
                     // A link only enemies can climb, on a path that had no other way: cross it the
                     // way the old agent did instead of jumping at a wall until the stuck check
                     // gives up.
-                    if (toNode.magnitude < 3f)
+                    // Only from the ground: a player falling past a link is not at its foot, and
+                    // the path is replanned from wherever they land.
+                    if (toNode.magnitude < 3f && playerController.thisController.isGrounded)
                     {
                         playerController.TeleportPlayer(nodeGround);
                         ResetStuckTracking();

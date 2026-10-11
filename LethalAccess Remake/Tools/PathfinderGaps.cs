@@ -46,6 +46,7 @@ namespace LethalAccess
             public float runUp;        // floor behind the takeoff to build the speed on
             public Vector3 landing;    // where the simulation came down
             public Vector3 forEdge;    // the gap edge this plan was made for
+            public bool forManual;     // made for a keyboard player: full walk or sprint only
         }
 
         private enum GapPhase
@@ -60,6 +61,12 @@ namespace LethalAccess
         private const float GAP_SCAN_STEP = 0.25f;
         // Narrower breaks are cracks a stride crosses.
         private const float GAP_MIN_WIDTH = 0.6f;
+        // Floor beyond a hole this much higher than the near side is a ledge to jump onto, however
+        // narrow the hole (the controller's step offset is far lower).
+        private const float GAP_STEP_UP = 0.6f;
+        // Run-up for a walking jump: the press comes a windup (about 0.7 m) before the edge, the
+        // walk takes about 0.3 m to reach full speed, and the start is reached to within 0.3 m.
+        private const float WALK_RUN_UP = 1.6f;
         // No floor within this far below counts as a hole; a drop to floor nearer than this is a step down.
         private const float GAP_HOLE_DEPTH = 2f;
         // Floor resuming lower than this below the near side is a drop to walk off, not a gap.
@@ -75,6 +82,10 @@ namespace LethalAccess
         private const float SPEED_TOLERANCE_HIGH = 0.55f;
         // The run-up keeps the feet this close to the jump line.
         private const float LINE_TOLERANCE = 0.2f;
+        // Manual run-up assist: the most sideways input added to draw the feet onto the line.
+        private const float MANUAL_LINE_ASSIST = 0.4f;
+        // A plan has to land from takeoffs this far either side of its line.
+        private const float LATERAL_TOLERANCE = 0.15f;
 
         private bool hasGap;
         private Gap gap;
@@ -89,6 +100,8 @@ namespace LethalAccess
         private float gapToneTimer;
         private float lastEdgeCueTime = -999f;
         private bool jumpBuffered;
+        // Manual aim assist added to the move input (world space), set each frame by UpdateManualGap.
+        private Vector3 manualAssist;
         private bool manualEdgeGuard;
         // PlayerControllerB.Update: walking speed is movementSpeed / carryWeight, times the
         // sprint multiplier.
@@ -123,7 +136,8 @@ namespace LethalAccess
             }
 
             hasGap = true;
-            if (!plan.valid || (plan.forEdge - gap.edge).sqrMagnitude > 0.75f * 0.75f)
+            bool manual = currentMode == PathfindingMode.Manual;
+            if (!plan.valid || plan.forManual != manual || (plan.forEdge - gap.edge).sqrMagnitude > 0.75f * 0.75f)
             {
                 plan = PlanJump(gap);
                 gapPhase = GapPhase.Approach;
@@ -204,8 +218,9 @@ namespace LethalAccess
                     inHole = false;
                     lastSolid = new Vector3(p.x, groundY, p.z);
                     refY = groundY;
-                    if (width < GAP_MIN_WIDTH)
-                        continue; // A crack a stride crosses.
+                    // A crack a stride crosses; but a crack with a ledge up behind it is a jump.
+                    if (width < GAP_MIN_WIDTH && groundY - edge.y < GAP_STEP_UP)
+                        continue;
 
                     // Already behind the player: the gap just crossed. Look on past it.
                     Vector3 across = landing - edge;
@@ -311,13 +326,13 @@ namespace LethalAccess
         #region Planning
         private int BlockerMask => groundMask | LayerMask.GetMask("Railing");
 
-        private static readonly float[] TakeoffOffsets = { 0f, -0.25f, 0.25f, -0.5f, 0.5f, -0.75f, 0.75f, -1f, 1f, -1.25f, 1.25f, -1.5f, 1.5f };
+        private static readonly float[] TakeoffOffsets = { 0f, -0.15f, 0.15f, -0.3f, 0.3f, -0.5f, 0.5f, -0.75f, 0.75f, -1f, 1f, -1.25f, 1.25f, -1.5f, 1.5f };
 
         /// <summary>Tries jump lines and speeds in simulation and keeps the most comfortable one
         /// that lands with room to spare. See the class summary.</summary>
         private JumpPlan PlanJump(Gap g)
         {
-            JumpPlan best = new JumpPlan { valid = false, forEdge = g.edge };
+            JumpPlan best = new JumpPlan { valid = false, forEdge = g.edge, forManual = currentMode == PathfindingMode.Manual };
             float bestCost = float.MaxValue;
 
             Vector3 across = g.landing - g.edge;
@@ -341,23 +356,37 @@ namespace LethalAccess
                 if (d.sqrMagnitude > 0.04f && Vector3.Dot(d.normalized, across) > 0.3f)
                     directions.Add(d.normalized);
             }
+            // The floor's own length can run nearly sideways to the landing (a girder ending
+            // beside a catwalk): a run along it and a turn in the air still makes it.
+            Vector3 floorAxis = FloorAxis(g.edge, across);
+            if (floorAxis != Vector3.zero && Vector3.Dot(floorAxis, across) > -0.1f)
+            {
+                // And a little either way: the measured axis is only as fine as its 10° steps.
+                foreach (float angle in new[] { 0f, -6f, 6f, -12f, 12f })
+                    directions.Add(Quaternion.AngleAxis(angle, Vector3.up) * floorAxis);
+            }
 
             float walk = walkSpeedEstimate;
             float maxRun = walk * SPRINT_MULTIPLIER * 0.92f;
             // Partial walks for short hops onto narrow landings (the game walks at the move
             // input's size; under about 0.45 it stops playing the walk animation), a full walk,
             // then sprints.
-            var speeds = new List<float> { walk * 0.6f, walk * 0.8f, walk };
+            // A keyboard player walks at full input or sprints; partial walks are auto mode's.
+            bool manual = currentMode == PathfindingMode.Manual;
+            var speeds = manual ? new List<float> { walk } : new List<float> { walk * 0.6f, walk * 0.8f, walk };
             for (float s = walk + 1f; s <= maxRun; s += 1f)
             {
                 speeds.Add(s);
             }
 
+            planTakeoffs = 0;
+            planSimulations = 0;
             PlanPass(g, across, perpAcross, directions, speeds, walk, steering: false, ref best, ref bestCost);
             // None straight: run up one line and steer in the air. A girder angled to the gap
             // gives a long run-up only along itself, and its own line can end in a railing.
             if (!best.valid)
                 PlanPass(g, across, perpAcross, directions, speeds, walk, steering: true, ref best, ref bestCost);
+            lastPlanStats = $"directions={directions.Count} takeoffs={planTakeoffs} simulations={planSimulations} valid={best.valid}";
             return best;
         }
 
@@ -370,7 +399,7 @@ namespace LethalAccess
                 steers.Clear();
                 if (steering)
                 {
-                    foreach (float turn in new[] { 10f, -10f, 20f, -20f, 30f, -30f, 45f, -45f })
+                    foreach (float turn in new[] { 10f, -10f, 20f, -20f, 30f, -30f, 45f, -45f, 60f, -60f })
                     {
                         Vector3 s = Quaternion.AngleAxis(turn, Vector3.up) * dir;
                         if (Vector3.Dot(s, across) > 0.5f)
@@ -386,54 +415,126 @@ namespace LethalAccess
                 // which can sit behind a railing (the path squeezes past its end).
                 foreach (float offset in TakeoffOffsets)
                 {
-                    if (!FindTakeoff(g, g.edge + perpAcross * offset, dir, out Vector3 takeoff, out float runUpAvailable))
+                    // Offsets across the run-up line itself, so on a girder they stay on it.
+                    Vector3 perpRun = Vector3.Cross(Vector3.up, dir);
+                    if (!FindTakeoff(g, g.edge + perpRun * offset, dir, out Vector3 floorEnd, out float floorRunUp))
                         continue;
 
-                    foreach (float speed in speeds)
+                    // Off the very end, or a little before it: under a ledge's lip the arc from
+                    // the end meets the lip, from further back it clears it.
+                    foreach (float pullback in TakeoffPullbacks)
                     {
-                        bool sprint = speed > walk + 0.05f;
-                        // A walk holds its speed exactly; a sprint only roughly.
-                        float low = sprint ? SPEED_TOLERANCE_LOW : 0.25f;
-                        float high = sprint ? SPEED_TOLERANCE_HIGH : 0.25f;
-                        float runUp = sprint ? RunUpDistance(speed) : 1.0f;
-                        if (runUpAvailable < runUp)
-                            break; // Faster ones need even more.
-
-                        float magnitude = sprint ? 1f : Mathf.Clamp01(speed / walk);
-                        foreach (Vector3 steer in steers)
+                        float runUpAvailable = floorRunUp - pullback;
+                        if (runUpAvailable < 0.75f)
+                            break;
+                        Vector3 takeoff = floorEnd;
+                        if (pullback > 0f)
                         {
-                            float cost = angleCost + Mathf.Abs(offset) * 1.5f + (sprint ? 1f + (speed - walk) * 0.4f : (walk - speed) * 0.3f) +
-                                         Vector3.Angle(dir, steer) / 30f;
-                            if (cost >= bestCost)
-                                continue;
-
-                            if (!SimulateJump(takeoff, dir, steer, speed, sprint, magnitude, g, out Vector3 landing) ||
-                                !SimulateJump(takeoff, dir, steer, speed - low, sprint, sprint ? 1f : magnitude * (speed - low) / speed, g, out _) ||
-                                !SimulateJump(takeoff, dir, steer, speed + high, sprint, sprint ? 1f : magnitude * (speed + high) / speed, g, out _))
-                                continue;
-
-                            cost += HorizontalDistance(landing, g.target) * 0.3f;
-                            if (cost >= bestCost)
-                                continue;
-
-                            bestCost = cost;
-                            best = new JumpPlan
-                            {
-                                valid = true,
-                                takeoff = takeoff,
-                                direction = dir,
-                                steer = steer,
-                                speed = speed,
-                                sprint = sprint,
-                                inputMagnitude = magnitude,
-                                runUp = runUp,
-                                landing = landing,
-                                forEdge = g.edge
-                            };
+                            takeoff = floorEnd - dir * pullback;
+                            // The run-up's floor, which may slope (a girder rises about 0.2 m a metre).
+                            if (!GroundAt(takeoff, floorEnd.y, out float takeoffY) || Mathf.Abs(takeoffY - floorEnd.y) > 0.15f + 0.3f * pullback)
+                                break;
+                            takeoff.y = takeoffY;
                         }
+                        planTakeoffs++;
+                        TryTakeoff(g, dir, steers, speeds, walk, takeoff, runUpAvailable,
+                            angleCost + Mathf.Abs(offset) * 1.5f + pullback * 0.8f, ref best, ref bestCost);
                     }
                 }
             }
+        }
+
+        // Planner counters, for debugging plans from the console.
+        private int planTakeoffs;
+        private int planSimulations;
+        private string lastPlanStats;
+
+        private static readonly float[] TakeoffPullbacks = { 0f, 0.4f, 0.8f, 1.2f, 1.6f, 2.0f };
+
+        /// <summary>Every speed and steer from one takeoff; keeps the cheapest that lands with the
+        /// speed and line a little off.</summary>
+        private void TryTakeoff(Gap g, Vector3 dir, List<Vector3> steers, List<float> speeds, float walk, Vector3 takeoff,
+            float runUpAvailable, float baseCost, ref JumpPlan best, ref float bestCost)
+        {
+            foreach (float speed in speeds)
+            {
+                bool sprint = speed > walk + 0.05f;
+                // A walk holds its speed exactly; a sprint only roughly.
+                float low = sprint ? SPEED_TOLERANCE_LOW : 0.25f;
+                float high = sprint ? SPEED_TOLERANCE_HIGH : 0.25f;
+                float runUp = sprint ? RunUpDistance(speed) : WALK_RUN_UP;
+                if (runUpAvailable < runUp)
+                    break; // Faster ones need even more.
+
+                float magnitude = sprint ? 1f : Mathf.Clamp01(speed / walk);
+                foreach (Vector3 steer in steers)
+                {
+                    float cost = baseCost + (sprint ? 1f + (speed - walk) * 0.4f : (walk - speed) * 0.3f) +
+                                 Vector3.Angle(dir, steer) / 30f;
+                    if (cost >= bestCost)
+                        continue;
+
+                    if (!SimulateJump(takeoff, dir, steer, speed, sprint, magnitude, g, out Vector3 landing) ||
+                        !SimulateJump(takeoff, dir, steer, speed - low, sprint, sprint ? 1f : magnitude * (speed - low) / speed, g, out _) ||
+                        !SimulateJump(takeoff, dir, steer, speed + high, sprint, sprint ? 1f : magnitude * (speed + high) / speed, g, out _))
+                        continue;
+                    // And from a little to either side: nobody runs a line exactly.
+                    Vector3 side = Vector3.Cross(Vector3.up, dir) * LATERAL_TOLERANCE;
+                    if (!SimulateJump(takeoff + side, dir, steer, speed, sprint, magnitude, g, out _) ||
+                        !SimulateJump(takeoff - side, dir, steer, speed, sprint, magnitude, g, out _))
+                        continue;
+
+                    cost += HorizontalDistance(landing, g.target) * 0.3f;
+                    if (cost >= bestCost)
+                        continue;
+
+                    bestCost = cost;
+                    best = new JumpPlan
+                    {
+                        valid = true,
+                        takeoff = takeoff,
+                        direction = dir,
+                        steer = steer,
+                        speed = speed,
+                        sprint = sprint,
+                        inputMagnitude = magnitude,
+                        runUp = runUp,
+                        landing = landing,
+                        forEdge = g.edge,
+                        forManual = currentMode == PathfindingMode.Manual
+                    };
+                }
+            }
+        }
+
+        /// <summary>
+        /// The direction to run in along the floor that reaches the edge from furthest back:
+        /// the length of a girder or plank, whichever way the path arrived (or did not).
+        /// Zero when nothing reaches back a metre.
+        /// </summary>
+        private Vector3 FloorAxis(Vector3 edge, Vector3 across)
+        {
+            Vector3 best = Vector3.zero;
+            float bestLength = 1f;
+            for (float angle = -80f; angle <= 80f; angle += 10f)
+            {
+                Vector3 back = Quaternion.AngleAxis(angle, Vector3.up) * -across;
+                float previousY = edge.y;
+                float length = 0f;
+                for (float d = 0.25f; d <= 5f; d += 0.25f)
+                {
+                    if (!GroundAt(edge + back * d, previousY, out float y) || Mathf.Abs(y - previousY) > 0.15f)
+                        break;
+                    previousY = y;
+                    length = d;
+                }
+                if (length > bestLength + 0.01f)
+                {
+                    bestLength = length;
+                    best = -back;
+                }
+            }
+            return best;
         }
 
         /// <summary>
@@ -528,6 +629,7 @@ namespace LethalAccess
         /// </summary>
         private bool SimulateJump(Vector3 takeoff, Vector3 dir, Vector3 steer, float speed, bool sprint, float magnitude, Gap g, out Vector3 landing)
         {
+            planSimulations++;
             landing = takeoff;
             if (speed <= 0.5f)
                 return false;
@@ -871,10 +973,9 @@ namespace LethalAccess
             float lead = speed * JUMP_WINDUP;
             if (toTakeoff <= lead + 0.03f)
             {
-                float low = plan.sprint ? SPEED_TOLERANCE_LOW : 0.25f;
-                float high = plan.sprint ? SPEED_TOLERANCE_HIGH : 0.25f;
-                bool onSpeed = speed >= plan.speed - low + 0.05f && speed <= plan.speed + high - 0.05f;
-                if (onSpeed && lateral < LINE_TOLERANCE + 0.1f && Probe != null && Probe.CanJumpNow)
+                // Whether this run makes it: the jump flown from where the player is now, at the
+                // speed and heading they actually have (a slope or a late turn moves both).
+                if (LiveJumpLands(plan) && Probe != null && Probe.CanJumpNow)
                 {
                     StartGapJump();
                     AutoMoveInput = JumpInput(body, plan);
@@ -912,16 +1013,16 @@ namespace LethalAccess
         private void UpdateManualGap()
         {
             manualEdgeGuard = false;
+            manualAssist = Vector3.zero;
             Transform body = playerController.thisPlayerBody != null ? playerController.thisPlayerBody : transform;
 
             if (gapJumpInProgress)
             {
-                // Aim assist in the air: drift back toward the jump line.
+                // Aim assist in the air: steer the input back toward the jump's path.
                 if (!playerController.thisController.isGrounded)
                 {
                     Vector3 offset = ChordOffset(jumpingPlan);
-                    Vector3 correction = -offset.normalized * Mathf.Min(offset.magnitude, 1.5f * Time.deltaTime);
-                    playerController.thisController.Move(correction);
+                    manualAssist = -offset.normalized * Mathf.Clamp(offset.magnitude * 2f, 0f, 0.6f);
                 }
                 return;
             }
@@ -954,7 +1055,8 @@ namespace LethalAccess
 
             Vector3 v = playerController.thisController.velocity;
             v.y = 0f;
-            bool headingIn = v.magnitude > 0.5f && Vector3.Dot(v.normalized, plan.direction) > 0.5f;
+            bool lined = LinedUp(body);
+            bool headingIn = lined && v.magnitude > 0.5f && Vector3.Dot(v.normalized, plan.direction) > 0.3f;
             float lead = HorizontalSpeed() * JUMP_WINDUP;
 
             // Aim assist on the ground: ease the heading onto the plan's line when already roughly
@@ -966,6 +1068,15 @@ namespace LethalAccess
                 Vector3 euler = body.eulerAngles;
                 float yaw = Mathf.MoveTowardsAngle(euler.y, Quaternion.LookRotation(aim).eulerAngles.y, 60f * Time.deltaTime);
                 body.eulerAngles = new Vector3(euler.x, yaw, euler.z);
+            }
+
+            // And the feet: a sideways touch on the move input during the run-up draws them onto
+            // the line. Through the input, so the game's own movement does it (moving the
+            // controller directly would also overwrite the velocity the jump timing reads).
+            if (lined && headingIn && playerController.thisController.isGrounded && toTakeoff > lead && toTakeoff < plan.runUp + 1f)
+            {
+                Vector3 offset = PlanLineOffset(plan);
+                manualAssist = -offset.normalized * Mathf.Clamp(offset.magnitude * 2f, 0f, MANUAL_LINE_ASSIST);
             }
 
             // Sensor tone: ticks closer together toward the takeoff point, then the high tone in
@@ -989,14 +1100,21 @@ namespace LethalAccess
             // A jump pressed early is held until the window.
             if (jumpBuffered)
             {
-                if (!headingIn || toTakeoff > lead + 2.5f)
+                if (!lined || toTakeoff > lead + 2.5f)
                 {
                     jumpBuffered = false;
                 }
-                else if (toTakeoff <= lead)
+                else if (headingIn && toTakeoff <= lead)
                 {
-                    StartGapJump();
-                    return;
+                    jumpBuffered = false;
+                    string why = WhyJumpWouldFail();
+                    if (why == null)
+                    {
+                        StartGapJump();
+                        return;
+                    }
+                    // Can't make it from here: the edge guard stops them instead.
+                    Utilities.SpeakText(why);
                 }
             }
 
@@ -1012,6 +1130,112 @@ namespace LethalAccess
             }
         }
 
+        /// <summary>
+        /// Where a manual player's ping should come from while a gap is ahead: the start of the
+        /// run-up until they reach it, then a point ahead along the jump line, so the ordinary
+        /// on-target tones line them up. False when no gap guides the way.
+        /// </summary>
+        private bool ManualGapGuide(out Vector3 guide)
+        {
+            guide = Vector3.zero;
+            if (currentMode != PathfindingMode.Manual || !hasGap || !plan.valid || gapJumpInProgress)
+                return false;
+
+            float toTakeoff = DistanceToTakeoff();
+            if (toTakeoff < -0.5f || toTakeoff > plan.runUp + 6f)
+                return false;
+
+            // Reaching the start puts the player on the run-up; wandering well off the line or
+            // back past the start sends them to it again.
+            float lateral = PlanLineOffset(plan).magnitude;
+            bool farEnoughBack = toTakeoff > plan.runUp * 0.8f;
+            bool onLineFarBack = lateral < 0.35f && farEnoughBack && toTakeoff < plan.runUp + 1f;
+            if (gapPhase == GapPhase.Approach && farEnoughBack && (onLineFarBack || HorizontalDistance(transform.position, RunUpStart()) < 0.8f))
+            {
+                gapPhase = GapPhase.RunUp;
+                Utilities.SpeakText("Run-up here. Face the tone, then go.");
+            }
+            // Stopped at the edge, or wandered off: back to the start of the run-up.
+            else if (gapPhase == GapPhase.RunUp && (manualEdgeGuard || lateral > 0.8f || toTakeoff > plan.runUp + 1.5f))
+            {
+                gapPhase = GapPhase.Approach;
+            }
+
+            // On the run-up: a point a little ahead on the line, so following the ping draws the
+            // feet onto the line as well as turning them along it.
+            guide = gapPhase == GapPhase.RunUp
+                ? plan.takeoff - plan.direction * Mathf.Max(toTakeoff - 1.5f, -2f)
+                : RunUpStart();
+            guide.y = plan.takeoff.y + NODE_GROUND_OFFSET;
+            return true;
+        }
+
+        private GameObject gapGuideObject;
+
+        /// <summary>The ping source for the gap guide, moved to point.</summary>
+        private AudioSource GapGuideAudio(Vector3 point)
+        {
+            if (gapGuideObject == null)
+            {
+                gapGuideObject = CreateNodeObject("GapGuide");
+            }
+            gapGuideObject.SetActive(true);
+            gapGuideObject.GetComponent<MeshRenderer>().enabled = ConfigManager.EnableVisualMarkers.Value;
+            gapGuideObject.transform.position = point;
+            return gapGuideObject.GetComponent<AudioSource>();
+        }
+
+        /// <summary>Why a jump pressed now would not make the plan's landing: off the line, or
+        /// too slow or fast for it. Null when it would.</summary>
+        private string WhyJumpWouldFail()
+        {
+            if (LiveJumpLands(plan))
+                return null;
+            if (PlanLineOffset(plan).magnitude > LINE_TOLERANCE + LATERAL_TOLERANCE)
+                return "Off the line. Back up and try again.";
+            float speed = HorizontalSpeed();
+            float low = plan.sprint ? SPEED_TOLERANCE_LOW : 0.25f;
+            float high = plan.sprint ? SPEED_TOLERANCE_HIGH : 0.25f;
+            if (speed < plan.speed - low - 0.1f)
+                return plan.sprint ? "Too slow. Back up and sprint at it." : "Too slow. Back up and walk at it.";
+            if (speed > plan.speed + high + 0.1f)
+                return "Too fast. Back up and walk at it.";
+            return "Off the line. Back up and try again.";
+        }
+
+        /// <summary>
+        /// Flies a jump pressed now: from the feet, at the current speed and heading, a little
+        /// slower and faster too, with the plan's steer in the air. True when all of them land.
+        /// </summary>
+        private bool LiveJumpLands(JumpPlan p)
+        {
+            Vector3 v = playerController.thisController.velocity;
+            v.y = 0f;
+            float speed = v.magnitude;
+            if (speed < 0.5f || !hasGap)
+                return false;
+            Vector3 dir = v / speed;
+            Vector3 liftoff = transform.position + dir * (speed * JUMP_WINDUP);
+            bool sprint = p.sprint && playerController.isSprinting;
+            float walk = Mathf.Max(walkSpeedEstimate, 0.5f);
+            Vector3 steer = Steers(p) ? p.steer : p.direction;
+            foreach (float s in new[] { speed, speed - 0.15f, speed + 0.15f })
+            {
+                float magnitude = sprint ? 1f : Mathf.Clamp(s / walk, 0.05f, 1f);
+                if (!SimulateJump(liftoff, dir, steer, s, sprint, magnitude, gap, out _))
+                    return false;
+            }
+            return true;
+        }
+
+        /// <summary>Near the plan's line and facing along it.</summary>
+        private bool LinedUp(Transform body)
+        {
+            Vector3 facing = body.forward;
+            facing.y = 0f;
+            return PlanLineOffset(plan).magnitude < 0.5f && Vector3.Angle(facing, plan.direction) < 35f;
+        }
+
         /// <summary>Called from the Jump_performed prefix: true swallows the press, which is
         /// held and released at the takeoff point.</summary>
         public bool ShouldBufferJump()
@@ -1023,11 +1247,36 @@ namespace LethalAccess
 
             float toTakeoff = DistanceToTakeoff();
             float lead = HorizontalSpeed() * JUMP_WINDUP;
-            Vector3 v = playerController.thisController.velocity;
-            v.y = 0f;
-            bool headingIn = v.magnitude > 0.5f && Vector3.Dot(v.normalized, plan.direction) > 0.5f;
-            if (!headingIn || toTakeoff <= lead || toTakeoff > lead + 2f)
+            if (toTakeoff < -0.5f || toTakeoff > lead + 2f)
                 return false;
+
+            Transform body = playerController.thisPlayerBody != null ? playerController.thisPlayerBody : transform;
+            if (!LinedUp(body))
+            {
+                // Close to the edge and facing off the jump line: a jump from here goes into the
+                // hole. Hold it back and say why.
+                if (toTakeoff > 1.5f)
+                    return false;
+                if (Time.time - lastEdgeCueTime > 1.5f)
+                {
+                    lastEdgeCueTime = Time.time;
+                    Utilities.SpeakText("Not lined up. Follow the tone.");
+                }
+                return true;
+            }
+            if (toTakeoff <= lead)
+            {
+                // In the window: a jump that cannot make it is held back, with the reason.
+                string why = WhyJumpWouldFail();
+                if (why == null)
+                    return false;
+                if (Time.time - lastEdgeCueTime > 1.5f)
+                {
+                    lastEdgeCueTime = Time.time;
+                    Utilities.SpeakText(why);
+                }
+                return true;
+            }
 
             jumpBuffered = true;
             if (audioSource != null && gapBufferClip != null)
@@ -1040,17 +1289,85 @@ namespace LethalAccess
         /// <summary>Removes the part of a manual move input that points over the edge while the edge guard is on.</summary>
         public Vector2 FilterManualMove(Vector2 input)
         {
-            if (!manualEdgeGuard || currentMode != PathfindingMode.Manual || !isPathfinding || !plan.valid)
+            if (currentMode != PathfindingMode.Manual || !isPathfinding || input.sqrMagnitude < 0.0001f)
                 return input;
 
             Transform body = playerController.thisPlayerBody != null ? playerController.thisPlayerBody : transform;
             Vector3 world = body.right * input.x + body.forward * input.y;
-            float into = Vector3.Dot(world, plan.direction);
-            if (into <= 0f)
+            bool changed = false;
+            if (manualAssist.sqrMagnitude > 0.0001f)
+            {
+                float size = world.magnitude;
+                world = (world + manualAssist).normalized * size;
+                changed = true;
+            }
+            if (manualEdgeGuard && plan.valid)
+            {
+                float into = Vector3.Dot(world, plan.direction);
+                if (into > 0f)
+                {
+                    world -= plan.direction * into;
+                    changed = true;
+                }
+            }
+            else if (StripDrops(body, ref world))
+            {
+                changed = true;
+            }
+            if (!changed)
                 return input;
-            world -= plan.direction * into;
             Vector3 local = body.InverseTransformDirection(world);
             return new Vector2(local.x, local.z);
+        }
+
+        private float lastLedgeCueTime = -999f;
+
+        /// <summary>
+        /// Manual ledge guard: removes the part of the move that walks off a drop deeper than a
+        /// gap's hole depth, so a player feeling their way along a girder or catwalk slides along
+        /// its edge instead of off it. Not on the planned run at a gap (the gap's own edge guard
+        /// stops that one at the takeoff), and not where the path itself goes down. True when it
+        /// changed the move.
+        /// </summary>
+        private bool StripDrops(Transform body, ref Vector3 world)
+        {
+            if (!playerController.thisController.isGrounded || gapJumpInProgress || playerController.isClimbingLadder ||
+                playerController.inSpecialInteractAnimation || currentTargetNode == null)
+                return false;
+            if (currentTargetNode.position.y - NODE_GROUND_OFFSET < transform.position.y - GAP_HOLE_DEPTH + 0.5f)
+                return false;
+            if (hasGap && plan.valid && LinedUp(body) && DistanceToTakeoff() > -0.3f)
+                return false;
+            // A ledge to jump up onto: the jump cue handles it.
+            if (manualProbe.kind == ObstacleProbe.Kind.Jumpable)
+                return false;
+
+            Vector3 move = world;
+            move.y = 0f;
+            if (move.sqrMagnitude < 0.0001f)
+                return false;
+            Vector3 dir = move.normalized;
+            bool changed = false;
+            foreach (float angle in new[] { 0f, -45f, 45f })
+            {
+                Vector3 probe = Quaternion.AngleAxis(angle, Vector3.up) * dir;
+                if (GroundAt(transform.position + probe * 0.5f, transform.position.y, out _))
+                    continue;
+                // Floor again within a stride: a crack, or the step to a ledge just past it.
+                if (GroundAt(transform.position + probe * 1.0f, transform.position.y, out _))
+                    continue;
+                float into = Vector3.Dot(world, probe);
+                if (into <= 0f)
+                    continue;
+                world -= probe * into;
+                changed = true;
+            }
+            if (changed && Time.time - lastLedgeCueTime > 3f)
+            {
+                lastLedgeCueTime = Time.time;
+                Utilities.SpeakText("Ledge");
+            }
+            return changed;
         }
 
         private void ResetGapState()
@@ -1062,7 +1379,10 @@ namespace LethalAccess
             gapAttempts = 0;
             jumpBuffered = false;
             manualEdgeGuard = false;
+            manualAssist = Vector3.zero;
             gapCuedEdge = Vector3.positiveInfinity;
+            if (gapGuideObject != null)
+                gapGuideObject.SetActive(false);
         }
 
         private void CreateGapSounds()
