@@ -186,6 +186,10 @@ namespace LethalAccess
             {
                 Vector3 a = gapLine[seg];
                 Vector3 b = gapLine[seg + 1];
+                // A segment rising or falling more than a jump is a ladder, a climb link or a
+                // drop: nothing to jump, and nothing past it is reached by jumping from here.
+                if (Mathf.Abs(b.y - a.y) > (Probe != null ? Probe.MaxJumpHeight : 2f) + 0.5f)
+                    return false;
                 float length = HorizontalDistance(a, b);
                 int steps = Mathf.Max(1, Mathf.CeilToInt(length / GAP_SCAN_STEP));
                 for (int s = 1; s <= steps && walked < scanDistance; s++)
@@ -223,6 +227,12 @@ namespace LethalAccess
                     // A crack a stride crosses; but a crack with a ledge up behind it is a jump.
                     if (width < GAP_MIN_WIDTH && groundY - edge.y < GAP_STEP_UP)
                         continue;
+
+                    // Higher than any jump, or a ladder there: a climb, which the ladder and
+                    // climb-link handling takes care of.
+                    float maxRise = Probe != null ? Probe.MaxJumpHeight : 2f;
+                    if (groundY - edge.y > maxRise || LadderForStep(new Vector3(p.x, groundY, p.z), out _) != null)
+                        return false;
 
                     // Already behind the player: the gap just crossed. Look on past it.
                     Vector3 across = landing - edge;

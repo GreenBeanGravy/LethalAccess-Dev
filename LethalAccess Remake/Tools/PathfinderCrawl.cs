@@ -205,14 +205,27 @@ namespace LethalAccess
                 : nearY;
         }
 
-        /// <summary>Something overhead lower than a standing player, above the floor at point.</summary>
+        /// <summary>
+        /// Something overhead a crouched player fits under and a standing one does not, above
+        /// the floor at point. Kept well under standing height (a rack is 1.79 m) so a doorway's
+        /// header never reads as a crawl space; doors themselves never count.
+        /// </summary>
         private static bool LowCeiling(Vector3 point)
         {
             int mask = StartOfRound.Instance != null ? StartOfRound.Instance.collidersAndRoomMaskAndDefault : ~0;
             if (!Physics.Raycast(point + Vector3.up * 0.5f, Vector3.down, out RaycastHit floor, 1.5f, mask, QueryTriggerInteraction.Ignore))
                 return false;
-            return Physics.Raycast(floor.point + Vector3.up * 0.1f, Vector3.up, 2.3f, mask, QueryTriggerInteraction.Ignore);
+            if (!Physics.Raycast(floor.point + Vector3.up * 0.1f, Vector3.up, out RaycastHit ceiling, CRAWL_MAX_CEILING - 0.1f, mask, QueryTriggerInteraction.Ignore))
+                return false;
+            return ceiling.distance + 0.1f >= CRAWL_MIN_CEILING &&
+                   ceiling.collider.GetComponentInParent<DoorLock>() == null &&
+                   ceiling.collider.GetComponentInParent<AnimatedObjectTrigger>() == null;
         }
+
+        // A crawl space's ceiling: over the crouched player's 1.5 m, and clearly under the
+        // standing 2.5 m.
+        private const float CRAWL_MIN_CEILING = 1.55f;
+        private const float CRAWL_MAX_CEILING = 2.2f;
 
         /// <summary>An unreached path node within a metre and a half of point.</summary>
         private bool PathReaches(Vector3 point)
