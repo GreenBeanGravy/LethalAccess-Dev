@@ -113,6 +113,7 @@ Without InputUtils, change keys in the F10 menu or in `BepInEx/config/Green.Leth
 
 ## Troubleshooting
 
+- The game closes on its own soon after it starts: run the updater again. It sets `HideManagerGameObject = true` in `BepInEx/config/BepInEx.cfg`; with it false, Lethal Company unloads every mod at the launch screen. You can also change that line by hand.
 - Nothing is spoken at all: run the updater again. It repairs missing or changed files, and installs BepInEx if it's gone.
 - Menus speak, but your screen reader's own reading of them is missing: check that `accesskit.dll` is next to `Lethal Company.exe`. Without it the menus fall back to LethalAccess's own speech. The updater puts it back.
 - The mod loads twice or keys fire twice: another copy of LethalAccess is in `BepInEx/plugins`. The updater disables stray copies by renaming them to `.disabled`.

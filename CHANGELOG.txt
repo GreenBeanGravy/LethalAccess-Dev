@@ -1,3 +1,7 @@
+10/11/2026 #2 (1.1.1):
+- Fixed the game closing about 20 seconds after starting on a fresh install. BepInEx's default settings let Lethal Company unload every mod at the launch screen, and LethalAccess then crashed the game while speaking. LethalAccess now keeps itself loaded whatever that setting says.
+- The updater now fixes that BepInEx setting (HideManagerGameObject in BepInEx.cfg) whenever it runs, so other mods stay loaded too.
+
 10/11/2026 #1 (1.1.0):
 - New LethalAccess Updater. Download LethalAccessUpdater.exe from the releases page and run it. It finds Lethal Company through Steam, installs BepInEx if it's missing, asks if you want InputUtils, then installs LethalAccess. Run it again any time to update. It also repairs your install if any LethalAccess files are missing or changed, and waits for the game to close before changing anything.
 - The updater can follow Beta builds. Run it with --beta to switch to Beta, and --stable to switch back.
