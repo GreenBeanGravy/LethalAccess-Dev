@@ -299,6 +299,16 @@ namespace LethalAccess
             if (target.y - feetY <= MaxJumpHeight)
                 return false;
 
+            return IsDisconnected(target);
+        }
+
+        /// <summary>No walkable NavMesh joins the player's spot to target: the step between them is
+        /// an off-mesh link (a ladder, a ledge), not a slope or stairs.</summary>
+        public bool IsDisconnected(Vector3 target)
+        {
+            if (player == null)
+                return false;
+
             UnityEngine.AI.NavMeshHit from, to, edge;
             if (!UnityEngine.AI.NavMesh.SamplePosition(player.transform.position, out from, 1.5f, UnityEngine.AI.NavMesh.AllAreas) ||
                 !UnityEngine.AI.NavMesh.SamplePosition(target, out to, 1.5f, UnityEngine.AI.NavMesh.AllAreas))

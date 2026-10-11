@@ -322,10 +322,20 @@ namespace LethalAccess
 
         public static void LookAtObject(GameObject targetObject)
         {
-            if (targetObject != null && LACore.CameraTransform != null)
+            if (targetObject != null)
+            {
+                LookAtPoint(targetObject.transform.position);
+            }
+        }
+
+        /// <summary>One frame's turn of the camera toward point, through the game's own look input so the
+        /// rotation syncs to other players. Call every frame until it is reached.</summary>
+        public static void LookAtPoint(Vector3 point)
+        {
+            if (LACore.CameraTransform != null)
             {
                 float maxDistance = 15f;
-                float distanceToTarget = Vector3.Distance(LACore.CameraTransform.position, targetObject.transform.position);
+                float distanceToTarget = Vector3.Distance(LACore.CameraTransform.position, point);
 
                 if (distanceToTarget <= maxDistance)
                 {
@@ -339,7 +349,7 @@ namespace LethalAccess
 
                     if (playerControllerB != null)
                     {
-                        Vector3 targetDirection = targetObject.transform.position - LACore.CameraTransform.position;
+                        Vector3 targetDirection = point - LACore.CameraTransform.position;
                         Vector3 relativeDirection = LACore.CameraTransform.InverseTransformDirection(targetDirection);
 
                         // Increase the rotation speed by multiplying the input

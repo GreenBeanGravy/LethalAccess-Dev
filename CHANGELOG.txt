@@ -6,6 +6,10 @@
 - Automatic pathfinding now gets past obstacles the way a player does. It jumps over low walls and railings, crouches under low beams, steps around crates and corners, and climbs ladders. It faces along the path and strafes, so getting around something doesn't need a full turn.
 - Manual pathfinding tells you what to do: "Jump" before something you can jump over, "Crouch" before a low beam, "Stand up" once you're past it, which side a ladder is on, and which way to step when you're walking into something. Walking into the ladder on your path grabs it, so you don't have to aim at it.
 - Pathfinding opens doors the way you would: only the door it's walking through, after holding interact on it for the door's hold time, so it no longer opens doors beside or behind you. It also follows the game's rules for ladders, so it won't climb one while you carry a two-handed item and tells you to drop it.
+- Automatic pathfinding steers smoothly: it heads for the furthest point along the path it can walk to in a straight line, skipping nodes and cutting across open ground instead of turning at every node.
+- Automatic pathfinding keeps the camera level while walking and turns it to face the target when it arrives.
+- Pathfinding climbs down ladders when the drop is more than a few metres, in both modes, and lets go at the bottom when the ladder ends at the floor.
+- With a key in your inventory, pathfinding can route through a locked door when that's much shorter or the only way. It stops at the door, points the camera at it, and tells you to use your key, then carries on once it's unlocked.
 - Both modes plan around quicksand and warn you about quicksand or deep water ahead. Automatic pathfinding keeps moving in water instead of stopping to wait for stamina.
 - Pathfinding avoids the climbs that only monsters can make, and paths keep a little distance from walls and railings.
 - Pathfinding to something on a raised platform, like the main entrance on Experimentation, now finds the way up instead of stopping on the ground below. If a target really can't be reached, it says "Cannot get any closer" instead of "Reached".

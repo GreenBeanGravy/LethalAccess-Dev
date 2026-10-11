@@ -174,6 +174,32 @@ namespace LethalAccess
         private const float LADDER_SEARCH_RADIUS = 6f;
         private const float LADDER_USE_DISTANCE = 1.2f;
 
+        // A drop bigger than this with a ladder down it is climbed instead of jumped. The game
+        // only hurts a fall of about 18 m, but a player drops a step, not a storey.
+        private const float LADDER_DESCENT_MIN_DROP = 3f;
+        private bool manualLadderDown;
+        private InteractTrigger activeLadder;
+        private float ladderStallY;
+        private float ladderStallTime;
+
+        // Locked doors carve the NavMesh, so no plan goes through one. With a key in the
+        // inventory the planner may route through a single locked door when that saves this much
+        // walking (or is the only way), and the walk stops there until the player unlocks it.
+        private const float KEY_ROUTE_MIN_SAVING = 15f;
+        private const float LOCKED_DOOR_STOP_DISTANCE = 1.6f;
+        private DoorLock lockedDoorOnPath;
+        private int lockedDoorCrossIndex = -1;
+        private bool lockedDoorCued;
+
+        // Auto mode steers at the furthest node it can walk to in a straight line, up to this far
+        // ahead plus a bit per m/s, instead of turning to face each node in turn.
+        // Far enough to cut straight across to a node several ahead whenever nothing is in the
+        // way, which is what skips nodes and saves time.
+        private const float AIM_LOOKAHEAD_BASE = 3f;
+        private const float AIM_LOOKAHEAD_PER_SPEED = 1f;
+        private const float AIM_LOOKAHEAD_MAX = 10f;
+        private const float AIM_MAX_RISE_PER_METER = 0.6f;
+
         private int groundMask;
         private readonly RaycastHit[] groundHitCache = new RaycastHit[16];
 
@@ -388,7 +414,9 @@ namespace LethalAccess
                 hasAnnouncedDestinationReached = false;
                 ResetStuckTracking();
 
-                Utilities.SpeakText($"Pathfinding to {GetTargetName()}");
+                Utilities.SpeakText(lockedDoorOnPath != null
+                    ? $"Pathfinding to {GetTargetName()}, through a locked door. You'll need your key."
+                    : $"Pathfinding to {GetTargetName()}");
             }
             catch (Exception ex)
             {
@@ -439,6 +467,8 @@ namespace LethalAccess
             autoCrouched = false;
             manualCrouchCued = false;
             manualLadder = null;
+            lockedDoorOnPath = null;
+            lockedDoorCrossIndex = -1;
             doorBeingOpened = null;
             cannotClimbCueLadder = null;
             ClearAutoInput();
@@ -534,7 +564,25 @@ namespace LethalAccess
             }
             pathIsPartial = navPath.status == NavMeshPathStatus.PathPartial && PathEndGap(navPath) > stoppingRadius;
 
-            List<Vector3> positions = BuildNodePositions(AvoidQuicksand(startHit.position, navPath.corners));
+            List<Vector3> positions;
+            lockedDoorOnPath = null;
+            lockedDoorCrossIndex = -1;
+            lockedDoorCued = false;
+            float normalLength = pathIsPartial ? float.MaxValue : PathLength(navPath.corners);
+            if (TryKeyRoute(startHit.position, normalLength, out Vector3[] toDoor, out Vector3[] fromDoor, out DoorLock door))
+            {
+                // Two halves laid separately: the straight line through the doorway crosses
+                // carved NavMesh, which the surface walk would snap off to one side.
+                positions = BuildNodePositions(AvoidQuicksand(startHit.position, toDoor), finalLeg: false);
+                lockedDoorCrossIndex = positions.Count;
+                positions.AddRange(BuildNodePositions(AvoidQuicksand(fromDoor[0], fromDoor)));
+                lockedDoorOnPath = door;
+                pathIsPartial = false;
+            }
+            else
+            {
+                positions = BuildNodePositions(AvoidQuicksand(startHit.position, navPath.corners));
+            }
 
             ClearPathNodes();
             for (int i = 0; i < positions.Count; i++)
@@ -736,6 +784,142 @@ namespace LethalAccess
         }
         #endregion
 
+        #region Locked Doors
+        private bool HasKey()
+        {
+            if (playerController == null || playerController.ItemSlots == null)
+                return false;
+            foreach (var item in playerController.ItemSlots)
+            {
+                if (item is KeyItem)
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// The middle of a closed door's doorway and a NavMesh point on each side of it. The door
+        /// panel's collider is thin across the doorway, so its thinnest horizontal side is the way
+        /// through.
+        /// </summary>
+        private static bool DoorPassage(DoorLock door, out Vector3 center, out Vector3 sideA, out Vector3 sideB)
+        {
+            center = sideA = sideB = default;
+            Collider collider = door.GetComponent<Collider>();
+            if (collider == null)
+                return false;
+
+            Bounds bounds = collider.bounds;
+            center = bounds.center;
+            Vector3 across = bounds.size.x < bounds.size.z ? Vector3.right : Vector3.forward;
+
+            NavMeshHit a, b;
+            Vector3 wantA = center - across * 1.2f;
+            Vector3 wantB = center + across * 1.2f;
+            if (!NavMesh.SamplePosition(wantA, out a, 2.5f, NavMesh.AllAreas) ||
+                !NavMesh.SamplePosition(wantB, out b, 2.5f, NavMesh.AllAreas))
+                return false;
+            if (HorizontalDistance(a.position, wantA) > 0.8f || HorizontalDistance(b.position, wantB) > 0.8f)
+                return false;
+
+            sideA = a.position;
+            sideB = b.position;
+            return true;
+        }
+
+        /// <summary>
+        /// With a key in the inventory, the shortest route that goes through one locked door,
+        /// when it beats the normal route by KEY_ROUTE_MIN_SAVING or the normal route does not
+        /// get there at all.
+        /// </summary>
+        private bool TryKeyRoute(Vector3 start, float normalLength, out Vector3[] toDoor, out Vector3[] fromDoor, out DoorLock door)
+        {
+            toDoor = fromDoor = null;
+            door = null;
+            DoorLock[] doors = GetDoors();
+            if (doors == null || !HasKey())
+                return false;
+
+            float best = normalLength == float.MaxValue ? float.MaxValue : normalLength - KEY_ROUTE_MIN_SAVING;
+            foreach (var candidate in doors)
+            {
+                if (candidate == null || !candidate.isLocked || !DoorPassage(candidate, out _, out Vector3 a, out Vector3 b))
+                    continue;
+
+                for (int side = 0; side < 2; side++)
+                {
+                    Vector3 near = side == 0 ? a : b;
+                    Vector3 far = side == 0 ? b : a;
+                    Vector3[] first = PlanCorners(start, near);
+                    if (first == null)
+                        continue;
+                    Vector3[] second = PlanCorners(far, currentDestination);
+                    if (second == null)
+                        continue;
+
+                    float length = PathLength(first) + Vector3.Distance(near, far) + PathLength(second);
+                    if (length < best)
+                    {
+                        best = length;
+                        toDoor = first;
+                        fromDoor = second;
+                        door = candidate;
+                    }
+                }
+            }
+            return door != null;
+        }
+
+        private enum LockedDoorState
+        {
+            None,
+            Approach,
+            Wait
+        }
+
+        /// <summary>
+        /// Where the walk stands with the locked door on the path: not there yet, walking up to
+        /// it, or waiting in front of it for the key. Drops the door once it is unlocked (the
+        /// normal door handling opens it), and re-plans without it if the key is gone.
+        /// </summary>
+        private LockedDoorState UpdateLockedDoor(out Vector3 doorCenter)
+        {
+            doorCenter = default;
+            if (lockedDoorOnPath == null || currentTargetNode == null)
+                return LockedDoorState.None;
+
+            if (!lockedDoorOnPath.isLocked)
+            {
+                Utilities.SpeakText("Unlocked");
+                lockedDoorOnPath = null;
+                return LockedDoorState.None;
+            }
+
+            if (currentTargetNode.index < lockedDoorCrossIndex - 1 || !DoorPassage(lockedDoorOnPath, out doorCenter, out _, out _))
+                return LockedDoorState.None;
+
+            if (!HasKey())
+            {
+                lockedDoorOnPath = null;
+                lastReplanTime = -999f;
+                Replan("No key. Finding another way.");
+                return LockedDoorState.None;
+            }
+
+            if (HorizontalDistance(transform.position, doorCenter) > LOCKED_DOOR_STOP_DISTANCE)
+                return LockedDoorState.Approach;
+
+            if (!lockedDoorCued)
+            {
+                lockedDoorCued = true;
+                Utilities.SpeakText(playerController.currentlyHeldObjectServer is KeyItem
+                    ? "Locked door. Use your key on it."
+                    : "Locked door. Switch to your key and use it on the door.");
+            }
+            return LockedDoorState.Wait;
+        }
+        #endregion
+
         private float PathEndGap(NavMeshPath path)
         {
             if (path.corners == null || path.corners.Length == 0)
@@ -757,7 +941,9 @@ namespace LethalAccess
             return mask;
         }
 
-        private List<Vector3> BuildNodePositions(Vector3[] corners)
+        /// <param name="finalLeg">False for the half of a path that ends at a locked door, which
+        /// gets no extra node for an off-mesh target.</param>
+        private List<Vector3> BuildNodePositions(Vector3[] corners, bool finalLeg = true)
         {
             List<Vector3> positions = new List<Vector3>();
             Vector3 surface = corners[0];
@@ -811,7 +997,7 @@ namespace LethalAccess
                 }
             }
 
-            if (isOffNavMeshTarget)
+            if (isOffNavMeshTarget && finalLeg)
             {
                 Vector3 finalPos = SnapToGround(offNavMeshTargetPos);
                 if (HorizontalDistance(positions[positions.Count - 1], finalPos) > CORNER_NODE_MIN_GAP)
@@ -991,6 +1177,21 @@ namespace LethalAccess
                 }
             }
 
+            // Auto mode steers past nodes toward one further on, so a node it went by without
+            // touching counts once the player is beyond it along the path.
+            if (currentMode == PathfindingMode.Auto)
+            {
+                for (int i = 0; i < pathNodes.Count - 1; i++)
+                {
+                    PathNode node = pathNodes[i];
+                    if (node.isReached)
+                        continue;
+                    if (!PassedNode(node, pathNodes[i + 1]))
+                        break;
+                    MarkReachedThrough(node, announce: false);
+                }
+            }
+
             if (pathNodes[pathNodes.Count - 1].isReached)
             {
                 OnReachedDestination();
@@ -999,6 +1200,26 @@ namespace LethalAccess
 
             FindNextTargetNode();
             return true;
+        }
+
+        private bool PassedNode(PathNode node, PathNode next)
+        {
+            // The doorway of a locked door is not passed until it is unlocked.
+            if (lockedDoorOnPath != null && lockedDoorOnPath.isLocked && node.index >= lockedDoorCrossIndex - 1)
+                return false;
+
+            Vector3 feet = transform.position;
+            Vector3 along = next.position - node.position;
+            along.y = 0f;
+            if (along.sqrMagnitude < 0.01f)
+                return false;
+
+            Vector3 offset = feet - node.position;
+            offset.y = 0f;
+            // Wide enough for a corner cut by the look-ahead steering; a node left behind unmarked
+            // would pull the aim back to it.
+            return Vector3.Dot(offset, along.normalized) > 0f && offset.magnitude < AIM_LOOKAHEAD_MAX &&
+                   Mathf.Abs(node.position.y - NODE_GROUND_OFFSET - feet.y) <= NODE_REACH_HEIGHT;
         }
 
         private void MarkReachedThrough(PathNode node, bool announce)
@@ -1065,7 +1286,12 @@ namespace LethalAccess
             string name = GetTargetName();
             bool partial = pathIsPartial && currentTargetObject != null &&
                            Vector3.Distance(transform.position, currentTargetObject.transform.position) > stoppingRadius * 2f;
+            bool wasAuto = currentMode == PathfindingMode.Auto;
             StopPathfinding(playSound: true);
+            if (wasAuto && currentTargetObject != null)
+            {
+                StartCoroutine(FaceTarget(currentTargetObject));
+            }
 
             // currentTargetObject is kept so the player can still look at it afterwards.
             Utilities.SpeakText(partial ? $"Cannot get any closer to {name}" : $"Reached {name}");
@@ -1114,20 +1340,28 @@ namespace LethalAccess
                 manualProbe = probeNow.Assess(toTarget, MANUAL_JUMP_CUE_DISTANCE, dropAhead);
 
                 Vector3 nodeGround = currentTargetNode.position - Vector3.up * NODE_GROUND_OFFSET;
-                manualLadder = toTarget.magnitude < LADDER_SEARCH_RADIUS && probeNow.IsClimbLink(nodeGround)
-                    ? FindLadderTo(nodeGround)
-                    : null;
+                manualLadder = toTarget.magnitude < LADDER_SEARCH_RADIUS ? LadderForStep(nodeGround, out manualLadderDown) : null;
 
                 bool ladderNear = manualLadder != null &&
-                                  HorizontalDistance(transform.position, manualLadder.ladderHorizontalPosition.position) < 5f;
+                                  HorizontalDistance(transform.position, LadderMountPoint(manualLadder, manualLadderDown)) < 5f;
                 if (climbCueNode != currentTargetNode &&
                     (ladderNear || (toTarget.magnitude < 4f && probeNow.IsClimbLink(nodeGround))))
                 {
                     climbCueNode = currentTargetNode;
-                    Utilities.SpeakText(manualLadder != null
-                        ? $"Ladder {DescribeDirection(manualLadder.ladderHorizontalPosition.position)}. Walk into it to climb."
-                        : "Too high to climb here. Press the pathfind key to let auto mode take you up.");
+                    Utilities.SpeakText(manualLadder == null
+                        ? "Too high to climb here. Press the pathfind key to let auto mode take you up."
+                        : manualLadderDown
+                            ? $"Ladder down {DescribeDirection(LadderMountPoint(manualLadder, true))}. Walk to it to climb down."
+                            : $"Ladder {DescribeDirection(manualLadder.ladderHorizontalPosition.position)}. Walk into it to climb.");
                 }
+            }
+
+            // Locked door on a key route: say so once in front of it, and when the key is in hand
+            // turn the camera onto the door so using the key hits it.
+            if (UpdateLockedDoor(out Vector3 doorCenter) == LockedDoorState.Wait &&
+                playerController.currentlyHeldObjectServer is KeyItem)
+            {
+                Utilities.LookAtPoint(doorCenter);
             }
 
             bool pushing = playerController.moveInputVector.sqrMagnitude > 0.04f;
@@ -1138,7 +1372,7 @@ namespace LethalAccess
             // Interact on a ladder already in use lets go of it, hence the climbing check.
             if (manualLadder != null && pushing && !playerController.isClimbingLadder && Time.time >= nextLadderTry)
             {
-                Vector3 toLadder = manualLadder.ladderHorizontalPosition.position - transform.position;
+                Vector3 toLadder = LadderMountPoint(manualLadder, manualLadderDown) - transform.position;
                 toLadder.y = 0f;
                 if (toLadder.magnitude <= LADDER_USE_DISTANCE)
                 {
@@ -1149,9 +1383,12 @@ namespace LethalAccess
                     }
                     nextLadderTry = Time.time + 2f;
                     manualLadder.Interact(transform);
+                    StartedLadder(manualLadder);
                     if (playerController.isClimbingLadder || playerController.inSpecialInteractAnimation)
                     {
-                        Utilities.SpeakText("Climbing");
+                        // A ladder taken from the top is climbed down with the back key; holding
+                        // forward climbs straight back off it.
+                        Utilities.SpeakText(manualLadderDown ? "Climbing down. Hold back to go down." : "Climbing");
                     }
                     return;
                 }
@@ -1214,7 +1451,7 @@ namespace LethalAccess
             // The wall is the climb itself; the way on is the ladder.
             if (manualLadder != null)
             {
-                Vector3 ladder = manualLadder.ladderHorizontalPosition.position;
+                Vector3 ladder = LadderMountPoint(manualLadder, manualLadderDown);
                 int meters = Mathf.Max(1, Mathf.RoundToInt(HorizontalDistance(transform.position, ladder)));
                 return $"Ladder {DescribeDirection(ladder)}, {meters} {(meters == 1 ? "meter" : "meters")}";
             }
@@ -1393,14 +1630,39 @@ namespace LethalAccess
                 return;
             }
 
+            Transform body = playerController.thisPlayerBody != null ? playerController.thisPlayerBody : transform;
+
+            // A locked door on a key route: walk up to it, then stand facing it, camera on the
+            // door so the key's use ray hits it, until the player unlocks it.
+            switch (UpdateLockedDoor(out Vector3 doorCenter))
+            {
+                case LockedDoorState.Wait:
+                    Utilities.LookAtPoint(doorCenter);
+                    ClearAutoInput();
+                    ResetStuckTracking();
+                    return;
+
+                case LockedDoorState.Approach:
+                    Vector3 toDoor = doorCenter - transform.position;
+                    toDoor.y = 0f;
+                    CenterCamera(body);
+                    TurnBodyToward(body, toDoor.normalized);
+                    Vector3 doorLocal = body.InverseTransformDirection(toDoor.normalized);
+                    AutoMoveInput = new Vector2(doorLocal.x, doorLocal.z).normalized;
+                    AutoSprintInput = false;
+                    return;
+            }
+
             Vector3 toNode = currentTargetNode.position - transform.position;
             toNode.y = 0f;
 
             Vector3 nodeGround = currentTargetNode.position - Vector3.up * NODE_GROUND_OFFSET;
-            if (toNode.magnitude < LADDER_SEARCH_RADIUS && Probe != null && Probe.IsClimbLink(nodeGround))
+            bool ladderStep = false;
+            if (toNode.magnitude < LADDER_SEARCH_RADIUS && Probe != null)
             {
-                InteractTrigger ladder = FindLadderTo(nodeGround);
-                if (ladder == null)
+                InteractTrigger ladder = LadderForStep(nodeGround, out bool down);
+                ladderStep = ladder != null || (!down && Probe.IsClimbLink(nodeGround));
+                if (ladder == null && ladderStep)
                 {
                     // A link only enemies can climb, on a path that had no other way: cross it the
                     // way the old agent did instead of jumping at a wall until the stuck check
@@ -1412,9 +1674,11 @@ namespace LethalAccess
                         return;
                     }
                 }
-                else
+                else if (ladder != null)
                 {
-                    Vector3 toLadder = ladder.ladderHorizontalPosition.position - transform.position;
+                    // Up: the foot of the ladder. Down: its top, back from the edge, where the
+                    // game puts a player who climbs off it.
+                    Vector3 toLadder = LadderMountPoint(ladder, down) - transform.position;
                     toLadder.y = 0f;
                     if (toLadder.magnitude <= LADDER_USE_DISTANCE)
                     {
@@ -1430,8 +1694,9 @@ namespace LethalAccess
                         {
                             // Same call as pressing interact on the ladder.
                             nextLadderTry = Time.time + 2f;
-                            ladderDirection = nodeGround.y > transform.position.y ? 1f : -1f;
+                            ladderDirection = down ? -1f : 1f;
                             ladder.Interact(transform);
+                            StartedLadder(ladder);
                             ResetStuckTracking();
                         }
                         ClearAutoInput();
@@ -1440,6 +1705,18 @@ namespace LethalAccess
                     toNode = toLadder;
                 }
             }
+            // Steer at the furthest node ahead that is a straight walk away, so the player runs
+            // one smooth line past several nodes instead of turning at each one.
+            if (!ladderStep)
+            {
+                Vector3 aim = PursuitAim() - transform.position;
+                aim.y = 0f;
+                if (aim.sqrMagnitude > 0.0001f)
+                {
+                    toNode = aim;
+                }
+            }
+
             if (toNode.sqrMagnitude < 0.0001f)
             {
                 ClearAutoInput();
@@ -1448,13 +1725,8 @@ namespace LethalAccess
             Vector3 pathDirection = toNode.normalized;
 
             // Face along the path.
-            Transform body = playerController.thisPlayerBody != null ? playerController.thisPlayerBody : transform;
-            Vector3 euler = body.eulerAngles;
-            float desiredYaw = Quaternion.LookRotation(pathDirection).eulerAngles.y;
-            float yaw = Mathf.MoveTowardsAngle(euler.y, desiredYaw, AUTO_TURN_SPEED * Time.deltaTime);
-            body.eulerAngles = new Vector3(euler.x, yaw, euler.z);
-
-            if (Mathf.Abs(Mathf.DeltaAngle(yaw, desiredYaw)) > AUTO_TURN_IN_PLACE_ANGLE)
+            CenterCamera(body);
+            if (TurnBodyToward(body, pathDirection) > AUTO_TURN_IN_PLACE_ANGLE)
             {
                 ClearAutoInput();
                 return;
@@ -1538,6 +1810,177 @@ namespace LethalAccess
         {
             AutoMoveInput = Vector2.zero;
             AutoSprintInput = false;
+        }
+
+        /// <summary>Levels the camera on the way, so auto mode always looks where it walks.</summary>
+        private static void CenterCamera(Transform body)
+        {
+            if (LACore.CameraTransform == null)
+                return;
+            Vector3 forward = body.forward;
+            forward.y = 0f;
+            if (forward.sqrMagnitude < 0.0001f)
+                return;
+            Utilities.LookAtPoint(LACore.CameraTransform.position + forward.normalized * 10f);
+        }
+
+        /// <summary>After auto mode arrives, turns the camera onto the target for a moment.</summary>
+        private IEnumerator FaceTarget(GameObject target)
+        {
+            float end = Time.time + 1.5f;
+            while (Time.time < end && !isPathfinding && target != null)
+            {
+                Utilities.LookAtPoint(target.transform.position);
+                yield return null;
+            }
+        }
+
+        /// <summary>
+        /// Turns the body toward direction, quickly when far off and gently when nearly there, so
+        /// small corrections never show as a snap. Returns the angle still to turn.
+        /// </summary>
+        private static float TurnBodyToward(Transform body, Vector3 direction)
+        {
+            Vector3 euler = body.eulerAngles;
+            float desiredYaw = Quaternion.LookRotation(direction).eulerAngles.y;
+            float error = Mathf.Abs(Mathf.DeltaAngle(euler.y, desiredYaw));
+            float speed = Mathf.Clamp(error * 6f, 60f, AUTO_TURN_SPEED);
+            float yaw = Mathf.MoveTowardsAngle(euler.y, desiredYaw, speed * Time.deltaTime);
+            body.eulerAngles = new Vector3(euler.x, yaw, euler.z);
+            return Mathf.Abs(Mathf.DeltaAngle(yaw, desiredYaw));
+        }
+
+        /// <summary>
+        /// The furthest point along the path, up to the lookahead, that the player can walk to in a
+        /// straight line: the NavMesh is unbroken on the way (no ledge, no carved locked door),
+        /// nothing at body height is in between, no quicksand is crossed, and the ground does not
+        /// climb or drop steeply (stairs are fine; a ladder or drop ends the line). The point
+        /// slides along the path segments instead of jumping from node to node, so the heading
+        /// changes smoothly.
+        /// </summary>
+        private Vector3 PursuitAim()
+        {
+            Vector3 aim = currentTargetNode.position;
+            Vector3 feet = transform.position;
+            NavMeshHit from;
+            if (!NavMesh.SamplePosition(feet, out from, 1f, NavMesh.AllAreas))
+                return aim;
+
+            Vector3 v = playerController.thisController.velocity;
+            float lookahead = Mathf.Min(AIM_LOOKAHEAD_BASE + new Vector2(v.x, v.z).magnitude * AIM_LOOKAHEAD_PER_SPEED, AIM_LOOKAHEAD_MAX);
+            float travelled = HorizontalDistance(feet, aim);
+            Vector3 previous = aim;
+            Vector3 chest = feet + Vector3.up * 1.2f;
+
+            bool Walkable(Vector3 point)
+            {
+                Vector3 ground = point - Vector3.up * NODE_GROUND_OFFSET;
+                NavMeshHit to, edge;
+                if (!NavMesh.SamplePosition(ground, out to, 1f, NavMesh.AllAreas) ||
+                    NavMesh.Raycast(from.position, to.position, out edge, NavMesh.AllAreas))
+                    return false;
+                Vector3 toPoint = new Vector3(point.x, chest.y, point.z) - chest;
+                if (toPoint.sqrMagnitude > 0.0001f &&
+                    Physics.SphereCast(chest, 0.35f, toPoint.normalized, out _, toPoint.magnitude, groundMask, QueryTriggerInteraction.Ignore))
+                    return false;
+                return !FirstQuicksandCrossed(new[] { feet, ground }, out _);
+            }
+
+            for (int i = currentTargetNode.index + 1; i < pathNodes.Count && travelled < lookahead; i++)
+            {
+                Vector3 next = pathNodes[i].position;
+                float step = HorizontalDistance(previous, next);
+                if (step < 0.01f)
+                    continue;
+                if (Mathf.Abs(next.y - previous.y) > Mathf.Max(0.5f, step * AIM_MAX_RISE_PER_METER))
+                    break;
+                if (lockedDoorOnPath != null && i >= lockedDoorCrossIndex)
+                    break;
+
+                // Only as far along this segment as the lookahead reaches; if the end of that is
+                // out of sight (round a corner), the furthest of a few points short of it that is.
+                float reach = Mathf.Min(1f, (lookahead - travelled) / step);
+                bool found = false;
+                foreach (float fraction in new[] { reach, reach * 0.66f, reach * 0.33f })
+                {
+                    Vector3 candidate = Vector3.Lerp(previous, next, fraction);
+                    if (Walkable(candidate))
+                    {
+                        aim = candidate;
+                        found = fraction == 1f;
+                        break;
+                    }
+                }
+                if (!found)
+                    break;
+
+                travelled += step;
+                previous = next;
+            }
+            return aim;
+        }
+
+        /// <summary>The ladder the path uses for the step to target, up or down, if there is one.
+        /// Down counts only for a drop of more than LADDER_DESCENT_MIN_DROP with no slope joining it.</summary>
+        private InteractTrigger LadderForStep(Vector3 target, out bool down)
+        {
+            down = false;
+            ObstacleProbe probeNow = Probe;
+            if (probeNow == null)
+                return null;
+
+            if (transform.position.y - target.y > LADDER_DESCENT_MIN_DROP)
+            {
+                down = true;
+                return probeNow.IsDisconnected(target) ? FindLadderTo(target) : null;
+            }
+            return probeNow.IsClimbLink(target) ? FindLadderTo(target) : null;
+        }
+
+        private void StartedLadder(InteractTrigger ladder)
+        {
+            activeLadder = ladder;
+            ladderStallY = transform.position.y;
+            ladderStallTime = Time.time;
+        }
+
+        /// <summary>
+        /// The game ends a climb once the player passes the ladder's top or bottom marker, but on
+        /// some ladders the bottom marker is below the floor, and climbing down stops on the ground
+        /// with the player still on the ladder. A player lets go with interact there ("Let go"
+        /// tip); this does the same when a climb has not moved for half a second while the player
+        /// is pushing along it.
+        /// </summary>
+        private void UpdateLadderLetGo()
+        {
+            if (activeLadder == null || playerController == null)
+                return;
+            if (!playerController.isClimbingLadder)
+            {
+                if (!playerController.inSpecialInteractAnimation)
+                    activeLadder = null;
+                return;
+            }
+
+            float y = transform.position.y;
+            if (Mathf.Abs(y - ladderStallY) > 0.05f)
+            {
+                ladderStallY = y;
+                ladderStallTime = Time.time;
+                return;
+            }
+
+            bool pushing = currentMode == PathfindingMode.Auto || Mathf.Abs(playerController.moveInputVector.y) > 0.2f;
+            if (pushing && Time.time - ladderStallTime > 0.5f)
+            {
+                activeLadder.Interact(transform);
+                activeLadder = null;
+            }
+        }
+
+        private static Vector3 LadderMountPoint(InteractTrigger ladder, bool down)
+        {
+            return down ? ladder.topOfLadderPosition.position : ladder.ladderHorizontalPosition.position;
         }
 
         private void ResetStuckTracking()
@@ -1812,6 +2255,7 @@ namespace LethalAccess
 
                 OpenNearbyDoor();
                 UpdateHazardCue();
+                UpdateLadderLetGo();
 
                 if (currentMode == PathfindingMode.Manual)
                 {
