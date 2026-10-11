@@ -33,7 +33,7 @@ namespace LethalAccess
     {
         private const string modGUID = "Green.LethalAccess";
         private const string modName = "LethalAccess";
-        private const string modVersion = "1.0.0.0";
+        private const string modVersion = "1.1.0";
 
         public static Transform playerTransform;
         public static Transform cameraTransform;

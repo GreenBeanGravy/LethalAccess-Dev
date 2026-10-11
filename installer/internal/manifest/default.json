@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "repo": "GreenBeanGravy/LethalAccess-Dev",
+  "mod_asset": "LethalAccess.zip",
+  "updater_asset": "LethalAccessUpdater.exe",
+  "skip_extensions": [".md"],
+  "components": [
+    {
+      "id": "bepinex",
+      "name": "BepInEx 5.4.23.5",
+      "reason": "The mod loader LethalAccess runs on.",
+      "required": true,
+      "detect": ["BepInEx/core/BepInEx.dll", "winhttp.dll", "doorstop_config.ini"],
+      "url": "https://github.com/BepInEx/BepInEx/releases/download/v5.4.23.5/BepInEx_win_x64_5.4.23.5.zip",
+      "sha256": "82f9878551030f54657792c0740d9d51a09500eeae1fba21106b0c441e6732c4",
+      "map": {"": ""}
+    },
+    {
+      "id": "inpututils",
+      "name": "LethalCompany InputUtils 0.7.10",
+      "reason": "Puts the LethalAccess keys on the game's own Change keybinds screen.",
+      "required": false,
+      "detect_name": "LethalCompanyInputUtils.dll",
+      "url": "https://thunderstore.io/package/download/Rune580/LethalCompany_InputUtils/0.7.10/",
+      "sha256": "b5db1574a335a680756afb19f273576742405b7d3e9f3574878caaab24cae6cf",
+      "map": {"plugins/": "BepInEx/plugins/"}
+    }
+  ]
+}

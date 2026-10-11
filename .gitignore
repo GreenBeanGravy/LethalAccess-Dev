@@ -364,3 +364,12 @@ FodyWeavers.xsd
 # Vendored UnityA11y build output
 UnityA11y/bin/
 UnityA11y/obj/
+
+# Documentation stays out of the repository, apart from the README.
+# Files already tracked (UnityA11y's notes) are not affected.
+*.md
+!README.md
+
+# Packaging and updater build output
+dist/
+installer/*.exe
