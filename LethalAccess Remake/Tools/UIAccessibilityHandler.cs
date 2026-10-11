@@ -696,6 +696,15 @@ namespace LethalAccess
                 return;
             }
 
+            // The same press may already have closed that list: TMP_Dropdown handles Cancel
+            // first and selects the dropdown again, so focus looks claimed. Its list stays alive
+            // (IsExpanded) through the fade-out, which is what tells this press apart.
+            TMP_Dropdown dropdown = current.GetComponent<TMP_Dropdown>();
+            if (dropdown != null && dropdown.IsExpanded)
+            {
+                return;
+            }
+
             // A focused text field owns Escape: TMP cancels the edit and restores the original
             // text. Leaving the field is what that press means; leaving the screen is the next one.
             TMP_InputField field = current.GetComponent<TMP_InputField>();
@@ -708,6 +717,13 @@ namespace LethalAccess
             IngamePlayerSettings settings = IngamePlayerSettings.Instance;
             if (settings != null && settings.rebindingOperation != null &&
                 settings.rebindingOperation.started)
+            {
+                return;
+            }
+
+            // The screen may have something smaller to close first (the keybinds screen's open
+            // category). If it used the press, leaving the screen is the NEXT Escape.
+            if (UIScreenRegistry.TryHandleEscape(UIScreenRegistry.ActiveScreenId))
             {
                 return;
             }
@@ -1303,8 +1319,10 @@ namespace LethalAccess
                 }
             }
 
-            // 6. Whatever the components say.
-            string baseText = Utilities.RemoveSpecialCharacters(Utilities.GetTextFromComponent(element)).Trim();
+            // 6. Whatever the components say - translated first when it is one of InputUtils' raw
+            //    tokens, which its dropdown options are until their first Update.
+            string baseText = Utilities.RemoveSpecialCharacters(
+                InputUtilsBridge.TranslateToken(Utilities.GetTextFromComponent(element))).Trim();
             return EnhanceTextWithState(element, baseText, elementType);
         }
 

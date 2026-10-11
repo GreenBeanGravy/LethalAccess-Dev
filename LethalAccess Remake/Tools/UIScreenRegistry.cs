@@ -40,6 +40,26 @@ namespace LethalAccess
         /// <summary>Slider/dropdown/deliberate exception: left and right keep working on this control.</summary>
         public bool KeepsHorizontal;
 
+        /// <summary>
+        /// Short, live extra the screen reader reads after the control ("Press H for help",
+        /// "Also bound to Walk left"). May return null.
+        /// </summary>
+        public Func<string> Description;
+
+        /// <summary>
+        /// Longer explanation spoken on demand (the H key on screens that support it). May
+        /// return null.
+        /// </summary>
+        public Func<string> Help;
+
+        /// <summary>
+        /// For a control that shows and hides other controls (a collapsible section header): true
+        /// while they are shown. The tree publishes it as the expanded/collapsed state a screen
+        /// reader names itself, and leaves State to the spoken fallback, so the word is not said
+        /// twice. Null for everything else.
+        /// </summary>
+        public Func<bool> Expanded;
+
         public UIEntry()
         {
         }
@@ -79,6 +99,17 @@ namespace LethalAccess
         /// </summary>
         public bool OrderByScreenPosition;
 
+        /// <summary>
+        /// Sections sharing a non-null PositionGroup are counted as one set for "n of m", even
+        /// when other sections sit between them.
+        ///
+        /// For lists whose members each own a run of controls that appears directly under them -
+        /// the keybinds screen's collapsible categories. Each header has to be its own section so
+        /// its controls can follow it in the arrow-key order, yet the headers are one list to the
+        /// user: "LethalAccess, 2 of 2", not "1 of 1" twice.
+        /// </summary>
+        public string PositionGroup;
+
         public UISection(string name, params UIEntry[] entries)
         {
             Name = name;
@@ -103,6 +134,20 @@ namespace LethalAccess
         public Func<Transform> FocusOnOpen;
 
         public Func<string> Title;
+
+        /// <summary>
+        /// Optional. A short instruction read once on arrival, after the title ("Press H for help
+        /// on the focused control."). Published as the screen's description rather than folded
+        /// into the title, so it is not repeated wherever the title is used as context.
+        /// </summary>
+        public Func<string> Hint;
+
+        /// <summary>
+        /// Optional. Runs before Escape falls back to <see cref="EscapeTarget"/>. Return true when
+        /// the press was used up - closing something smaller than the screen, such as a section
+        /// the user expanded - and Escape must not also leave the screen.
+        /// </summary>
+        public Func<bool> OnEscape;
 
         /// <summary>
         /// Confine focus to this screen for as long as it is shown - a modal.
@@ -158,6 +203,17 @@ namespace LethalAccess
         /// screen becomes silent.
         /// </summary>
         public bool SuppressAnnounceOnShow;
+
+        /// <summary>
+        /// Other registered screens whose controls belong to this one in the published tree.
+        ///
+        /// Keyboard order is untouched - a companion keeps its own up/down walk, which is the
+        /// reason it exists as a separate screen (see KeybindsAccessibility.ExtrasScreenId). But
+        /// the tree only publishes the ACTIVE screen, so a control on a companion was focusable
+        /// and absent from the tree: the screen reader had nothing to read and fell back to the
+        /// window's name. Companions are appended after this screen's own sections.
+        /// </summary>
+        public List<string> CompanionScreens;
     }
 
     /// <summary>
@@ -214,6 +270,9 @@ namespace LethalAccess
             public int FlatIndex;
             public int InstanceId;
             public ScreenState Owner;
+
+            // What "n of m" counts by: SectionIndex, or the first section of its PositionGroup.
+            public int PositionKey;
         }
 
         private sealed class ScreenState
@@ -645,7 +704,7 @@ namespace LethalAccess
             s.AwaitingSettle = false;
 
             string title = s.Descriptor.Title != null ? s.Descriptor.Title() : null;
-            AnnouncementPolicy.AnnounceScreen(title, focus);
+            AnnouncementPolicy.AnnounceScreen(title, ScreenHint(id), focus);
         }
 
         public static void ScreenHidden(string id)
@@ -707,7 +766,7 @@ namespace LethalAccess
             }
 
             string title = under.Descriptor.Title != null ? under.Descriptor.Title() : null;
-            AnnouncementPolicy.AnnounceScreen(title, focus);
+            AnnouncementPolicy.AnnounceScreen(title, ScreenHint(beneath), focus);
         }
 
         private static string TopVisibleInStack()
@@ -834,6 +893,9 @@ namespace LethalAccess
 
             // Two passes so SectionCount is known before any view is emitted; a consumer
             // that needs "n of m" cannot use a count that is still being accumulated.
+            //
+            // Counted by PositionKey, and reported as the view's SectionIndex: sections of one
+            // PositionGroup are one set, and when they are adjacent they are one group as well.
             Dictionary<int, int> counts = new Dictionary<int, int>();
             for (int i = 0; i < s.Flat.Count; i++)
             {
@@ -841,7 +903,7 @@ namespace LethalAccess
                 if (sectionScoped && e.SectionIndex != trapSectionIndex) continue;
                 if (!IsVisible(e)) continue;
                 int c;
-                counts[e.SectionIndex] = counts.TryGetValue(e.SectionIndex, out c) ? c + 1 : 1;
+                counts[e.PositionKey] = counts.TryGetValue(e.PositionKey, out c) ? c + 1 : 1;
             }
 
             Dictionary<int, int> seen = new Dictionary<int, int>();
@@ -852,17 +914,61 @@ namespace LethalAccess
                 if (!IsVisible(e)) continue;
 
                 int n;
-                n = seen.TryGetValue(e.SectionIndex, out n) ? n + 1 : 1;
-                seen[e.SectionIndex] = n;
+                n = seen.TryGetValue(e.PositionKey, out n) ? n + 1 : 1;
+                seen[e.PositionKey] = n;
 
                 UIEntryView v = new UIEntryView();
                 v.Target = e.T;
                 v.Entry = e.Entry;
                 v.SectionName = e.SectionName;
-                v.SectionIndex = e.SectionIndex;
+                v.SectionIndex = e.PositionKey;
                 v.IndexInSection = n;
-                v.SectionCount = counts[e.SectionIndex];
+                v.SectionCount = counts[e.PositionKey];
                 into.Add(v);
+            }
+
+            // Companion screens publish after the screen's own sections, with section indices
+            // offset far enough that they can never collide with one of its own. Not under a
+            // section-scoped trap: a trapped section is, by definition, all there is to reach.
+            List<string> companions = s.Descriptor.CompanionScreens;
+            if (companions != null && !sectionScoped)
+            {
+                for (int k = 0; k < companions.Count; k++)
+                {
+                    ScreenState c;
+                    if (!screens.TryGetValue(companions[k], out c)) continue;
+
+                    int offset = (k + 1) * 1000;
+                    Dictionary<int, int> cCounts = new Dictionary<int, int>();
+                    for (int i = 0; i < c.Flat.Count; i++)
+                    {
+                        if (!IsVisible(c.Flat[i])) continue;
+                        int idx = c.Flat[i].PositionKey + offset;
+                        int cc;
+                        cCounts[idx] = cCounts.TryGetValue(idx, out cc) ? cc + 1 : 1;
+                    }
+
+                    Dictionary<int, int> cSeen = new Dictionary<int, int>();
+                    for (int i = 0; i < c.Flat.Count; i++)
+                    {
+                        Resolved e = c.Flat[i];
+                        if (!IsVisible(e)) continue;
+
+                        int idx = e.PositionKey + offset;
+                        int n;
+                        n = cSeen.TryGetValue(idx, out n) ? n + 1 : 1;
+                        cSeen[idx] = n;
+
+                        UIEntryView v = new UIEntryView();
+                        v.Target = e.T;
+                        v.Entry = e.Entry;
+                        v.SectionName = e.SectionName;
+                        v.SectionIndex = idx;
+                        v.IndexInSection = n;
+                        v.SectionCount = cCounts[idx];
+                        into.Add(v);
+                    }
+                }
             }
 
             if (into.Count == 0)
@@ -889,6 +995,33 @@ namespace LethalAccess
                 return false;
             }
             return s.Descriptor.Modal || s.Descriptor.TrapsFocus;
+        }
+
+        /// <summary>The screen's arrival instruction, or null.</summary>
+        public static string ScreenHint(string screenId)
+        {
+            ScreenState s;
+            if (string.IsNullOrEmpty(screenId) || !screens.TryGetValue(screenId, out s) ||
+                s.Descriptor == null || s.Descriptor.Hint == null)
+            {
+                return null;
+            }
+            return s.Descriptor.Hint();
+        }
+
+        /// <summary>
+        /// Give the screen first refusal of an Escape press. True when its OnEscape used the press
+        /// up, in which case the caller must do nothing else with it.
+        /// </summary>
+        public static bool TryHandleEscape(string screenId)
+        {
+            ScreenState s;
+            if (string.IsNullOrEmpty(screenId) || !screens.TryGetValue(screenId, out s) ||
+                s.Descriptor == null || s.Descriptor.OnEscape == null)
+            {
+                return false;
+            }
+            return s.Descriptor.OnEscape();
         }
 
         /// <summary>
@@ -934,7 +1067,7 @@ namespace LethalAccess
             HashSet<int> live = new HashSet<int>();
             for (int i = 0; i < s.Flat.Count; i++)
             {
-                if (IsVisible(s.Flat[i])) live.Add(s.Flat[i].SectionIndex);
+                if (IsVisible(s.Flat[i])) live.Add(s.Flat[i].PositionKey);
             }
             return live.Count;
         }
@@ -957,7 +1090,7 @@ namespace LethalAccess
             for (int i = 0; i < flat.Count; i++)
             {
                 Resolved e = flat[i];
-                if (e.SectionIndex != r.SectionIndex || !IsVisible(e))
+                if (e.PositionKey != r.PositionKey || !IsVisible(e))
                 {
                     continue;
                 }
@@ -1264,6 +1397,7 @@ namespace LethalAccess
 
             int flatIndex = 0;
             var sectionItems = new List<Resolved>();
+            Dictionary<string, int> firstOfGroup = null;
             for (int si = 0; si < d.Sections.Count; si++)
             {
                 UISection section = d.Sections[si];
@@ -1271,6 +1405,24 @@ namespace LethalAccess
                 {
                     Debug.LogError("[LethalAccess] Screen '" + d.Id + "' has a null section at index " + si + ".");
                     continue;
+                }
+
+                int positionKey = si;
+                if (!string.IsNullOrEmpty(section.PositionGroup))
+                {
+                    if (firstOfGroup == null)
+                    {
+                        firstOfGroup = new Dictionary<string, int>(StringComparer.Ordinal);
+                    }
+                    int first;
+                    if (firstOfGroup.TryGetValue(section.PositionGroup, out first))
+                    {
+                        positionKey = first;
+                    }
+                    else
+                    {
+                        firstOfGroup[section.PositionGroup] = si;
+                    }
                 }
 
                 for (int ei = 0; ei < section.Entries.Count; ei++)
@@ -1313,7 +1465,8 @@ namespace LethalAccess
                         SectionIndex = si,
                         SectionName = section.Name,
                         InstanceId = t.gameObject.GetInstanceID(),
-                        Owner = s
+                        Owner = s,
+                        PositionKey = positionKey
                     };
 
                     Resolved clash;

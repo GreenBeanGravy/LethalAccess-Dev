@@ -26,6 +26,32 @@ namespace LethalAccess
     {
         #region Panel lifecycle
 
+        /// <summary>
+        /// Times every open, start of OnEnable (before InputUtils' prefix builds its container) to
+        /// the end of it (after the second LoadKeybindsUI), so a slow open names itself in the log.
+        /// </summary>
+        [HarmonyPatch(typeof(KepRemapPanel), "OnEnable")]
+        internal static class OpenTimingPatch
+        {
+            private static long startedAt;
+
+            [HarmonyPrefix]
+            [HarmonyPriority(Priority.First)]
+            public static void Prefix()
+            {
+                startedAt = System.Diagnostics.Stopwatch.GetTimestamp();
+            }
+
+            [HarmonyPostfix]
+            [HarmonyPriority(Priority.Last)]
+            public static void Postfix()
+            {
+                double ms = (System.Diagnostics.Stopwatch.GetTimestamp() - startedAt) * 1000.0 /
+                            System.Diagnostics.Stopwatch.Frequency;
+                Debug.Log("[LethalAccess] Keybinds screen opened in " + ms.ToString("F0") + " ms.");
+            }
+        }
+
         [HarmonyPatch(typeof(KepRemapPanel), "LoadKeybindsUI")]
         internal static class LoadKeybindsUIPatch
         {
@@ -125,6 +151,24 @@ namespace LethalAccess
 
         #region Reset all keybinds
 
+        private static int resetAllSpokenFrame = -1;
+
+        /// <summary>
+        /// With InputUtils installed one press of "Set to defaults" runs both resets in the same
+        /// frame: the game's own ResetAllKeybinds is a persistent listener on the button, which
+        /// InputUtils' RemoveAllListeners cannot remove, and InputUtils adds its ResetAllToDefaults.
+        /// Each used to say so.
+        /// </summary>
+        internal static void SpeakResetAllOnce()
+        {
+            if (resetAllSpokenFrame == Time.frameCount)
+            {
+                return;
+            }
+            resetAllSpokenFrame = Time.frameCount;
+            AnnouncementPolicy.Speak("All keybinds reset to defaults");
+        }
+
         [HarmonyPatch(typeof(IngamePlayerSettings), "ResetAllKeybinds")]
         internal static class ResetAllKeybindsPatch
         {
@@ -152,6 +196,17 @@ namespace LethalAccess
                     return;
                 }
 
+                // That protective Back.Select() has already run by now, so "focused" is Back even
+                // though the user pressed SetDefault. Remember the button that was pressed.
+                if (focused.name == "Back" && focused.transform.parent != null)
+                {
+                    Transform setDefault = focused.transform.parent.Find("SetDefault");
+                    if (setDefault != null && setDefault.gameObject.activeInHierarchy)
+                    {
+                        focused = setDefault.gameObject;
+                    }
+                }
+
                 int index;
                 int count;
                 string section;
@@ -165,7 +220,7 @@ namespace LethalAccess
             [HarmonyPostfix]
             public static void Postfix()
             {
-                AnnouncementPolicy.Speak("All keybinds reset to defaults");
+                SpeakResetAllOnce();
 
                 if (rememberedSection != null && !KeybindsAccessibility.TryFocusPosition(rememberedSection, rememberedIndex))
                 {
@@ -197,6 +252,11 @@ namespace LethalAccess
         // this flag would produce one utterance per bind on the whole screen.
         private static bool bulkResetInProgress;
 
+        /// <summary>
+        /// Called once from LACore.Awake. It used to run on the first open of the keybinds screen,
+        /// where building these patches (and finding the types by a whole-domain scan) was most of
+        /// the pause before the screen appeared. Still safe to call again; it only acts once.
+        /// </summary>
         internal static void EnsureInputUtilsPatches()
         {
             if (inputUtilsPatchesTried)
@@ -205,24 +265,28 @@ namespace LethalAccess
             }
             inputUtilsPatchesTried = true;
 
-            Type rebindButton = AccessTools.TypeByName("LethalCompanyInputUtils.Components.RebindButton");
-            if (rebindButton == null)
+            if (!InputUtilsBridge.Available || InputUtilsBridge.RebindButton == null)
             {
                 // Not installed. The vanilla hooks above cover the shipped UI on their own.
                 return;
             }
 
+            Type rebindButton = InputUtilsBridge.RebindButton;
             inputUtilsHarmony = new Harmony("LethalAccess.Keybinds.InputUtils");
 
-            PatchInputUtils(rebindButton, "StartRebinding", null, nameof(PostfixStartRebinding));
-            PatchInputUtils(rebindButton, "FinishRebinding", null, nameof(PostfixFinishRebinding));
+            PatchInputUtils(rebindButton, "StartRebinding", nameof(PrefixStartRebinding), nameof(PostfixStartRebinding),
+                            nameof(FinalizerStartRebinding));
+            PatchInputUtils(rebindButton, "FinishRebinding", nameof(PrefixFinishRebinding), nameof(PostfixFinishRebinding));
             PatchInputUtils(rebindButton, "ResetToDefault", null, nameof(PostfixResetToDefault));
             PatchInputUtils(rebindButton, "RemoveBind", null, nameof(PostfixRemoveBind));
             PatchInputUtils(rebindButton, "ResetAllToDefaults",
                             nameof(PrefixResetAllToDefaults), nameof(PostfixResetAllToDefaults));
+            PatchInputUtils(rebindButton, "UpdateState", null, nameof(PostfixUpdateState));
+            PatchInputUtils(InputUtilsBridge.RemapContainer, "HideHighestLayer", nameof(PrefixHideHighestLayer), null);
         }
 
-        private static void PatchInputUtils(Type type, string methodName, string prefixName, string postfixName)
+        private static void PatchInputUtils(Type type, string methodName, string prefixName, string postfixName,
+                                            string finalizerName = null)
         {
             MethodInfo target = AccessTools.Method(type, methodName);
             if (target == null)
@@ -239,6 +303,9 @@ namespace LethalAccess
             HarmonyMethod postfix = postfixName == null
                 ? null
                 : new HarmonyMethod(AccessTools.Method(typeof(KeybindsPanelPatch), postfixName));
+            HarmonyMethod finalizer = finalizerName == null
+                ? null
+                : new HarmonyMethod(AccessTools.Method(typeof(KeybindsPanelPatch), finalizerName));
 
             // Narrow, reported, non-silent: this runs inside KepRemapPanel.LoadKeybindsUI's
             // postfix, so an exception from patching a THIRD-PARTY method would propagate into the
@@ -248,7 +315,7 @@ namespace LethalAccess
             // full, and the other hooks still get attached.
             try
             {
-                inputUtilsHarmony.Patch(target, prefix, postfix);
+                inputUtilsHarmony.Patch(target, prefix: prefix, postfix: postfix, finalizer: finalizer);
             }
             catch (Exception e)
             {
@@ -261,9 +328,35 @@ namespace LethalAccess
         // reference to the InputUtils assembly; Harmony accepts any base type of the declaring
         // class here.
 
+        public static void PrefixStartRebinding(MonoBehaviour __instance)
+        {
+            KeybindsAccessibility.PrepareRebindTarget(__instance);
+        }
+
+        // Returning null swallows the exception, which is the point: the failure is reported to the
+        // user and the log here, and letting it propagate would only add a stack trace to a Unity
+        // button callback that nobody is reading.
+        public static Exception FinalizerStartRebinding(MonoBehaviour __instance, Exception __exception)
+        {
+            if (__exception != null)
+            {
+                KeybindsAccessibility.ReportRebindFailure(__instance, __exception);
+            }
+            return null;
+        }
+
         public static void PostfixStartRebinding(MonoBehaviour __instance)
         {
             KeybindsAccessibility.AnnounceInputUtilsRebindStart(__instance);
+        }
+
+        public static void PrefixFinishRebinding(MonoBehaviour __instance)
+        {
+            if (bulkResetInProgress)
+            {
+                return;
+            }
+            KeybindsAccessibility.NoteInputUtilsRebindFinishing(__instance);
         }
 
         public static void PostfixFinishRebinding(MonoBehaviour __instance)
@@ -296,16 +389,71 @@ namespace LethalAccess
         public static void PrefixResetAllToDefaults()
         {
             bulkResetInProgress = true;
+            // InputUtils resets only the rows that are switched on, and a closed category's rows
+            // are switched off.
+            KeybindsAccessibility.ExpandAllForBulkReset();
         }
 
         public static void PostfixResetAllToDefaults()
         {
+            KeybindsAccessibility.RestoreCollapseAfterBulkReset();
             bulkResetInProgress = false;
-            AnnouncementPolicy.Speak("All keybinds reset to defaults");
+            SpeakResetAllOnce();
             // InputUtils' reset does not rebuild the UI, so the rows survive - only their
             // bindings, and the visibility of the Reset buttons, have changed.
             KeybindsAccessibility.RefreshDynamicState();
             AnnouncementPolicy.ReAnnounceFocused();
+        }
+
+        // UpdateState runs after every change to a binding, whatever made it (a rebind, a reset, the
+        // Global/Local switch, a device change), which makes it the one place to learn that the
+        // cached conflict warnings are stale.
+        public static void PostfixUpdateState()
+        {
+            KeybindsAccessibility.InvalidateConflicts();
+        }
+
+        // In game, Escape on the remap screen reaches InputUtils' CloseContainerLayer, which closes
+        // the whole panel. An open category closes first.
+        public static bool PrefixHideHighestLayer()
+        {
+            return !KeybindsAccessibility.HandleEscape();
+        }
+
+        #endregion
+
+        #region In-game Escape
+
+        /// <summary>
+        /// In game, Escape is the OpenMenu action and PlayerControllerB acts on it: with unsaved
+        /// changes it swaps the remap screen for the confirm-changes panel, otherwise it closes the
+        /// menu. On the remap screen with a category open, it closes the category instead.
+        /// </summary>
+        [HarmonyPatch(typeof(GameNetcodeStuff.PlayerControllerB), "OpenMenu_performed")]
+        internal static class OpenMenuPerformedPatch
+        {
+            [HarmonyPrefix]
+            [HarmonyPriority(Priority.First)]
+            public static bool Prefix(UnityEngine.InputSystem.InputAction.CallbackContext context)
+            {
+                if (!context.performed)
+                {
+                    return true;
+                }
+
+                // An open option list (Motion Blur, Control priority) closes on the UI module's
+                // own Cancel. Letting the game act too closed the whole settings panel under it
+                // and left nothing selected.
+                EventSystem es = EventSystem.current;
+                GameObject selected = es != null ? es.currentSelectedGameObject : null;
+                TMPro.TMP_Dropdown openList = selected != null ? selected.GetComponentInParent<TMPro.TMP_Dropdown>() : null;
+                if (openList != null && openList.IsExpanded)
+                {
+                    return false;
+                }
+
+                return !KeybindsAccessibility.HandleEscape();
+            }
         }
 
         #endregion

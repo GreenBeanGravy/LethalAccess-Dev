@@ -26,6 +26,9 @@ using Key = UnityEngine.InputSystem.Key;
 namespace LethalAccess
 {
     [BepInPlugin(modGUID, modName, modVersion)]
+    // Soft: the mod runs without InputUtils. With it, InputUtils must wake first, because
+    // ModKeybinds registers LethalAccess's keys with it from this plugin's Awake.
+    [BepInDependency(ModKeybinds.InputUtilsGuid, BepInDependency.DependencyFlags.SoftDependency)]
     public class LACore : BaseUnityPlugin
     {
         private const string modGUID = "Green.LethalAccess";
@@ -36,7 +39,6 @@ namespace LethalAccess
         public static Transform cameraTransform;
         private const string REACHED_POSITION_SOUND_PATH = "LethalAccessAssets/ReachedPosition.wav";
         private AudioClip reachedPositionSound;
-        private static Dictionary<string, ConfigEntry<Key>> keybindConfigEntries = new Dictionary<string, ConfigEntry<Key>>();
         private static Dictionary<string, Action> registeredActions = new Dictionary<string, Action>();
         public static Dictionary<string, List<Func<string>>> overriddenTexts = new Dictionary<string, List<Func<string>>>();
         private List<GameObject> previouslyFocusedUIElements = new List<GameObject>();
@@ -153,6 +155,10 @@ namespace LethalAccess
                 // Initialize configuration manager
                 ConfigManager.Initialize(Config);
 
+                // Before anything calls RegisterKeybind: the patches below register theirs from
+                // their own Initialize methods.
+                ModKeybinds.Initialize(Config, MetadataHelper.GetMetadata(this));
+
                 // Start the speech worker from the main thread. Doing this lazily from a
                 // thread-pool thread is what made the old static constructor a permanent-TTS-loss
                 // hazard.
@@ -186,6 +192,10 @@ namespace LethalAccess
                 // used to follow applied the postfix a second time - visible in the log as two
                 // "Pressing Continue button in PreInitScene" lines for one event.
                 harmony.PatchAll(Assembly.GetExecutingAssembly());
+
+                // At startup rather than on the first open of the keybinds screen, where building
+                // these patches used to be part of the pause before the screen appeared.
+                KeybindsPanelPatch.EnsureInputUtilsPatches();
                 Logger.LogInfo("LethalAccess initialized.");
                 RegisterKeybinds();
                 StartCoroutine(LoadReachedPositionSound());
@@ -413,27 +423,32 @@ namespace LethalAccess
                 float currentTurnSpeed = ConfigManager.TurnSpeed.Value;
 
                 // Regular turning with arrow keys ONLY
-                if (Keyboard.current[Key.LeftArrow].isPressed && !Keyboard.current[Key.LeftShift].isPressed && !Keyboard.current[Key.RightShift].isPressed)
+                // The turn keys are rebindable (ModKeybinds); Shift is the snap-turn modifier
+                // whatever they are bound to.
+                bool shiftHeld = Keyboard.current != null &&
+                                 (Keyboard.current[Key.LeftShift].isPressed || Keyboard.current[Key.RightShift].isPressed);
+
+                if (ModKeybinds.IsPressed(ModKeybinds.TurnLeft) && !shiftHeld)
                 {
                     SafeRotate(-currentTurnSpeed * Time.deltaTime);
                 }
-                if (Keyboard.current[Key.RightArrow].isPressed && !Keyboard.current[Key.LeftShift].isPressed && !Keyboard.current[Key.RightShift].isPressed)
+                if (ModKeybinds.IsPressed(ModKeybinds.TurnRight) && !shiftHeld)
                 {
                     SafeRotate(currentTurnSpeed * Time.deltaTime);
                 }
 
                 // Snap turning with shift+arrow keys
-                if ((Keyboard.current[Key.LeftShift].isPressed || Keyboard.current[Key.RightShift].isPressed))
+                if (shiftHeld)
                 {
                     // Movement/SnapTurnAngle was bound in config and shown in the settings menu
                     // but never read; the angle was hard-coded to 45 degrees here.
                     float snapAngle = ConfigManager.SnapTurnAngle.Value;
 
-                    if (Keyboard.current[Key.LeftArrow].wasPressedThisFrame)
+                    if (ModKeybinds.WasPressedThisFrame(ModKeybinds.TurnLeft))
                     {
                         SnapTurn(-snapAngle);
                     }
-                    if (Keyboard.current[Key.RightArrow].wasPressedThisFrame)
+                    if (ModKeybinds.WasPressedThisFrame(ModKeybinds.TurnRight))
                     {
                         SnapTurn(snapAngle);
                     }
@@ -528,73 +543,6 @@ namespace LethalAccess
             return "Unknown";
         }
 
-        private void DrawElevatorRay()
-        {
-            MineshaftElevatorController elevatorController = FindObjectOfType<MineshaftElevatorController>();
-            if (elevatorController == null)
-            {
-                SpeechUtils.SpeakText("Elevator not found.");
-                return;
-            }
-
-            Transform elevatorInsidePoint = elevatorController.elevatorInsidePoint;
-            if (elevatorInsidePoint == null)
-            {
-                SpeechUtils.SpeakText("Elevator entry point not found.");
-                return;
-            }
-
-            Transform camTransform = CameraTransform;
-            if (camTransform == null)
-            {
-                SpeechUtils.SpeakText("Main camera not found.");
-                return;
-            }
-
-            Vector3 position = camTransform.position;
-            Vector3 forward = camTransform.forward;
-            float maxDistance = 100f;
-
-            Ray ray = new Ray(position, forward);
-            RaycastHit[] hits = Physics.RaycastAll(ray, maxDistance);
-            Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
-
-            Vector3 hitPoint = position + forward * maxDistance;
-            int hitCounter = 0;
-
-            foreach (RaycastHit hit in hits)
-            {
-                string objectName = hit.collider.gameObject.name.ToLower();
-                if (!objectName.Contains("player") && !objectName.Contains("camera"))
-                {
-                    hitCounter++;
-                    if (hitCounter >= 5)
-                    {
-                        hitPoint = hit.point;
-                        break;
-                    }
-                }
-            }
-
-            GameObject lineObj = new GameObject("ElevatorRayLine");
-            LineRenderer lineRenderer = lineObj.AddComponent<LineRenderer>();
-            lineRenderer.positionCount = 2;
-            lineRenderer.SetPosition(0, elevatorInsidePoint.position);
-            lineRenderer.SetPosition(1, hitPoint);
-            lineRenderer.material = new Material(Shader.Find("Sprites/Default"));
-            lineRenderer.startColor = Color.green;
-            lineRenderer.endColor = Color.green;
-            lineRenderer.startWidth = 0.1f;
-            lineRenderer.endWidth = 0.1f;
-
-            Destroy(lineObj, 5f);
-
-            Vector3 offset = hitPoint - elevatorInsidePoint.position;
-            string message = $"Relative position from elevator base: X={offset.x:F2}, Y={offset.y:F2}, Z={offset.z:F2}";
-            SpeechUtils.SpeakText(message);
-            Debug.Log(message);
-        }
-
         /// <summary>
         /// True while the EventSystem's selection is a text field that is actually accepting
         /// characters.
@@ -612,13 +560,7 @@ namespace LethalAccess
         /// </summary>
         private bool NavigationKeyPressedThisFrame()
         {
-            ConfigEntry<Key> bound;
-            if (Keyboard.current == null ||
-                !keybindConfigEntries.TryGetValue(UiNavigationKeybindName, out bound))
-            {
-                return false;
-            }
-            return Keyboard.current[bound.Value].wasPressedThisFrame;
+            return ModKeybinds.WasPressedThisFrame(UiNavigationKeybindName);
         }
 
         /// <summary>
@@ -944,20 +886,24 @@ namespace LethalAccess
 
             bool suppressPresses = typing || IsInShipBuildMode() || IsRebindInProgress();
 
-            foreach (KeyValuePair<string, ConfigEntry<Key>> keybindEntry in keybindConfigEntries)
-            {
-                if (Keyboard.current[keybindEntry.Value.Value].wasPressedThisFrame)
-                {
-                    if (suppressPresses)
-                    {
-                        continue;
-                    }
+            // On the remap screen only the menu-navigation key keeps working. H there reads the
+            // focused control's help, and pressing any key to bind it must not also run what the
+            // mod has on that key.
+            bool remapScreen = IsRemapScreenOpen();
 
-                    if (registeredActions.TryGetValue(keybindEntry.Key, out Action action))
-                    {
-                        action();
-                    }
+            foreach (KeyValuePair<string, Action> registered in registeredActions)
+            {
+                if (!ModKeybinds.WasPressedThisFrame(registered.Key))
+                {
+                    continue;
                 }
+
+                if (suppressPresses || (remapScreen && registered.Key != UiNavigationKeybindName))
+                {
+                    continue;
+                }
+
+                registered.Value();
             }
         }
 
@@ -1013,19 +959,9 @@ namespace LethalAccess
         /// </summary>
         private static bool IsKeybindKeyPressed(string keybindName)
         {
-            Keyboard keyboard = Keyboard.current;
-            if (keyboard == null)
-            {
-                return false;
-            }
-
-            ConfigEntry<Key> entry;
-            if (!keybindConfigEntries.TryGetValue(keybindName, out entry) || entry == null || entry.Value == Key.None)
-            {
-                return false;
-            }
-
-            return keyboard[entry.Value].isPressed;
+            // ModKeybinds filters Key.None and IMESelected itself, so this can never index the
+            // keyboard with a value that throws.
+            return ModKeybinds.IsPressed(keybindName);
         }
 
         private void SimulateMouseClick(int buttonIndex, bool isPressed)
@@ -1266,7 +1202,7 @@ namespace LethalAccess
 
         // The stored name of the UI navigation bind. Kept as-is because it is a config key: a
         // rename would silently discard whatever the user had rebound it to.
-        private const string UiNavigationKeybindName = "FocusPreviousUIElement";
+        private const string UiNavigationKeybindName = ModKeybinds.UiNavigation;
 
         private void RegisterKeybinds()
         {
@@ -1284,7 +1220,6 @@ namespace LethalAccess
             });
             RegisterKeybind("ToggleNorthSound", Key.N, ToggleNorthSound);
             RegisterKeybind("SpeakPlayerDirection", Key.L, SpeakPlayerDirection);
-            RegisterKeybind("DrawElevatorRay", Key.K, DrawElevatorRay);
             RegisterKeybind("AnnounceCurrentRoom", Key.R, AnnounceCurrentRoom);
 
             // F10 is NOT registered here. SettingsMenu.Initialize owns an always-enabled
@@ -1294,14 +1229,27 @@ namespace LethalAccess
             // saw the same F10 press still flagged wasPressedThisFrame and toggled straight back
             // open. The InputAction is the surviving binding because it works while
             // enableCustomKeybinds is false - which is exactly the state the menu puts the mod in.
+        }
 
-            foreach (string key in registeredActions.Keys)
-            {
-                ConfigEntry<Key> configEntry = Config.Bind("Keybinds", key,
-                    keybindConfigEntries.ContainsKey(key) ? keybindConfigEntries[key].Value : Key.None,
-                    "Keybind for " + key);
-                keybindConfigEntries[key] = configEntry;
-            }
+        /// <summary>
+        /// Everything THIS mod does with a physical key, by a name a person can say. Used by the
+        /// keybinds screen to say when a game action has been given a key that LethalAccess also
+        /// acts on - which is a real in-game conflict: both fire on the one press.
+        /// </summary>
+        public static List<string> DescribeModKeyUses(Key key)
+        {
+            // Only the keys that are NOT rows on the remap screen; ModKeybinds skips the rest.
+            return ModKeybinds.UsesOfKey(key);
+        }
+
+        /// <summary>
+        /// True while the remap-controls screen is open. The mod's own hotkeys must not also act
+        /// on keys pressed there: a key being bound is a key press like any other, and an
+        /// InputUtils rebind (unlike the vanilla one) does not set IsRebindInProgress.
+        /// </summary>
+        private static bool IsRemapScreenOpen()
+        {
+            return KeybindsAccessibility.IsPanelOpen;
         }
 
         public void RegisterKeybind(string keybindName, Key defaultKey, Action action)
@@ -1309,7 +1257,9 @@ namespace LethalAccess
             if (!registeredActions.ContainsKey(keybindName))
             {
                 registeredActions[keybindName] = action;
-                keybindConfigEntries[keybindName] = Config.Bind("Keybinds", keybindName, defaultKey, "Keybind for " + keybindName);
+                // The key itself is ModKeybinds' table entry; defaultKey only matters for a name
+                // the table does not know.
+                ModKeybinds.EnsureDefinition(keybindName, defaultKey);
             }
         }
 
@@ -1451,7 +1401,6 @@ namespace LethalAccess
             cameraTransform = null;
             cachedQuickMenu = null;
             registeredActions.Clear();
-            keybindConfigEntries.Clear();
             overriddenTexts.Clear();
 
             if (Instance == this)

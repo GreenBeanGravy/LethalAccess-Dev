@@ -123,32 +123,13 @@ namespace LethalAccess
 
         private void AddKeybindEntries()
         {
-            try
+            IList<ModKeybinds.Definition> keybinds = ModKeybinds.Definitions;
+            for (int i = 0; i < keybinds.Count; i++)
             {
-                var lacoreType = typeof(LACore);
-                var keybindField = lacoreType.GetField("keybindConfigEntries",
-                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
-
-                if (keybindField != null)
-                {
-                    var keybindEntries = (Dictionary<string, ConfigEntry<Key>>)keybindField.GetValue(null);
-                    if (keybindEntries != null)
-                    {
-                        foreach (var kvp in keybindEntries)
-                        {
-                            var entry = kvp.Value;
-                            string friendlyName = GetKeybindFriendlyName(kvp.Key);
-
-                            AddMenuItem(() => $"{friendlyName}: {GetKeyDisplayName(entry.Value)}",
-                                onSelect: () => StartKeybindRebind(entry));
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.LogError($"Failed to load keybinds: {ex.Message}");
-                AddMenuItem("Error loading keybinds", canInteract: () => false);
+                ModKeybinds.Definition keybind = keybinds[i];
+                string id = keybind.Id;
+                AddMenuItem(() => $"{keybind.Name}: {ModKeybinds.DescribeBinding(id)}",
+                    onSelect: () => StartKeybindRebind(keybind));
             }
         }
 
@@ -286,10 +267,27 @@ namespace LethalAccess
                    key == Key.F10;
         }
 
-        private void StartKeybindRebind(ConfigEntry<Key> entry)
+        private void StartKeybindRebind(ModKeybinds.Definition keybind)
         {
+            // With InputUtils the key lives in its action map, and a config write here would be
+            // overruled by the binds InputUtils saves. One place to change a key, not two that
+            // disagree.
+            if (keybind.Action != null)
+            {
+                SpeechUtils.SpeakText(keybind.Name + " is " + ModKeybinds.DescribeBinding(keybind.Id) +
+                                      ". LethalAccess keys are changed on the game's Remap Controls screen, " +
+                                      "under LethalAccess: Settings, then Change keybinds.");
+                return;
+            }
+
+            if (keybind.Config == null)
+            {
+                SpeechUtils.SpeakText(keybind.Name + " cannot be changed here.");
+                return;
+            }
+
             isWaitingForKey = true;
-            currentKeybindEntry = entry;
+            currentKeybindEntry = keybind.Config;
 
             // "Press a key" is modal: with the navigation actions still live, the arrow keys move
             // the menu selection underneath the prompt (they are rejected as bindings, so the user
@@ -324,32 +322,15 @@ namespace LethalAccess
 
         private string CheckKeybindConflict(Key newKey)
         {
-            try
+            IList<ModKeybinds.Definition> keybinds = ModKeybinds.Definitions;
+            for (int i = 0; i < keybinds.Count; i++)
             {
-                var lacoreType = typeof(LACore);
-                var keybindField = lacoreType.GetField("keybindConfigEntries",
-                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
-
-                if (keybindField != null)
+                ModKeybinds.Definition other = keybinds[i];
+                if (other.Config != null && other.Config != currentKeybindEntry && other.Config.Value == newKey)
                 {
-                    var keybindEntries = (Dictionary<string, ConfigEntry<Key>>)keybindField.GetValue(null);
-                    if (keybindEntries != null)
-                    {
-                        foreach (var kvp in keybindEntries)
-                        {
-                            if (kvp.Value != currentKeybindEntry && kvp.Value.Value == newKey)
-                            {
-                                return GetKeybindFriendlyName(kvp.Key);
-                            }
-                        }
-                    }
+                    return other.Name;
                 }
             }
-            catch (Exception ex)
-            {
-                Debug.LogError($"Error checking keybind conflicts: {ex.Message}");
-            }
-
             return null;
         }
 
@@ -453,39 +434,6 @@ namespace LethalAccess
         }
 
         // Helper methods
-        private string GetKeybindFriendlyName(string key)
-        {
-            var friendlyNames = new Dictionary<string, string>
-            {
-                {"NavigateToLookingObject", "Navigate to Selected Object"},
-                {"StopLookingAndPathfinding", "Stop Looking and Pathfinding"},
-                {"FocusPreviousUIElement", "Focus Previous UI Element"},
-                {"LeftClickHold", "Left Click Hold"},
-                {"RightClickHold", "Right Click Hold"},
-                {"ToggleNorthSound", "Toggle North Sound"},
-                {"SpeakPlayerDirection", "Speak Player Direction"},
-                {"DrawElevatorRay", "Draw Elevator Ray"},
-                {"AnnounceCurrentRoom", "Announce Current Room"},
-                {"OpenSettingsMenu", "Open Settings Menu"},
-                {"MoveToNextItem", "Move to Next Item"},
-                {"MoveToPreviousItem", "Move to Previous Item"},
-                {"MoveToNextCategory", "Move to Next Category"},
-                {"MoveToPreviousCategory", "Move to Previous Category"},
-                {"RefreshCurrentCategory", "Refresh Current Category"},
-                {"InstantNavigation1", "Quick Nav 1"},
-                {"InstantNavigation2", "Quick Nav 2"},
-                {"InstantNavigation3", "Quick Nav 3"},
-                {"InstantNavigation4", "Quick Nav 4"},
-                {"InstantNavigation5", "Quick Nav 5"},
-                {"InstantNavigation6", "Quick Nav 6"},
-                {"SpeakProfitQuota", "Speak Profit Quota"},
-                {"SpeakPlayerHealth", "Speak Player Health"},
-                {"SpeakTime", "Speak Time"}
-            };
-
-            return friendlyNames.TryGetValue(key, out string friendlyName) ? friendlyName : key;
-        }
-
         private string GetKeyDisplayName(Key key)
         {
             var keyNames = new Dictionary<Key, string>

@@ -80,6 +80,15 @@
       <HintPath>$(SolutionDir)UnityA11y\bin\Release\UnityA11y.dll</HintPath>
       <Private>False</Private>
     </Reference>
+    <!--
+      Soft dependency. Only Tools\InputUtilsKeybinds.cs may name a type from this assembly, and
+      only after ModKeybinds has checked that InputUtils is loaded: a method that mentions a
+      missing assembly's type fails when it is compiled, so everything else stays on reflection.
+    -->
+    <Reference Include="LethalCompanyInputUtils">
+      <HintPath>$(MSBuildThisFileDirectory)..\..\_work\gameref\plugins\LethalCompanyInputUtils.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
     <Reference Include="Mono.Cecil, Version=0.10.4.0, Culture=neutral, PublicKeyToken=50cebf1cceb9d05e, processorArchitecture=MSIL">
       <SpecificVersion>False</SpecificVersion>
       <HintPath>$(BepInExRefDir)Mono.Cecil.dll</HintPath>
@@ -532,6 +541,8 @@
     <Compile Include="Tools\ElevatorManager.cs" />
     <Compile Include="Utils\PathValidExtension.cs" />
     <Compile Include="Tools\KeybindsAccessibility.cs" />
+    <Compile Include="Tools\ModKeybinds.cs" />
+    <Compile Include="Tools\InputUtilsKeybinds.cs" />
     <Compile Include="Patches\KeybindsPanelPatch.cs" />
     <Compile Include="Utils\SpeechSynthesizer.cs" />
     <Compile Include="Tools\TileTracker.cs" />

@@ -252,6 +252,16 @@ namespace LethalAccess
 
         public static void AnnounceScreen(string title, Transform focus)
         {
+            AnnounceScreen(title, null, focus);
+        }
+
+        /// <summary>
+        /// As above, with the screen's arrival instruction spoken straight after the title. The
+        /// tree carries it as the screen's description instead, so on that path it is not spoken
+        /// here either.
+        /// </summary>
+        public static void AnnounceScreen(string title, string hint, Transform focus)
+        {
             // Focus is still seeded below: the tree reports where focus IS, so something
             // still has to put it there. Only the spoken title is the screen reader's job.
             if (UiTreeSpeaksFor(focus != null ? focus.gameObject : null))
@@ -265,7 +275,7 @@ namespace LethalAccess
 
             if (!string.IsNullOrEmpty(title))
             {
-                Speak(title);
+                Speak(string.IsNullOrEmpty(hint) ? title : title + ". " + hint);
 
                 // Announcements now open with their section or screen name. On a single-section
                 // screen that prefix IS this title, so tell the announcer to drop it exactly once

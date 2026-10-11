@@ -149,6 +149,9 @@ namespace LethalAccess
                 DialogIdFor(screenId),
                 UIScreenRegistry.IsModalScreen(screenId) ? AccessRole.Dialog : AccessRole.Pane);
             screenNode.Label = title;
+            // Read after the name on arrival. Kept off the label so it is not repeated wherever the
+            // title is shown as context.
+            screenNode.Description = UIScreenRegistry.ScreenHint(screenId);
             screenNode.Focusable = false;
             into.Add(screenNode);
             root.Children.Add(screenNode.Id);
@@ -426,7 +429,20 @@ namespace LethalAccess
             node.Disabled = !IsInteractable(v.Target);
             node.AddAction(AccessAction.Focus);
 
-            ApplyState(node, state);
+            // An expandable control states it as expanded/collapsed, which a screen reader names in
+            // its own words. Its State text is the spoken fallback's version of the same fact, so it
+            // is not also published as a value.
+            bool? expanded = SafeExpanded(entry, v.Target);
+            if (expanded.HasValue)
+            {
+                node.Expanded = expanded.Value;
+            }
+            else
+            {
+                ApplyState(node, state);
+            }
+
+            node.Description = SafeDescription(entry, v.Target);
 
             // An authored state is a deliberate override and always wins; this only fills the
             // silence where no delegate was written, which was most controls.
@@ -502,7 +518,16 @@ namespace LethalAccess
                     }
 
                     node.Expanded = dropdown.IsExpanded;
-                    if (dropdown.value >= 0 && dropdown.value < dropdown.options.Count)
+
+                    // The caption is what the player sees. The option's own text can be a raw
+                    // localisation token that a LocaleResolver on the caption translates only on
+                    // screen - InputUtils' priority dropdown published "OverridePriority.PreferGlobal".
+                    string shown = dropdown.captionText != null ? dropdown.captionText.text : null;
+                    if (!string.IsNullOrWhiteSpace(shown))
+                    {
+                        node.Value = shown.Trim();
+                    }
+                    else if (dropdown.value >= 0 && dropdown.value < dropdown.options.Count)
                     {
                         node.Value = dropdown.options[dropdown.value].text;
                     }
@@ -636,6 +661,15 @@ namespace LethalAccess
                 return;
             }
 
+            // A radio button is chosen or not; "selected" is a state, not a value to read out.
+            if (node.Role == AccessRole.RadioButton)
+            {
+                string r = state.Trim().ToLowerInvariant();
+                node.Selected = r == "selected" || r == "on" || r == "checked";
+                node.Toggled = node.Selected ? Toggled.True : Toggled.False;
+                return;
+            }
+
             node.Value = state;
         }
 
@@ -655,6 +689,38 @@ namespace LethalAccess
                 Debug.LogError("[LethalAccess] State delegate for '" +
                                (target != null ? target.name : "<destroyed>") +
                                "' threw, so it is published with no value: " + ex.Message);
+                return null;
+            }
+        }
+
+        private static string SafeDescription(UIEntry entry, Transform target)
+        {
+            if (entry == null || entry.Description == null) return null;
+            try
+            {
+                return entry.Description();
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError("[LethalAccess] Description delegate for '" +
+                               (target != null ? target.name : "<destroyed>") +
+                               "' threw, so it is published with no description: " + ex.Message);
+                return null;
+            }
+        }
+
+        private static bool? SafeExpanded(UIEntry entry, Transform target)
+        {
+            if (entry == null || entry.Expanded == null) return null;
+            try
+            {
+                return entry.Expanded();
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError("[LethalAccess] Expanded delegate for '" +
+                               (target != null ? target.name : "<destroyed>") +
+                               "' threw, so it is published with no expanded state: " + ex.Message);
                 return null;
             }
         }
