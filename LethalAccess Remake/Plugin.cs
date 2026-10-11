@@ -33,7 +33,7 @@ namespace LethalAccess
     {
         private const string modGUID = "Green.LethalAccess";
         private const string modName = "LethalAccess";
-        private const string modVersion = "1.1.0";
+        private const string modVersion = "1.1.1";
 
         public static Transform playerTransform;
         public static Transform cameraTransform;
@@ -151,6 +151,13 @@ namespace LethalAccess
             if (Instance == null)
             {
                 Instance = this;
+
+                // Every plugin lives on BepInEx's manager object, and the game destroys it on the
+                // first scene load unless BepInEx.cfg sets HideManagerGameObject = true. A fresh
+                // BepInEx install leaves that false, so the mod died at the launch screen and Tolk
+                // was unloaded under the speech thread, crashing the game. This is the same flag
+                // that setting applies.
+                gameObject.hideFlags = HideFlags.HideAndDontSave;
 
                 // Initialize configuration manager
                 ConfigManager.Initialize(Config);

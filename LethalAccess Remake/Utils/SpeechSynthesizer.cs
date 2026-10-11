@@ -35,6 +35,9 @@ namespace LethalAccess
         private static readonly object gate = new object();
         private static Thread worker;
         private static bool running;
+        // Set by Shutdown. Without it the next Enqueue would start a new worker that calls into
+        // Tolk after Lethal Speech Output has unloaded it.
+        private static bool stopped;
 
         /// <summary>
         /// Queue text to be spoken. Safe to call from any thread; ordering is preserved.
@@ -76,6 +79,11 @@ namespace LethalAccess
 
             lock (gate)
             {
+                if (stopped)
+                {
+                    return false;
+                }
+
                 EnsureWorkerStarted_NoLock();
 
                 if (supersedeTag != 0)
@@ -150,6 +158,7 @@ namespace LethalAccess
         {
             lock (gate)
             {
+                stopped = false;
                 EnsureWorkerStarted_NoLock();
             }
         }
@@ -218,6 +227,7 @@ namespace LethalAccess
             lock (gate)
             {
                 running = false;
+                stopped = true;
                 pending.Clear();
                 toJoin = worker;
                 worker = null;
