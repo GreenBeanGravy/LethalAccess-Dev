@@ -10,6 +10,7 @@ In the menus, LethalAccess:
 - lets you move with the arrow keys, Tab and Ctrl+Tab, and back out of a screen with Escape
 - makes the keybinds screen, host settings, the server list, save files and the news pop-up usable
 - adds a menu for inviting Steam friends, since the Steam overlay isn't accessible
+- skips the boot-up screen and the cold open scenes, so the game goes straight to the main menu
 
 In a match, LethalAccess:
 
@@ -22,6 +23,7 @@ In a match, LethalAccess:
 - plays an optional sound from the north and speaks the direction you face
 - turns with the arrow keys, holds mouse clicks on the Alt keys, plays a tone while you hold an interaction, and lets you look further down
 - makes the belt bag and ship build mode usable from the keyboard
+- when you host, lands and launches the ship faster (other players see the normal speed)
 
 Speech outside the menus goes through Lethal Speech Output, which uses Tolk to send it to your screen reader.
 
@@ -75,7 +77,7 @@ Install BepInEx 5 into the Lethal Company folder, then unzip `LethalAccess.zip` 
 | Right bracket / Left bracket | Next / previous object |
 | Equals / Minus | Next / previous category |
 | Semicolon | Refresh category |
-| P | Walk to the selected object |
+| P | Walk to the selected object. Press again to switch between following sounds yourself and walking there automatically |
 | O | Stop looking and pathfinding |
 | 5, 6, 7, 8 | Walk to the main entrance, its exit, the ship, the nearest item |
 | 9, 0 | Quick navigation 5 and 6 (no destination until you set one in the config file) |

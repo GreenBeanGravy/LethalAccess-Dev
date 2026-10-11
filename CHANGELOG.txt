@@ -1,3 +1,13 @@
+10/11/2026 #3 (1.2.0):
+- Path points on moons now sit on the ground. They used to sink into hills between turns of the path.
+- Pathfinding starts right away, with no wait and no "generating path" messages.
+- Automatic pathfinding now walks you like a player does: normal walking and running animations, footsteps and gravity, and no more floating. It no longer doubles your speed when you also hold a movement key.
+- Automatic pathfinding runs. Running uses stamina, and you slow to a walk when you're exhausted. Turn this off with Auto Pathfinding Sprint in the F10 menu.
+- Pathfinding recalculates the path if you wander far from it, and automatic pathfinding gets itself unstuck.
+- Fall damage is now only switched off while automatic pathfinding walks you. Before, it stayed off for the rest of the session after your first pathfind.
+- The game now goes straight to the main menu after you pick Online or LAN, with no boot-up screen, no cold open scenes and no menu opening animation. Turn these off with Skip Intro Screens and Disable Cold Open Events.
+- When you host, the ship lands and takes off three times faster. Change the speed with Ship Landing Speed, or turn it off with Fast Ship Landing.
+
 10/11/2026 #2 (1.1.1):
 - Fixed the game closing about 20 seconds after starting on a fresh install. BepInEx's default settings let Lethal Company unload every mod at the launch screen, and LethalAccess then crashed the game while speaking. LethalAccess now keeps itself loaded whatever that setting says.
 - The updater now fixes that BepInEx setting (HideManagerGameObject in BepInEx.cfg) whenever it runs, so other mods stay loaded too.
