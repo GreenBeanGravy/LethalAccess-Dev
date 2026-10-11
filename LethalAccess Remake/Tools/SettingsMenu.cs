@@ -86,6 +86,22 @@ namespace LethalAccess
             AddMenuItem(() => $"Scan Radius: {ConfigManager.ScanRadius.Value:F0}m",
                 onModify: delta => ModifyFloat(ConfigManager.ScanRadius, delta * 5f, 20f, 200f));
 
+            AddMenuItem(() => $"Auto Pathfinding Sprint: {(ConfigManager.AutoPathfindingSprint.Value ? "enabled" : "disabled")}",
+                onSelect: () => ToggleBool(ConfigManager.AutoPathfindingSprint));
+
+            // Game Flow Settings
+            AddMenuItem(() => $"Skip Intro Screens: {(ConfigManager.SkipIntroScreens.Value ? "enabled" : "disabled")}",
+                onSelect: () => ToggleBool(ConfigManager.SkipIntroScreens));
+
+            AddMenuItem(() => $"Disable Cold Open Events: {(ConfigManager.DisableColdOpenEvents.Value ? "enabled" : "disabled")}",
+                onSelect: () => ToggleBool(ConfigManager.DisableColdOpenEvents));
+
+            AddMenuItem(() => $"Fast Ship Landing: {(ConfigManager.FastShipLanding.Value ? "enabled" : "disabled")}",
+                onSelect: () => ToggleBool(ConfigManager.FastShipLanding));
+
+            AddMenuItem(() => $"Ship Landing Speed: {ConfigManager.ShipLandingSpeed.Value:F1}x",
+                onModify: delta => ModifyFloat(ConfigManager.ShipLandingSpeed, delta * 0.5f, 1f, 6f));
+
             // UI Settings
             AddMenuItem(() => $"Enable UI Announcements: {(ConfigManager.EnableUIAnnouncements.Value ? "enabled" : "disabled")}",
                 onSelect: () => ToggleBool(ConfigManager.EnableUIAnnouncements));

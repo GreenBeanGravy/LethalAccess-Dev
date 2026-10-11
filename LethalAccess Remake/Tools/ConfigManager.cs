@@ -24,6 +24,13 @@ namespace LethalAccess
         public static ConfigEntry<float> PathfindingStoppingRadius { get; private set; }
         public static ConfigEntry<bool> EnableVisualMarkers { get; private set; }
         public static ConfigEntry<float> ScanRadius { get; private set; }
+        public static ConfigEntry<bool> AutoPathfindingSprint { get; private set; }
+
+        // Game Flow Settings
+        public static ConfigEntry<bool> SkipIntroScreens { get; private set; }
+        public static ConfigEntry<bool> DisableColdOpenEvents { get; private set; }
+        public static ConfigEntry<bool> FastShipLanding { get; private set; }
+        public static ConfigEntry<float> ShipLandingSpeed { get; private set; }
 
         // UI Settings
         public static ConfigEntry<bool> EnableUIAnnouncements { get; private set; }
@@ -70,6 +77,27 @@ namespace LethalAccess
 
             ScanRadius = config.Bind("Navigation", "ScanRadius", 80f,
                 new ConfigDescription("Radius to scan for objects", new AcceptableValueRange<float>(20f, 200f)));
+
+            AutoPathfindingSprint = config.Bind("Navigation", "AutoPathfindingSprint", true,
+                "Automatic pathfinding runs instead of walking. It uses stamina like holding the sprint " +
+                "key, and slows to a walk when you are exhausted.");
+
+            // Game Flow Settings
+            SkipIntroScreens = config.Bind("GameFlow", "SkipIntroScreens", true,
+                "After choosing Online or LAN, go straight to the main menu: no boot-up screen and no " +
+                "main menu opening animation.");
+
+            DisableColdOpenEvents = config.Bind("GameFlow", "DisableColdOpenEvents", true,
+                "Never play the cold open cinematics the game sometimes shows when it starts (on the " +
+                "seventh launch, and the boot-up error scene).");
+
+            FastShipLanding = config.Bind("GameFlow", "FastShipLanding", true,
+                "When you are the host, the ship lands and takes off faster. Other players see the " +
+                "normal speed.");
+
+            ShipLandingSpeed = config.Bind("GameFlow", "ShipLandingSpeed", 3f,
+                new ConfigDescription("How many times faster the ship lands and takes off when Fast Ship Landing is on",
+                    new AcceptableValueRange<float>(1f, 6f)));
 
             // UI Settings
             EnableUIAnnouncements = config.Bind("UI", "EnableUIAnnouncements", true,
@@ -130,7 +158,16 @@ namespace LethalAccess
             {
                 ("Pathfinding Stopping Radius", PathfindingStoppingRadius),
                 ("Enable Visual Markers", EnableVisualMarkers),
-                ("Scan Radius", ScanRadius)
+                ("Scan Radius", ScanRadius),
+                ("Auto Pathfinding Sprint", AutoPathfindingSprint)
+            };
+
+            categories["Game Flow"] = new List<(string, ConfigEntryBase)>
+            {
+                ("Skip Intro Screens", SkipIntroScreens),
+                ("Disable Cold Open Events", DisableColdOpenEvents),
+                ("Fast Ship Landing", FastShipLanding),
+                ("Ship Landing Speed", ShipLandingSpeed)
             };
 
             categories["UI"] = new List<(string, ConfigEntryBase)>
@@ -175,6 +212,11 @@ namespace LethalAccess
             PathfindingStoppingRadius.Value = (float)PathfindingStoppingRadius.DefaultValue;
             EnableVisualMarkers.Value = (bool)EnableVisualMarkers.DefaultValue;
             ScanRadius.Value = (float)ScanRadius.DefaultValue;
+            AutoPathfindingSprint.Value = (bool)AutoPathfindingSprint.DefaultValue;
+            SkipIntroScreens.Value = (bool)SkipIntroScreens.DefaultValue;
+            DisableColdOpenEvents.Value = (bool)DisableColdOpenEvents.DefaultValue;
+            FastShipLanding.Value = (bool)FastShipLanding.DefaultValue;
+            ShipLandingSpeed.Value = (float)ShipLandingSpeed.DefaultValue;
             EnableUIAnnouncements.Value = (bool)EnableUIAnnouncements.DefaultValue;
             VerticalNavigationOnly.Value = (bool)VerticalNavigationOnly.DefaultValue;
             TabMovesBySection.Value = (bool)TabMovesBySection.DefaultValue;

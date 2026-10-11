@@ -494,7 +494,7 @@
   <ItemGroup>
     <Compile Include="Patches\AccessibleInviteFriendsPatch.cs" />
     <Compile Include="Patches\AccessibleQuickMenuPatch.cs" />
-    <Compile Include="Patches\PlayerFallAnimationPatch.cs" />
+    <Compile Include="Patches\GameFlowPatches.cs" />
     <Compile Include="Tools\AccessibleMenuSystem.cs" />
     <Compile Include="Tools\AudioSystemBypass.cs" />
     <Compile Include="Tools\ConfigManager.cs" />
