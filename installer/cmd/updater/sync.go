@@ -206,10 +206,19 @@ func installComponents(gameDir string, m *manifest.Manifest, st *state.State) (c
 
 // modTarget says where a mod zip entry goes. Only files under BepInEx are
 // installed; VERSION and documentation are not.
+// rootFiles are the only files outside BepInEx/ the mod zip may write. Each
+// is named here so a release can never overwrite the game's own files.
+var rootFiles = map[string]bool{
+	"accesskit.dll": true, // native AccessKit, loaded by UnityA11y from the game folder
+}
+
 func modTarget(m *manifest.Manifest) func(string) (string, bool) {
 	return func(name string) (string, bool) {
 		if name == versionFile || m.Skipped(name) {
 			return "", false
+		}
+		if rootFiles[strings.ToLower(name)] {
+			return name, true
 		}
 		if !strings.HasPrefix(strings.ToLower(name), "bepinex/") {
 			return "", false

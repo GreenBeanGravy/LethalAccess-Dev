@@ -49,6 +49,9 @@ $files = [ordered]@{
     'BepInEx/plugins/LethalAccess/LethalAccess Remake.dll'          = 'LethalAccess Remake\bin\Release\LethalAccess Remake.dll'
     'BepInEx/plugins/LethalAccess/UnityA11y.dll'                    = 'UnityA11y\bin\Release\UnityA11y.dll'
     'BepInEx/plugins/LethalSpeechOutput/Lethal Speech Output.dll'   = 'Lethal Speech Output.dll'
+    # Native AccessKit, loaded by UnityA11y. It goes next to the game's exe, where Windows
+    # looks for it; without it the menus fall back to Tolk speech.
+    'accesskit.dll'                                                 = 'UnityA11y\native\accesskit.dll'
 }
 Get-ChildItem (Join-Path $root 'LethalAccess Remake\LethalAccessAssets') -File | ForEach-Object {
     $files["BepInEx/plugins/LethalAccess/LethalAccessAssets/$($_.Name)"] = "LethalAccess Remake\LethalAccessAssets\$($_.Name)"

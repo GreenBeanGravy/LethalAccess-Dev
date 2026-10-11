@@ -28,6 +28,9 @@ func TestModTarget(t *testing.T) {
 		"BepInEx/plugins/LethalAccess/LethalAccess Remake.dll": true,
 		"BepInEx/plugins/LethalAccess/README.md":               false,
 		"winhttp.dll":                                          false,
+		"accesskit.dll":                                        true,
+		"UnityPlayer.dll":                                      false,
+		"sub/accesskit.dll":                                    false,
 	} {
 		if _, ok := target(name); ok != want {
 			t.Errorf("modTarget(%q) = %v, want %v", name, ok, want)
