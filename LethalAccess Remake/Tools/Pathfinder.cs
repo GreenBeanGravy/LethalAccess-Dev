@@ -1514,7 +1514,8 @@ namespace LethalAccess
             bool headingThere = velocity.magnitude > 0.5f && toTarget.sqrMagnitude > 0.0001f &&
                                 Vector3.Dot(velocity.normalized, toTarget.normalized) > 0.5f;
 
-            if (headingThere && Time.time - lastJumpCueTime > MANUAL_JUMP_CUE_COOLDOWN)
+            if (headingThere && playerController.thisController.isGrounded && !gapJumpInProgress &&
+                Time.time - lastJumpCueTime > MANUAL_JUMP_CUE_COOLDOWN)
             {
                 if (manualProbe.kind == ObstacleProbe.Kind.Jumpable)
                 {

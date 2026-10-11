@@ -102,6 +102,8 @@ namespace LethalAccess
         private bool jumpBuffered;
         // Manual aim assist added to the move input (world space), set each frame by UpdateManualGap.
         private Vector3 manualAssist;
+        // Set during a manual turning jump: the world direction a forward move input flies.
+        private Vector3 manualSteer;
         private bool manualEdgeGuard;
         // PlayerControllerB.Update: walking speed is movementSpeed / carryWeight, times the
         // sprint multiplier.
@@ -1014,15 +1016,25 @@ namespace LethalAccess
         {
             manualEdgeGuard = false;
             manualAssist = Vector3.zero;
+            manualSteer = Vector3.zero;
             Transform body = playerController.thisPlayerBody != null ? playerController.thisPlayerBody : transform;
 
             if (gapJumpInProgress)
             {
-                // Aim assist in the air: steer the input back toward the jump's path.
-                if (!playerController.thisController.isGrounded)
+                // Aim assist in the air. A turning jump turns for the player: holding forward
+                // flies the planned turn (nobody can feel 45 degrees of turn mid-air). A straight
+                // one is drawn back toward its path.
+                if (Time.time - gapJumpStart < JUMP_WINDUP + 0.05f || !playerController.thisController.isGrounded)
                 {
-                    Vector3 offset = ChordOffset(jumpingPlan);
-                    manualAssist = -offset.normalized * Mathf.Clamp(offset.magnitude * 2f, 0f, 0.6f);
+                    if (Steers(jumpingPlan))
+                    {
+                        manualSteer = jumpingPlan.steer;
+                    }
+                    else if (!playerController.thisController.isGrounded)
+                    {
+                        Vector3 offset = ChordOffset(jumpingPlan);
+                        manualAssist = -offset.normalized * Mathf.Clamp(offset.magnitude * 2f, 0f, 0.6f);
+                    }
                 }
                 return;
             }
@@ -1050,7 +1062,7 @@ namespace LethalAccess
                 gapCuedEdge = gap.edge;
                 int meters = Mathf.Max(1, Mathf.RoundToInt(gap.width));
                 Utilities.SpeakText($"Gap ahead, {meters} {(meters == 1 ? "meter" : "meters")}. " +
-                                    (plan.sprint ? "Sprint, and jump at the high tone." : "Walk, and jump at the high tone."));
+                                    (plan.sprint ? "Sprint, keep sprinting through the jump, and jump at the high tone." : "Walk, and jump at the high tone."));
             }
 
             Vector3 v = playerController.thisController.velocity;
@@ -1142,7 +1154,10 @@ namespace LethalAccess
                 return false;
 
             float toTakeoff = DistanceToTakeoff();
-            if (toTakeoff < -0.5f || toTakeoff > plan.runUp + 6f)
+            // Past the takeoff but still on its floor (an early takeoff leaves floor beyond it):
+            // still the near side, still sent back to the run-up.
+            bool nearSide = Mathf.Abs(transform.position.y - plan.takeoff.y) < 0.8f && toTakeoff > -2.5f;
+            if (!nearSide || toTakeoff > plan.runUp + 6f)
                 return false;
 
             // Reaching the start puts the player on the run-up; wandering well off the line or
@@ -1156,7 +1171,7 @@ namespace LethalAccess
                 Utilities.SpeakText("Run-up here. Face the tone, then go.");
             }
             // Stopped at the edge, or wandered off: back to the start of the run-up.
-            else if (gapPhase == GapPhase.RunUp && (manualEdgeGuard || lateral > 0.8f || toTakeoff > plan.runUp + 1.5f))
+            else if (gapPhase == GapPhase.RunUp && (manualEdgeGuard || lateral > 0.8f || toTakeoff > plan.runUp + 1.5f || toTakeoff < -0.5f))
             {
                 gapPhase = GapPhase.Approach;
             }
@@ -1295,7 +1310,12 @@ namespace LethalAccess
             Transform body = playerController.thisPlayerBody != null ? playerController.thisPlayerBody : transform;
             Vector3 world = body.right * input.x + body.forward * input.y;
             bool changed = false;
-            if (manualAssist.sqrMagnitude > 0.0001f)
+            if (manualSteer.sqrMagnitude > 0.0001f && Vector3.Dot(world, manualSteer) > 0f)
+            {
+                world = manualSteer * world.magnitude;
+                changed = true;
+            }
+            else if (manualAssist.sqrMagnitude > 0.0001f)
             {
                 float size = world.magnitude;
                 world = (world + manualAssist).normalized * size;
@@ -1380,6 +1400,7 @@ namespace LethalAccess
             jumpBuffered = false;
             manualEdgeGuard = false;
             manualAssist = Vector3.zero;
+            manualSteer = Vector3.zero;
             gapCuedEdge = Vector3.positiveInfinity;
             if (gapGuideObject != null)
                 gapGuideObject.SetActive(false);
