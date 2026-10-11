@@ -82,11 +82,30 @@ namespace LethalAccess
         private const float OFF_PATH_DISTANCE = 8f;
         private const float REPLAN_COOLDOWN = 3f;
 
-        private const float AUTO_TURN_SPEED = 540f;
-        private const float AUTO_TURN_IN_PLACE_ANGLE = 75f;
+        // Auto mode faces along the path and strafes: the body turns toward the next node at
+        // this rate while the move input points wherever the player actually needs to go, so
+        // stepping around a crate never needs a full turn. It only stops to turn when the node
+        // is behind.
+        private const float AUTO_TURN_SPEED = 360f;
+        private const float AUTO_TURN_IN_PLACE_ANGLE = 120f;
         private const float AUTO_SPRINT_MAX_ANGLE = 35f;
-        private const float STUCK_CHECK_INTERVAL = 2f;
+        private const float STUCK_CHECK_INTERVAL = 1.5f;
         private const float STUCK_MIN_PROGRESS = 0.4f;
+
+        // How far ahead obstacles are looked for, plus a bit more per m/s of speed.
+        private const float PROBE_BASE_DISTANCE = 0.7f;
+        private const float PROBE_SPEED_FACTOR = 0.15f;
+        private const float JUMP_COOLDOWN = 0.9f;
+        private const float AROUND_HOLD_TIME = 0.5f;
+
+        // Path nodes are pushed at least this far from the NavMesh edge, which is where walls,
+        // railings and drops are.
+        private const float WALL_CLEARANCE = 0.6f;
+
+        // Manual mode cues.
+        private const float MANUAL_JUMP_CUE_DISTANCE = 1.4f;
+        private const float MANUAL_JUMP_CUE_COOLDOWN = 2.5f;
+        private const float MANUAL_BLOCKED_CUE_COOLDOWN = 4f;
 
         private const float DOOR_DETECTION_DISTANCE = 2.25f;
         private const float DOOR_CACHE_REFRESH_INTERVAL = 2f;
@@ -126,6 +145,31 @@ namespace LethalAccess
         private Vector3 stuckCheckPosition;
         private float stuckCheckTime;
         private int stuckCount;
+
+        private ObstacleProbe probe;
+        private bool autoCrouched;
+        private object stuckNode;
+        private float stuckBestDistance;
+        private float nextJumpTime;
+        private Vector3 aroundDirection;
+        private float aroundUntil;
+        private float probeTimer;
+        private ObstacleProbe.Result manualProbe;
+        private float lastJumpCueTime = -999f;
+        private float lastBlockedCueTime = -999f;
+        private Vector3 manualStuckPosition;
+        private float manualStuckTime;
+        private object climbCueNode;
+        private bool pathIsPartial;
+
+        // Ladders. The NavMesh crosses them with off-mesh links; a player crosses them by using
+        // the ladder trigger and climbing.
+        private InteractTrigger[] cachedLadders;
+        private float cachedLaddersTime = -999f;
+        private float ladderDirection = 1f;
+        private float nextLadderTry;
+        private const float LADDER_SEARCH_RADIUS = 6f;
+        private const float LADDER_USE_DISTANCE = 1.2f;
 
         private int groundMask;
         private readonly RaycastHit[] groundHitCache = new RaycastHit[16];
@@ -381,6 +425,11 @@ namespace LethalAccess
             isPathfinding = false;
             isOffNavMeshTarget = false;
             ShouldPreventFallDamage = false;
+            if (autoCrouched && playerController != null && playerController.isCrouching)
+            {
+                playerController.Crouch(false);
+            }
+            autoCrouched = false;
             ClearAutoInput();
             ClearPath();
             ClearPathNodes();
@@ -403,7 +452,11 @@ namespace LethalAccess
             Vector3 targetPos = targetObject.transform.position;
             NavMeshHit hit;
 
-            if (NavMesh.SamplePosition(targetPos, out hit, 5f, NavMesh.AllAreas) ||
+            // Small radius first: a wide search returns the nearest mesh point in 3D, which for
+            // something on a raised platform (Experimentation's main entrance) can be the ground
+            // underneath it, where no path reaches.
+            if (NavMesh.SamplePosition(targetPos, out hit, 2.5f, NavMesh.AllAreas) ||
+                NavMesh.SamplePosition(targetPos, out hit, 5f, NavMesh.AllAreas) ||
                 NavMesh.SamplePosition(targetPos, out hit, 10f, NavMesh.AllAreas))
             {
                 destination = hit.position;
@@ -445,15 +498,32 @@ namespace LethalAccess
                 return false;
             }
 
+            // The NavMesh is baked for enemies, and its Jump and Climb links are moves only they
+            // can make (Experimentation has one straight up onto the raised bridge). Plan without
+            // them, and use them only when there is no complete path otherwise.
             NavMeshPath navPath = new NavMeshPath();
-            if (!NavMesh.CalculatePath(startHit.position, currentDestination, NavMesh.AllAreas, navPath) ||
-                navPath.status == NavMeshPathStatus.PathInvalid || navPath.corners.Length < 2)
+            bool planned = NavMesh.CalculatePath(startHit.position, currentDestination, PlayerAreaMask(), navPath);
+            if (!planned || navPath.status != NavMeshPathStatus.PathComplete)
+            {
+                NavMeshPath anyPath = new NavMeshPath();
+                if (NavMesh.CalculatePath(startHit.position, currentDestination, NavMesh.AllAreas, anyPath) &&
+                    anyPath.status != NavMeshPathStatus.PathInvalid && anyPath.corners.Length >= 2 &&
+                    (!planned || anyPath.status == NavMeshPathStatus.PathComplete ||
+                     PathEndGap(anyPath) < PathEndGap(navPath) - 1f))
+                {
+                    navPath = anyPath;
+                    planned = true;
+                }
+            }
+
+            if (!planned || navPath.status == NavMeshPathStatus.PathInvalid || navPath.corners.Length < 2)
             {
                 Debug.LogWarning($"Pathfinder: path failed, status {navPath.status}");
                 return false;
             }
+            pathIsPartial = navPath.status == NavMeshPathStatus.PathPartial && PathEndGap(navPath) > stoppingRadius;
 
-            List<Vector3> positions = BuildNodePositions(navPath.corners);
+            List<Vector3> positions = BuildNodePositions(AvoidQuicksand(startHit.position, navPath.corners));
 
             ClearPathNodes();
             for (int i = 0; i < positions.Count; i++)
@@ -468,6 +538,212 @@ namespace LethalAccess
             HighlightNodes();
             DrawPath();
             return pathNodes.Count > 0;
+        }
+
+        #region Hazards
+        // Quicksand zones are trigger volumes the NavMesh knows nothing about, so a path runs
+        // straight through them. Flood water is one huge volume whose top is the water line.
+        private readonly List<Bounds> quicksandZones = new List<Bounds>();
+        private readonly List<Bounds> waterVolumes = new List<Bounds>();
+        private float hazardsTime = -999f;
+        private object hazardCueNode;
+        private float lastHazardCueTime = -999f;
+        private const float QUICKSAND_DETOUR_MARGIN = 2.5f;
+        private const float DEEP_WATER = 1.0f;
+
+        private void RefreshHazards()
+        {
+            if (Time.time - hazardsTime < 5f)
+                return;
+            hazardsTime = Time.time;
+            quicksandZones.Clear();
+            waterVolumes.Clear();
+
+            foreach (var zone in FindObjectsOfType<QuicksandTrigger>())
+            {
+                Collider collider = zone.GetComponent<Collider>();
+                if (collider == null || !collider.enabled)
+                    continue;
+                (zone.isWater ? waterVolumes : quicksandZones).Add(collider.bounds);
+            }
+        }
+
+        private bool InQuicksand(Vector3 point, out Bounds zone)
+        {
+            RefreshHazards();
+            foreach (var b in quicksandZones)
+            {
+                if (point.x >= b.min.x && point.x <= b.max.x && point.z >= b.min.z && point.z <= b.max.z &&
+                    point.y >= b.min.y - 1f && point.y <= b.max.y + 1f)
+                {
+                    zone = b;
+                    return true;
+                }
+            }
+            zone = default;
+            return false;
+        }
+
+        private bool InDeepWater(Vector3 ground)
+        {
+            RefreshHazards();
+            foreach (var b in waterVolumes)
+            {
+                if (b.Contains(ground) && b.max.y - ground.y > DEEP_WATER)
+                    return true;
+            }
+            return false;
+        }
+
+        private bool FirstQuicksandCrossed(Vector3[] corners, out Bounds zone)
+        {
+            for (int i = 0; i < corners.Length - 1; i++)
+            {
+                float length = Vector3.Distance(corners[i], corners[i + 1]);
+                int steps = Mathf.Max(1, Mathf.CeilToInt(length));
+                for (int s = 0; s <= steps; s++)
+                {
+                    if (InQuicksand(Vector3.Lerp(corners[i], corners[i + 1], (float)s / steps), out zone))
+                        return true;
+                }
+            }
+            zone = default;
+            return false;
+        }
+
+        private static bool Crosses(Vector3[] corners, Bounds zone)
+        {
+            for (int i = 0; i < corners.Length - 1; i++)
+            {
+                float length = Vector3.Distance(corners[i], corners[i + 1]);
+                int steps = Mathf.Max(1, Mathf.CeilToInt(length));
+                for (int s = 0; s <= steps; s++)
+                {
+                    Vector3 p = Vector3.Lerp(corners[i], corners[i + 1], (float)s / steps);
+                    if (p.x >= zone.min.x && p.x <= zone.max.x && p.z >= zone.min.z && p.z <= zone.max.z &&
+                        p.y >= zone.min.y - 1f && p.y <= zone.max.y + 1f)
+                        return true;
+                }
+            }
+            return false;
+        }
+
+        private static float PathLength(Vector3[] corners)
+        {
+            float length = 0f;
+            for (int i = 0; i < corners.Length - 1; i++)
+            {
+                length += Vector3.Distance(corners[i], corners[i + 1]);
+            }
+            return length;
+        }
+
+        private static Vector3[] PlanCorners(Vector3 from, Vector3 to)
+        {
+            NavMeshPath path = new NavMeshPath();
+            if (NavMesh.CalculatePath(from, to, PlayerAreaMask(), path) && path.status == NavMeshPathStatus.PathComplete)
+                return path.corners;
+            if (NavMesh.CalculatePath(from, to, NavMesh.AllAreas, path) && path.status == NavMeshPathStatus.PathComplete)
+                return path.corners;
+            return null;
+        }
+
+        /// <summary>
+        /// Re-routes a path that crosses a quicksand zone through whichever corner of the zone
+        /// gives the shortest way round. Up to three zones; a path that cannot avoid one keeps
+        /// going through it, and the hazard cue warns about it.
+        /// </summary>
+        private Vector3[] AvoidQuicksand(Vector3 start, Vector3[] corners)
+        {
+            for (int pass = 0; pass < 3; pass++)
+            {
+                if (!FirstQuicksandCrossed(corners, out Bounds zone) || InQuicksand(start, out _))
+                    return corners;
+
+                Vector3 destination = corners[corners.Length - 1];
+                Vector3[] best = null;
+                float bestLength = float.MaxValue;
+                float m = QUICKSAND_DETOUR_MARGIN;
+                Vector3[] around =
+                {
+                    new Vector3(zone.min.x - m, zone.center.y, zone.min.z - m),
+                    new Vector3(zone.min.x - m, zone.center.y, zone.max.z + m),
+                    new Vector3(zone.max.x + m, zone.center.y, zone.min.z - m),
+                    new Vector3(zone.max.x + m, zone.center.y, zone.max.z + m),
+                };
+
+                foreach (var point in around)
+                {
+                    NavMeshHit hit;
+                    if (!NavMesh.SamplePosition(point, out hit, zone.extents.y + 5f, NavMesh.AllAreas) || InQuicksand(hit.position, out _))
+                        continue;
+
+                    Vector3[] first = PlanCorners(start, hit.position);
+                    Vector3[] second = first == null ? null : PlanCorners(hit.position, destination);
+                    if (second == null)
+                        continue;
+
+                    Vector3[] combined = new Vector3[first.Length + second.Length - 1];
+                    first.CopyTo(combined, 0);
+                    Array.Copy(second, 1, combined, first.Length, second.Length - 1);
+                    if (Crosses(combined, zone))
+                        continue;
+
+                    float length = PathLength(combined);
+                    if (length < bestLength)
+                    {
+                        bestLength = length;
+                        best = combined;
+                    }
+                }
+
+                if (best == null)
+                    return corners;
+                corners = best;
+            }
+            return corners;
+        }
+
+        /// <summary>"Quicksand ahead" or "Water ahead" when the next node is in one, once per node.</summary>
+        private void UpdateHazardCue()
+        {
+            if (currentTargetNode == null || hazardCueNode == currentTargetNode)
+                return;
+            hazardCueNode = currentTargetNode;
+
+            Vector3 ground = currentTargetNode.position - Vector3.up * NODE_GROUND_OFFSET;
+            string cue = InQuicksand(ground, out _) ? "Quicksand ahead" : InDeepWater(ground) ? "Water ahead" : null;
+            if (cue == null || Time.time - lastHazardCueTime < 8f)
+                return;
+
+            // Already in it: nothing new to say.
+            if ((cue == "Water ahead" && playerController.isUnderwater) || (cue == "Quicksand ahead" && playerController.isSinking))
+                return;
+
+            lastHazardCueTime = Time.time;
+            Utilities.SpeakText(cue);
+        }
+        #endregion
+
+        private float PathEndGap(NavMeshPath path)
+        {
+            if (path.corners == null || path.corners.Length == 0)
+                return float.MaxValue;
+            return Vector3.Distance(path.corners[path.corners.Length - 1], currentDestination);
+        }
+
+        private static int PlayerAreaMask()
+        {
+            int mask = NavMesh.AllAreas;
+            foreach (string area in new[] { "Jump", "Climb" })
+            {
+                int index = NavMesh.GetAreaFromName(area);
+                if (index >= 0)
+                {
+                    mask &= ~(1 << index);
+                }
+            }
+            return mask;
         }
 
         private List<Vector3> BuildNodePositions(Vector3[] corners)
@@ -504,7 +780,7 @@ namespace LethalAccess
                     sinceLastNode += stepLength;
                     if (sinceLastNode >= NODE_SPACING || (atCorner && sinceLastNode >= CORNER_NODE_MIN_GAP))
                     {
-                        positions.Add(SnapToGround(surface));
+                        positions.Add(SnapToGround(KeepOffWalls(surface)));
                         sinceLastNode = 0f;
                     }
                 }
@@ -553,6 +829,39 @@ namespace LethalAccess
                 return hit.position;
             }
             return guess;
+        }
+
+        /// <summary>
+        /// Pushes a node away from the NavMesh edge. Corners in particular sit right on it, as
+        /// close to the wall as an enemy's radius allows, and a player cutting that corner
+        /// catches the wall or the railing beside it. In a corridor narrower than twice the
+        /// clearance the push stops wherever it gets furthest from both sides.
+        /// </summary>
+        private static Vector3 KeepOffWalls(Vector3 point)
+        {
+            NavMeshHit edge;
+            if (!NavMesh.FindClosestEdge(point, out edge, NavMesh.AllAreas) || edge.distance >= WALL_CLEARANCE)
+                return point;
+
+            Vector3 away = point - edge.position;
+            away.y = 0f;
+            if (away.sqrMagnitude < 0.0001f)
+            {
+                away = new Vector3(edge.normal.x, 0f, edge.normal.z);
+            }
+            if (away.sqrMagnitude < 0.0001f)
+                return point;
+
+            Vector3 candidate = point + away.normalized * (WALL_CLEARANCE - edge.distance);
+            NavMeshHit moved;
+            if (!NavMesh.SamplePosition(candidate, out moved, 0.5f, NavMesh.AllAreas))
+                return point;
+
+            NavMeshHit newEdge;
+            if (NavMesh.FindClosestEdge(moved.position, out newEdge, NavMesh.AllAreas) && newEdge.distance <= edge.distance)
+                return point;
+
+            return moved.position;
         }
 
         /// <summary>
@@ -743,10 +1052,12 @@ namespace LethalAccess
 
             hasAnnouncedDestinationReached = true;
             string name = GetTargetName();
+            bool partial = pathIsPartial && currentTargetObject != null &&
+                           Vector3.Distance(transform.position, currentTargetObject.transform.position) > stoppingRadius * 2f;
             StopPathfinding(playSound: true);
 
             // currentTargetObject is kept so the player can still look at it afterwards.
-            Utilities.SpeakText($"Reached {name}");
+            Utilities.SpeakText(partial ? $"Cannot get any closer to {name}" : $"Reached {name}");
         }
 
         private string GetTargetName()
@@ -769,6 +1080,93 @@ namespace LethalAccess
                 PingCurrentNode();
                 nodeAudioPingTimer = NODE_AUDIO_PING_INTERVAL;
             }
+        }
+
+        /// <summary>
+        /// Tells a manual-mode player what the auto mode would do: "Jump" just before a ledge they
+        /// can clear, and which way to step when they are pushing into something they cannot.
+        /// </summary>
+        private void UpdateManualObstacleCues()
+        {
+            ObstacleProbe probeNow = Probe;
+            if (probeNow == null || currentTargetNode == null || !CanSteer())
+                return;
+
+            Vector3 toTarget = currentTargetNode.position - transform.position;
+            toTarget.y = 0f;
+
+            probeTimer -= Time.deltaTime;
+            if (probeTimer <= 0f)
+            {
+                probeTimer = 0.1f;
+                bool dropAhead = currentTargetNode.position.y - NODE_GROUND_OFFSET < transform.position.y - 1f;
+                manualProbe = probeNow.Assess(toTarget, MANUAL_JUMP_CUE_DISTANCE, dropAhead);
+            }
+
+            if (climbCueNode != currentTargetNode && toTarget.magnitude < 4f &&
+                probeNow.IsClimbLink(currentTargetNode.position - Vector3.up * NODE_GROUND_OFFSET))
+            {
+                climbCueNode = currentTargetNode;
+                Utilities.SpeakText(FindLadderTo(currentTargetNode.position - Vector3.up * NODE_GROUND_OFFSET) != null
+                    ? "Ladder ahead. Use it to climb."
+                    : "Too high to climb here. Press the pathfind key to let auto mode take you up.");
+            }
+
+            bool pushing = playerController.moveInputVector.sqrMagnitude > 0.04f;
+            Vector3 velocity = playerController.thisController.velocity;
+            velocity.y = 0f;
+            bool headingThere = velocity.magnitude > 0.5f && toTarget.sqrMagnitude > 0.0001f &&
+                                Vector3.Dot(velocity.normalized, toTarget.normalized) > 0.5f;
+
+            if (headingThere && Time.time - lastJumpCueTime > MANUAL_JUMP_CUE_COOLDOWN)
+            {
+                if (manualProbe.kind == ObstacleProbe.Kind.Jumpable)
+                {
+                    lastJumpCueTime = Time.time;
+                    Utilities.SpeakText("Jump");
+                }
+                else if (manualProbe.kind == ObstacleProbe.Kind.Crouch && !playerController.isCrouching)
+                {
+                    lastJumpCueTime = Time.time;
+                    Utilities.SpeakText("Crouch");
+                }
+            }
+
+            // Blocked: pushing a movement key and not getting anywhere.
+            if (!pushing || HorizontalDistance(transform.position, manualStuckPosition) > STUCK_MIN_PROGRESS)
+            {
+                manualStuckPosition = transform.position;
+                manualStuckTime = Time.time;
+                return;
+            }
+
+            if (Time.time - manualStuckTime < STUCK_CHECK_INTERVAL ||
+                Time.time - lastBlockedCueTime < MANUAL_BLOCKED_CUE_COOLDOWN)
+                return;
+
+            lastBlockedCueTime = Time.time;
+            manualStuckTime = Time.time;
+            Utilities.SpeakText(DescribeBlocked(manualProbe));
+        }
+
+        private string DescribeBlocked(ObstacleProbe.Result result)
+        {
+            if (result.kind == ObstacleProbe.Kind.Jumpable)
+                return "Blocked, jump";
+            if (result.kind == ObstacleProbe.Kind.Crouch)
+                return "Blocked, crouch";
+
+            if (result.kind == ObstacleProbe.Kind.Wall && result.aroundDirection != Vector3.zero)
+            {
+                // Relative to where the player faces, which is what "left" means to them.
+                float side = Vector3.Dot(transform.right, result.aroundDirection);
+                float forward = Vector3.Dot(transform.forward, result.aroundDirection);
+                if (forward < -0.5f)
+                    return "Blocked, back up";
+                return side < 0f ? "Blocked, step left" : "Blocked, step right";
+            }
+
+            return "Blocked";
         }
 
         private void PingCurrentNode()
@@ -795,6 +1193,50 @@ namespace LethalAccess
         #endregion
 
         #region Auto Mode
+        private InteractTrigger[] GetLadders()
+        {
+            if (cachedLadders == null || Time.time - cachedLaddersTime > 5f)
+            {
+                List<InteractTrigger> ladders = new List<InteractTrigger>();
+                foreach (var trigger in FindObjectsOfType<InteractTrigger>())
+                {
+                    if (trigger.isLadder && trigger.ladderHorizontalPosition != null &&
+                        trigger.topOfLadderPosition != null && trigger.bottomOfLadderPosition != null)
+                    {
+                        ladders.Add(trigger);
+                    }
+                }
+                cachedLadders = ladders.ToArray();
+                cachedLaddersTime = Time.time;
+            }
+            return cachedLadders;
+        }
+
+        /// <summary>The ladder near the player that spans from their height up to target.</summary>
+        private InteractTrigger FindLadderTo(Vector3 target)
+        {
+            InteractTrigger best = null;
+            float bestDistance = LADDER_SEARCH_RADIUS;
+            float low = Mathf.Min(transform.position.y, target.y);
+            float high = Mathf.Max(transform.position.y, target.y);
+
+            foreach (var ladder in GetLadders())
+            {
+                if (ladder == null || !ladder.interactable)
+                    continue;
+                if (ladder.bottomOfLadderPosition.position.y > low + 1.5f || ladder.topOfLadderPosition.position.y < high - 1.5f)
+                    continue;
+
+                float distance = HorizontalDistance(transform.position, ladder.ladderHorizontalPosition.position);
+                if (distance < bestDistance)
+                {
+                    bestDistance = distance;
+                    best = ladder;
+                }
+            }
+            return best;
+        }
+
         private bool CanSteer()
         {
             PlayerControllerB p = playerController;
@@ -807,8 +1249,40 @@ namespace LethalAccess
             return true;
         }
 
+        private ObstacleProbe Probe
+        {
+            get
+            {
+                if (probe == null && playerController != null && playerController.thisController != null)
+                {
+                    probe = new ObstacleProbe(playerController);
+                }
+                return probe;
+            }
+        }
+
+        private float ProbeDistance()
+        {
+            float speed = 0f;
+            if (playerController != null && playerController.thisController != null)
+            {
+                Vector3 v = playerController.thisController.velocity;
+                speed = new Vector2(v.x, v.z).magnitude;
+            }
+            return PROBE_BASE_DISTANCE + speed * PROBE_SPEED_FACTOR;
+        }
+
         private void UpdateAutoWalk()
         {
+            // On a ladder the Move input climbs: up is forward. The game lets go at the top or
+            // bottom by itself.
+            if (playerController != null && playerController.isClimbingLadder)
+            {
+                AutoMoveInput = new Vector2(0f, ladderDirection);
+                AutoSprintInput = false;
+                return;
+            }
+
             if (currentTargetNode == null || !CanSteer())
             {
                 ClearAutoInput();
@@ -817,33 +1291,135 @@ namespace LethalAccess
 
             Vector3 toNode = currentTargetNode.position - transform.position;
             toNode.y = 0f;
+
+            Vector3 nodeGround = currentTargetNode.position - Vector3.up * NODE_GROUND_OFFSET;
+            if (toNode.magnitude < LADDER_SEARCH_RADIUS && Probe != null && Probe.IsClimbLink(nodeGround))
+            {
+                InteractTrigger ladder = FindLadderTo(nodeGround);
+                if (ladder == null)
+                {
+                    // A link only enemies can climb, on a path that had no other way: cross it the
+                    // way the old agent did instead of jumping at a wall until the stuck check
+                    // gives up.
+                    if (toNode.magnitude < 3f)
+                    {
+                        playerController.TeleportPlayer(nodeGround);
+                        ResetStuckTracking();
+                        return;
+                    }
+                }
+                else
+                {
+                    Vector3 toLadder = ladder.ladderHorizontalPosition.position - transform.position;
+                    toLadder.y = 0f;
+                    if (toLadder.magnitude <= LADDER_USE_DISTANCE)
+                    {
+                        if (Time.time >= nextLadderTry)
+                        {
+                            // Same call as pressing interact on the ladder.
+                            nextLadderTry = Time.time + 2f;
+                            ladderDirection = nodeGround.y > transform.position.y ? 1f : -1f;
+                            ladder.Interact(transform);
+                            ResetStuckTracking();
+                        }
+                        ClearAutoInput();
+                        return;
+                    }
+                    toNode = toLadder;
+                }
+            }
             if (toNode.sqrMagnitude < 0.0001f)
             {
                 ClearAutoInput();
                 return;
             }
+            Vector3 pathDirection = toNode.normalized;
 
+            // Face along the path.
             Transform body = playerController.thisPlayerBody != null ? playerController.thisPlayerBody : transform;
             Vector3 euler = body.eulerAngles;
-            float desiredYaw = Quaternion.LookRotation(toNode).eulerAngles.y;
+            float desiredYaw = Quaternion.LookRotation(pathDirection).eulerAngles.y;
             float yaw = Mathf.MoveTowardsAngle(euler.y, desiredYaw, AUTO_TURN_SPEED * Time.deltaTime);
             body.eulerAngles = new Vector3(euler.x, yaw, euler.z);
 
-            float remaining = Mathf.Abs(Mathf.DeltaAngle(yaw, desiredYaw));
-            if (remaining > AUTO_TURN_IN_PLACE_ANGLE)
+            if (Mathf.Abs(Mathf.DeltaAngle(yaw, desiredYaw)) > AUTO_TURN_IN_PLACE_ANGLE)
             {
-                // Turn first; walking now would be a backwards walk.
-                AutoMoveInput = Vector2.zero;
-                AutoSprintInput = false;
+                ClearAutoInput();
                 return;
             }
 
-            Vector3 local = body.InverseTransformDirection(toNode.normalized);
+            // Move wherever the way is actually free.
+            Vector3 moveDirection = pathDirection;
+            bool clear = true;
+            ObstacleProbe probeNow = Probe;
+            if (probeNow != null)
+            {
+                bool dropAhead = currentTargetNode.position.y - NODE_GROUND_OFFSET < transform.position.y - 1f;
+                ObstacleProbe.Result ahead = probeNow.Assess(pathDirection, ProbeDistance(), dropAhead);
+                switch (ahead.kind)
+                {
+                    case ObstacleProbe.Kind.Jumpable:
+                        clear = false;
+                        // Jumping needs stamina; wait for it rather than walking into the ledge.
+                        // Never in water or quicksand, where stamina does not come back and
+                        // standing still means drowning or sinking.
+                        bool hindered = playerController.isUnderwater || playerController.isSinking ||
+                                        playerController.isMovementHindered > 0;
+                        if (playerController.isExhausted && !hindered)
+                        {
+                            ClearAutoInput();
+                            return;
+                        }
+                        if (Time.time >= nextJumpTime && probeNow.Jump())
+                        {
+                            nextJumpTime = Time.time + JUMP_COOLDOWN;
+                        }
+                        break;
+
+                    case ObstacleProbe.Kind.Crouch:
+                        clear = false;
+                        if (!playerController.isCrouching)
+                        {
+                            playerController.Crouch(true);
+                            autoCrouched = playerController.isCrouching;
+                        }
+                        break;
+
+                    case ObstacleProbe.Kind.Wall:
+                        clear = false;
+                        if (ahead.aroundDirection != Vector3.zero)
+                        {
+                            aroundDirection = ahead.aroundDirection;
+                            aroundUntil = Time.time + AROUND_HOLD_TIME;
+                        }
+                        break;
+                }
+
+                // Stand back up once the way ahead is clear at full height. Crouch(false) checks
+                // the space overhead itself and does nothing if the player would not fit.
+                if (ahead.kind == ObstacleProbe.Kind.Clear && autoCrouched && playerController.isCrouching)
+                {
+                    playerController.Crouch(false);
+                    autoCrouched = playerController.isCrouching;
+                }
+
+                // Keep sidestepping briefly after the probe clears, or the player turns back into
+                // the corner it just got past.
+                if (Time.time < aroundUntil && aroundDirection != Vector3.zero)
+                {
+                    moveDirection = aroundDirection;
+                    clear = false;
+                }
+            }
+
+            Vector3 local = body.InverseTransformDirection(moveDirection);
             AutoMoveInput = new Vector2(local.x, local.z).normalized;
 
             // The game's own Sprint input: stamina drains and exhaustion stops the run exactly as
-            // it does for a player holding the key.
-            AutoSprintInput = ConfigManager.AutoPathfindingSprint.Value && remaining < AUTO_SPRINT_MAX_ANGLE;
+            // it does for a player holding the key. Only on a clear way forward; sprinting into a
+            // sidestep overshoots it.
+            float moveAngle = Vector3.Angle(body.forward, moveDirection);
+            AutoSprintInput = ConfigManager.AutoPathfindingSprint.Value && clear && moveAngle < AUTO_SPRINT_MAX_ANGLE;
         }
 
         private static void ClearAutoInput()
@@ -857,15 +1433,30 @@ namespace LethalAccess
             stuckCheckPosition = transform.position;
             stuckCheckTime = Time.time;
             stuckCount = 0;
+            stuckNode = null;
         }
 
         private void HandleStuckDetection()
         {
+            if (playerController.inSpecialInteractAnimation)
+            {
+                ResetStuckTracking();
+                return;
+            }
+
             if (Time.time - stuckCheckTime < STUCK_CHECK_INTERVAL)
                 return;
 
+            // Progress means getting closer to the node, not just moving: shuffling left and right
+            // against a wall moves plenty and gets nowhere.
             bool tryingToMove = AutoMoveInput.sqrMagnitude > 0.01f;
-            bool progressed = HorizontalDistance(transform.position, stuckCheckPosition) >= STUCK_MIN_PROGRESS;
+            float distance = currentTargetNode != null ? HorizontalDistance(transform.position, currentTargetNode.position) : 0f;
+            bool progressed = currentTargetNode != stuckNode || stuckBestDistance - distance >= STUCK_MIN_PROGRESS;
+            if (progressed || distance < stuckBestDistance)
+            {
+                stuckBestDistance = distance;
+            }
+            stuckNode = currentTargetNode;
             stuckCheckPosition = transform.position;
             stuckCheckTime = Time.time;
 
@@ -880,16 +1471,24 @@ namespace LethalAccess
 
             if (stuckCount == 1)
             {
+                // Whatever the probe missed: try a jump and the other side.
+                Probe?.Jump();
+                aroundUntil = 0f;
+                Probe?.ResetSide(UnityEngine.Random.value < 0.5f ? -1 : 1);
+            }
+            else if (stuckCount == 2)
+            {
                 lastReplanTime = -999f;
                 Replan(null);
             }
-            else if (stuckCount == 2 && currentTargetNode != null)
+            else if (stuckCount == 3 && currentTargetNode != null)
             {
-                // Something the NavMesh does not know about is in the way (a closed vent, a
-                // ledge the mesh links over). Step past it the way the old agent warp did.
+                // Something neither the NavMesh nor the probe can get past (a ledge the mesh links
+                // over, a gap too tight for the capsule). Step past it the way the old agent warp
+                // did.
                 playerController.TeleportPlayer(currentTargetNode.position - Vector3.up * NODE_GROUND_OFFSET);
             }
-            else if (stuckCount >= 4)
+            else if (stuckCount >= 5)
             {
                 StopPathfinding(playSound: false);
                 Utilities.SpeakText("Stuck. Pathfinding stopped.");
@@ -1030,10 +1629,12 @@ namespace LethalAccess
                 }
 
                 OpenNearbyDoor();
+                UpdateHazardCue();
 
                 if (currentMode == PathfindingMode.Manual)
                 {
                     UpdateManualAudio();
+                    UpdateManualObstacleCues();
                 }
                 else
                 {

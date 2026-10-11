@@ -503,6 +503,7 @@
     <Compile Include="Utils\AudioUtils.cs" />
     <Compile Include="Utils\CompanyNavMesh.cs" />
     <Compile Include="Tools\NavMenu.cs" />
+    <Compile Include="Tools\ObstacleProbe.cs" />
     <Compile Include="Patches\ClipboardTextPatch.cs" />
     <Compile Include="Patches\ControlTipPatch.cs" />
     <Compile Include="Patches\EndOfGamesStatsPatch.cs" />
