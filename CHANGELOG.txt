@@ -1,0 +1,15 @@
+10/11/2026 #1 (1.1.0):
+- New LethalAccess Updater. Download LethalAccessUpdater.exe from the releases page and run it. It finds Lethal Company through Steam, installs BepInEx if it's missing, asks if you want InputUtils, then installs LethalAccess. Run it again any time to update. It also repairs your install if any LethalAccess files are missing or changed, and waits for the game to close before changing anything.
+- The updater can follow Beta builds. Run it with --beta to switch to Beta, and --stable to switch back.
+- Menus are now read by your screen reader directly. LethalAccess shows the game's menus to Windows as real controls, so your screen reader reads each control's name, type, state and position, such as "Push to talk, T, button, 1 of 25". Braille displays get the same information.
+- Checkboxes now say whether they're checked, dropdowns say their selected option, sliders read their value as you change them, and Microphone mode says which mode is selected.
+- Text fields can now be reviewed with your screen reader. The arrow keys, Home and End read where you moved to, and password fields read their mask instead of what you typed.
+- Each menu screen now says its name when you arrive. Prompts like the unsaved changes prompt announce as dialogs, and the news pop-up keeps focus until you close it.
+- Tab now moves one control at a time, and Ctrl+Tab moves by section. Tab also leaves a text field, so Enter is no longer the only way out.
+- Escape now backs out of menu screens, the same as pressing Back.
+- Save file delete buttons are now right after the save they delete, and announce as destructive.
+- Your screen reader should now read the game's menus right away, without needing to alt-tab away and back first.
+- If focus is lost, it now goes back to the control you were on instead of the top of the screen.
+- The keybinds screen is now fully accessible. It opens on the first keybind instead of the Back button, and every row, rebind prompt, reset and dropdown is announced. Reset all no longer moves you to the Back button, and Escape closes an open dropdown instead of leaving the screen.
+- With InputUtils installed, the LethalAccess keys now have their own LethalAccess section on the game's keybinds screen, where you can rebind, reset and save them like any other key. Without InputUtils, you can still change them in the F10 menu.
+- Removed the elevator ray keybind, which was only for development.

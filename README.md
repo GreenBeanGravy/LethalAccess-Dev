@@ -105,7 +105,7 @@ Run MSBuild from PowerShell or a Developer Command Prompt. Git Bash rewrites `/t
 tools\package.ps1
 ```
 
-Add `-Publish` to create the GitHub release `v<VERSION>` with the zip attached (needs the `gh` CLI, signed in). Add `-Beta` to mark it as a pre-release; only updaters set to `--beta` will install it.
+Add `-Publish` to create the GitHub release `v<VERSION>` with the zip attached (needs the `gh` CLI, signed in). Add `-Beta` to mark it as a pre-release; only updaters set to `--beta` will install it. The release notes are the top entry of `CHANGELOG.txt`, which has to be for the version you are releasing, so add the entry before publishing.
 
 ### Releasing the updater
 

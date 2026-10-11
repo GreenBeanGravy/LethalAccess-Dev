@@ -84,7 +84,20 @@ Write-Output "LethalAccess $version, SHA-256 $hash"
 
 if ($Publish) {
     # gh tags the newest commit of the default branch on GitHub, so push first.
-    $ghArgs = @('release', 'create', "v$version", $zipPath, '--title', "LethalAccess $version", '--generate-notes')
+    # The notes are the top CHANGELOG.txt entry, which must be for this version.
+    $lines = Get-Content (Join-Path $root 'CHANGELOG.txt')
+    $header = '^\d{1,2}/\d{1,2}/\d{4} #\d+.*:\s*$'
+    $start = 0
+    while ($start -lt $lines.Count -and $lines[$start] -notmatch $header) { $start++ }
+    if ($start -ge $lines.Count -or $lines[$start] -notmatch [regex]::Escape("($version")) {
+        throw "The top CHANGELOG.txt entry is not for $version."
+    }
+    $end = $start + 1
+    while ($end -lt $lines.Count -and $lines[$end] -notmatch $header) { $end++ }
+    $notes = @('New to LethalAccess? Download LethalAccessUpdater.exe from the latest updater release and run it. Already have it? Run it to update.', '') + $lines[($start + 1)..($end - 1)]
+    $notesPath = Join-Path $env:TEMP "LethalAccess-$version-notes.txt"
+    ($notes -join "`n").Trim() | Set-Content -Encoding utf8 $notesPath
+    $ghArgs = @('release', 'create', "v$version", $zipPath, '--title', "LethalAccess $version", '--notes-file', $notesPath)
     if ($Beta) { $ghArgs += '--prerelease' }
     & gh @ghArgs
     if ($LASTEXITCODE) { throw 'The release was not created.' }
