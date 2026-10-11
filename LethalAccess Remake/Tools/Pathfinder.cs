@@ -160,6 +160,9 @@ namespace LethalAccess
         private Vector3 manualStuckPosition;
         private float manualStuckTime;
         private object climbCueNode;
+        private InteractTrigger manualLadder;
+        private bool manualCrouchCued;
+        private bool manualWasCrouching;
         private bool pathIsPartial;
 
         // Ladders. The NavMesh crosses them with off-mesh links; a player crosses them by using
@@ -430,6 +433,8 @@ namespace LethalAccess
                 playerController.Crouch(false);
             }
             autoCrouched = false;
+            manualCrouchCued = false;
+            manualLadder = null;
             ClearAutoInput();
             ClearPath();
             ClearPathNodes();
@@ -1101,18 +1106,60 @@ namespace LethalAccess
                 probeTimer = 0.1f;
                 bool dropAhead = currentTargetNode.position.y - NODE_GROUND_OFFSET < transform.position.y - 1f;
                 manualProbe = probeNow.Assess(toTarget, MANUAL_JUMP_CUE_DISTANCE, dropAhead);
-            }
 
-            if (climbCueNode != currentTargetNode && toTarget.magnitude < 4f &&
-                probeNow.IsClimbLink(currentTargetNode.position - Vector3.up * NODE_GROUND_OFFSET))
-            {
-                climbCueNode = currentTargetNode;
-                Utilities.SpeakText(FindLadderTo(currentTargetNode.position - Vector3.up * NODE_GROUND_OFFSET) != null
-                    ? "Ladder ahead. Use it to climb."
-                    : "Too high to climb here. Press the pathfind key to let auto mode take you up.");
+                Vector3 nodeGround = currentTargetNode.position - Vector3.up * NODE_GROUND_OFFSET;
+                manualLadder = toTarget.magnitude < LADDER_SEARCH_RADIUS && probeNow.IsClimbLink(nodeGround)
+                    ? FindLadderTo(nodeGround)
+                    : null;
+
+                bool ladderNear = manualLadder != null &&
+                                  HorizontalDistance(transform.position, manualLadder.ladderHorizontalPosition.position) < 5f;
+                if (climbCueNode != currentTargetNode &&
+                    (ladderNear || (toTarget.magnitude < 4f && probeNow.IsClimbLink(nodeGround))))
+                {
+                    climbCueNode = currentTargetNode;
+                    Utilities.SpeakText(manualLadder != null
+                        ? $"Ladder {DescribeDirection(manualLadder.ladderHorizontalPosition.position)}. Walk into it to climb."
+                        : "Too high to climb here. Press the pathfind key to let auto mode take you up.");
+                }
             }
 
             bool pushing = playerController.moveInputVector.sqrMagnitude > 0.04f;
+
+            // Grabbing a ladder means aiming the camera at it, which a blind player cannot do
+            // reliably. Walking into the one the path uses grabs it; the game's own climb input
+            // takes over from there.
+            if (manualLadder != null && pushing && Time.time >= nextLadderTry)
+            {
+                Vector3 toLadder = manualLadder.ladderHorizontalPosition.position - transform.position;
+                toLadder.y = 0f;
+                if (toLadder.magnitude <= LADDER_USE_DISTANCE)
+                {
+                    nextLadderTry = Time.time + 2f;
+                    manualLadder.Interact(transform);
+                    if (playerController.isClimbingLadder || playerController.inSpecialInteractAnimation)
+                    {
+                        Utilities.SpeakText("Climbing");
+                    }
+                    return;
+                }
+            }
+
+            // Crouching is a toggle, so whoever was told to crouch also needs telling when the
+            // way is clear at full height again.
+            // The cue comes before the key press, so only standing up after crouching ends it.
+            bool crouching = playerController.isCrouching;
+            if (manualWasCrouching && !crouching)
+            {
+                manualCrouchCued = false;
+            }
+            manualWasCrouching = crouching;
+            if (crouching && manualCrouchCued && manualProbe.kind == ObstacleProbe.Kind.Clear &&
+                     !Physics.Raycast(transform.position + Vector3.up * 0.5f, Vector3.up, 2.2f, StartOfRound.Instance.collidersAndRoomMaskAndDefault, QueryTriggerInteraction.Ignore))
+            {
+                manualCrouchCued = false;
+                Utilities.SpeakText("Stand up");
+            }
             Vector3 velocity = playerController.thisController.velocity;
             velocity.y = 0f;
             bool headingThere = velocity.magnitude > 0.5f && toTarget.sqrMagnitude > 0.0001f &&
@@ -1128,6 +1175,7 @@ namespace LethalAccess
                 else if (manualProbe.kind == ObstacleProbe.Kind.Crouch && !playerController.isCrouching)
                 {
                     lastJumpCueTime = Time.time;
+                    manualCrouchCued = true;
                     Utilities.SpeakText("Crouch");
                 }
             }
@@ -1151,10 +1199,21 @@ namespace LethalAccess
 
         private string DescribeBlocked(ObstacleProbe.Result result)
         {
+            // The wall is the climb itself; the way on is the ladder.
+            if (manualLadder != null)
+            {
+                Vector3 ladder = manualLadder.ladderHorizontalPosition.position;
+                int meters = Mathf.Max(1, Mathf.RoundToInt(HorizontalDistance(transform.position, ladder)));
+                return $"Ladder {DescribeDirection(ladder)}, {meters} {(meters == 1 ? "meter" : "meters")}";
+            }
+
             if (result.kind == ObstacleProbe.Kind.Jumpable)
                 return "Blocked, jump";
             if (result.kind == ObstacleProbe.Kind.Crouch)
+            {
+                manualCrouchCued = true;
                 return "Blocked, crouch";
+            }
 
             if (result.kind == ObstacleProbe.Kind.Wall && result.aroundDirection != Vector3.zero)
             {
@@ -1166,7 +1225,27 @@ namespace LethalAccess
                 return side < 0f ? "Blocked, step left" : "Blocked, step right";
             }
 
-            return "Blocked";
+            // Boxed in on every side the probe tried: the way out is back the way they came.
+            if (result.kind == ObstacleProbe.Kind.Wall)
+                return "Blocked, back up";
+
+            // Nothing ahead at body height, so something low is catching the feet.
+            return "Blocked, jump";
+        }
+
+        /// <summary>"ahead", "to your left", "to your right" or "behind you", from where the player faces.</summary>
+        private string DescribeDirection(Vector3 point)
+        {
+            Vector3 to = point - transform.position;
+            to.y = 0f;
+            if (to.sqrMagnitude < 0.25f)
+                return "here";
+            float angle = Vector3.SignedAngle(transform.forward, to, Vector3.up);
+            if (Mathf.Abs(angle) <= 35f)
+                return "ahead";
+            if (Mathf.Abs(angle) >= 135f)
+                return "behind you";
+            return angle < 0f ? "to your left" : "to your right";
         }
 
         private void PingCurrentNode()
