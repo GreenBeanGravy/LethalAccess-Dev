@@ -118,6 +118,9 @@ func isHealthy(gameDir string, m *manifest.Manifest, st *state.State, noComponen
 	if noComponents {
 		return true
 	}
+	if !bepinexConfigOK(gameDir) {
+		return false
+	}
 	for _, c := range m.Components {
 		if !detected(gameDir, c) && (c.Required || !st.IsDeclined(c.ID)) {
 			return false

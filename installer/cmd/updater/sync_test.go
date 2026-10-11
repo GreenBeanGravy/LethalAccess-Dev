@@ -87,6 +87,7 @@ func TestIsHealthy(t *testing.T) {
 	for _, rel := range []string{"BepInEx/core/BepInEx.dll", "winhttp.dll", "doorstop_config.ini"} {
 		write(t, dir, rel, "")
 	}
+	write(t, dir, bepinexConfig, "[Chainloader]\nHideManagerGameObject = true\n")
 	if isHealthy(dir, m, st, false) {
 		t.Fatal("an install missing InputUtils, never declined, was healthy")
 	}
@@ -94,6 +95,14 @@ func TestIsHealthy(t *testing.T) {
 	if !isHealthy(dir, m, st, false) {
 		t.Fatal("a declined optional component made the install unhealthy")
 	}
+	write(t, dir, bepinexConfig, "[Chainloader]\nHideManagerGameObject = false\n")
+	if isHealthy(dir, m, st, false) {
+		t.Fatal("a BepInEx.cfg that unloads the mods was healthy")
+	}
+	if !isHealthy(dir, m, st, true) {
+		t.Fatal("--no-components looked at BepInEx.cfg")
+	}
+	write(t, dir, bepinexConfig, "[Chainloader]\nHideManagerGameObject = true\n")
 	st.SetDeclined("inpututils", false)
 	write(t, dir, "BepInEx/plugins/Other Mods/LethalCompanyInputUtils/LethalCompanyInputUtils.dll", "")
 	if !isHealthy(dir, m, st, false) {

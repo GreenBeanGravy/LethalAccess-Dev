@@ -227,6 +227,14 @@ func run(opts options) (int, error) {
 			st.Save(gameDir)
 			return exitError, err
 		}
+		c, err = fixBepInExConfig(gameDir)
+		if err != nil {
+			return exitError, fmt.Errorf("could not fix %s: %w", bepinexConfig, err)
+		}
+		if c {
+			changed = true
+			console.Say("Set HideManagerGameObject to true in BepInEx.cfg. Without it Lethal Company unloads every mod at the launch screen.")
+		}
 	}
 	c, err := installMod(gameDir, m, st, mod)
 	changed = changed || c
