@@ -1321,6 +1321,21 @@ namespace LethalAccess
                 world = (world + manualAssist).normalized * size;
                 changed = true;
             }
+            else if (manualCrawlAssist.sqrMagnitude > 0.0001f)
+            {
+                float size = world.magnitude;
+                world = (world + manualCrawlAssist).normalized * size;
+                changed = true;
+            }
+            else if (playerController.isCrouching && manualProbe.kind == ObstacleProbe.Kind.Crouch &&
+                     manualProbe.laneOffset.sqrMagnitude > 0.0004f && Vector3.Dot(world, manualProbe.laneOffset) > -0.5f * world.magnitude * manualProbe.laneOffset.magnitude)
+            {
+                // Crawl space aim assist: draw a crouched player onto the line that fits under.
+                float size = world.magnitude;
+                Vector3 lane = manualProbe.laneOffset;
+                world = (world + lane.normalized * Mathf.Clamp(lane.magnitude * 6f, 0.2f, 0.9f)).normalized * size;
+                changed = true;
+            }
             if (manualEdgeGuard && plan.valid)
             {
                 float into = Vector3.Dot(world, plan.direction);

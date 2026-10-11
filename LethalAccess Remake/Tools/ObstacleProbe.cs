@@ -31,6 +31,10 @@ namespace LethalAccess
             // For a wall: which side aroundDirection is on relative to the probed direction,
             // -1 left, +1 right, 0 none.
             public int side;
+
+            // For a crouch: how far, and which way, to shift sideways onto the line that fits
+            // under (a crawl space barely wider than the crouched player). Zero when already on it.
+            public Vector3 laneOffset;
         }
 
         // Gravity in PlayerControllerB.Update: fallValue -= 38 * deltaTime.
@@ -162,10 +166,13 @@ namespace LethalAccess
             bottom.y = Mathf.Min(bottom.y + lift, top.y);
         }
 
-        private bool Blocked(Vector3 direction, float distance, float extraLift, out RaycastHit hit, float height = STAND_HEIGHT)
+        private bool Blocked(Vector3 direction, float distance, float extraLift, out RaycastHit hit, float height = STAND_HEIGHT,
+            Vector3 originOffset = default)
         {
             CharacterController cc = Controller;
             GetCapsule(cc.stepOffset + 0.05f + extraLift, out Vector3 bottom, out Vector3 top, out float radius, out _, height);
+            bottom += originOffset;
+            top += originOffset;
             if (extraLift > 0f)
             {
                 top.y += extraLift;
@@ -220,9 +227,68 @@ namespace LethalAccess
                 return result;
             }
 
+            // A crawl space only a little wider than the crouched player (under a server rack):
+            // open at crouch height a few centimetres to one side.
+            if (FindCrouchLane(direction, lookahead, out Vector3 lane))
+            {
+                result.kind = Kind.Crouch;
+                result.laneOffset = lane;
+                return result;
+            }
+
             result.kind = Kind.Wall;
             FindWayAround(direction, lookahead, ref result);
             return result;
+        }
+
+        /// <summary>
+        /// A standing player fits here and along direction for distance. The casts in Assess skip
+        /// whatever the capsule already overlaps, so with the head already under an overhang they
+        /// read clear; this checks the overlap too.
+        /// </summary>
+        public bool RoomToStand(Vector3 direction, float distance)
+        {
+            if (player == null || Controller == null)
+                return true;
+            CharacterController cc = Controller;
+            GetCapsule(cc.stepOffset + 0.05f, out Vector3 bottom, out Vector3 top, out float radius, out _);
+            if (Physics.CheckCapsule(bottom, top, radius, mask, QueryTriggerInteraction.Ignore))
+                return false;
+            direction.y = 0f;
+            if (direction.sqrMagnitude < 0.0001f)
+                return true;
+            return !Blocked(direction.normalized, distance, 0f, out _);
+        }
+
+        // Sideways search for a crouch lane, in 4 cm steps out to 0.6 m either side.
+        private const float LANE_STEP = 0.04f;
+        private const int LANE_STEPS = 15;
+
+        /// <summary>
+        /// The nearest sideways shift from which the way ahead is open at crouch height (and
+        /// still closed standing, so it is the low gap and not a way round), reachable by
+        /// shifting crouched. False when there is none within 0.6 m.
+        /// </summary>
+        private bool FindCrouchLane(Vector3 direction, float lookahead, out Vector3 lane)
+        {
+            lane = Vector3.zero;
+            Vector3 perp = Vector3.Cross(Vector3.up, direction).normalized;
+            for (int k = 1; k <= LANE_STEPS; k++)
+            {
+                foreach (int side in new[] { 1, -1 })
+                {
+                    Vector3 offset = perp * (side * k * LANE_STEP);
+                    if (Blocked(direction, lookahead, 0f, out _, CROUCH_HEIGHT, offset))
+                        continue;
+                    if (!Blocked(direction, lookahead, 0f, out _, STAND_HEIGHT, offset))
+                        continue;
+                    if (Blocked(perp * side, k * LANE_STEP, 0f, out _, CROUCH_HEIGHT))
+                        continue;
+                    lane = offset;
+                    return true;
+                }
+            }
+            return false;
         }
 
         private bool IsJumpable(Vector3 direction, RaycastHit hit, float lookahead, bool dropAhead)

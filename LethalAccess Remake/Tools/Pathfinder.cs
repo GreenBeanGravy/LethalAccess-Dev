@@ -464,9 +464,14 @@ namespace LethalAccess
             if (autoCrouched && playerController != null && playerController.isCrouching)
             {
                 playerController.Crouch(false);
+                // Still under something (arrived at the mouth of a crawl space): stand when
+                // there is room, for a few seconds.
+                if (playerController.isCrouching)
+                    standUpPendingUntil = Time.time + 3f;
             }
             autoCrouched = false;
             ResetGapState();
+            ResetCrawlState();
             manualCrouchCued = false;
             manualLadder = null;
             lockedDoorOnPath = null;
@@ -1403,6 +1408,60 @@ namespace LethalAccess
         }
         #endregion
 
+        #region Crouch Step Offset
+        private float defaultStepOffset = -1f;
+        private float standUpPendingUntil;
+        // How far ahead the way must be clear at full height before auto mode stands up again.
+        private const float STAND_UP_LOOKAHEAD = 1.6f;
+
+        /// <summary>
+        /// Crouched under something low (a server rack is 1.79 m over the floor, the crouched
+        /// player 1.5 m tall), the CharacterController's step offset snags: each move first lifts
+        /// the capsule by the step offset, the lifted top meets the overhang's front face, and
+        /// at walking speed the player stops dead in front of a gap they fit through. A smaller
+        /// step offset while a ceiling is that close lets them slide under; it comes back as
+        /// soon as the head is clear. Every player, not only while pathfinding.
+        /// </summary>
+        private void UpdateCrouchStepOffset()
+        {
+            if (playerController == null || playerController.thisController == null)
+                return;
+            CharacterController cc = playerController.thisController;
+            if (defaultStepOffset < 0f)
+                defaultStepOffset = cc.stepOffset;
+
+            if (Time.time < standUpPendingUntil && playerController.isCrouching && !isPathfinding)
+            {
+                playerController.Crouch(false);
+                if (!playerController.isCrouching)
+                    standUpPendingUntil = 0f;
+            }
+
+            float wanted = defaultStepOffset;
+            if (playerController.isCrouching)
+            {
+                // Ahead and overhead: the front face snags before the player is under it.
+                Vector3 head = transform.position + Vector3.up * (cc.center.y + cc.height * 0.5f);
+                Vector3 forward = playerController.thisController.velocity;
+                forward.y = 0f;
+                forward = forward.sqrMagnitude > 0.01f ? forward.normalized : transform.forward;
+                float clearance = float.MaxValue;
+                foreach (Vector3 point in new[] { head, head + forward * (cc.radius + 0.3f) })
+                {
+                    if (Physics.Raycast(point - Vector3.up * 0.1f, Vector3.up, out RaycastHit ceiling, defaultStepOffset + 0.3f,
+                            StartOfRound.Instance.collidersAndRoomMaskAndDefault, QueryTriggerInteraction.Ignore))
+                    {
+                        clearance = Mathf.Min(clearance, ceiling.distance - 0.1f);
+                    }
+                }
+                if (clearance < defaultStepOffset + cc.skinWidth)
+                    wanted = Mathf.Clamp(clearance - cc.skinWidth - 0.02f, 0.05f, defaultStepOffset);
+            }
+            if (!Mathf.Approximately(cc.stepOffset, wanted))
+                cc.stepOffset = wanted;
+        }
+        #endregion
+
         #region Manual Mode
         private void UpdateManualAudio()
         {
@@ -1606,7 +1665,7 @@ namespace LethalAccess
             // Before a gap the ping leads to the run-up and along it, not over the hole.
             AudioSource source = currentTargetNode.audioSource;
             Vector3 nodePos = currentTargetNode.position;
-            if (ManualGapGuide(out Vector3 guide))
+            if (ManualGapGuide(out Vector3 guide) || ManualCrawlGuide(out guide))
             {
                 source = GapGuideAudio(guide);
                 nodePos = guide;
@@ -1766,6 +1825,10 @@ namespace LethalAccess
             if (UpdateAutoGap(body))
                 return;
 
+            // A crawl space ahead: line up, crouch, crawl through.
+            if (UpdateAutoCrawl(body))
+                return;
+
             Vector3 toNode = currentTargetNode.position - transform.position;
             toNode.y = 0f;
 
@@ -1850,6 +1913,7 @@ namespace LethalAccess
             // Move wherever the way is actually free.
             Vector3 moveDirection = pathDirection;
             bool clear = true;
+            float laneMagnitude = 1f;
             ObstacleProbe probeNow = Probe;
             if (probeNow != null)
             {
@@ -1882,6 +1946,14 @@ namespace LethalAccess
                             playerController.Crouch(true);
                             autoCrouched = playerController.isCrouching;
                         }
+                        // A crawl space barely wider than the player: line up on it first,
+                        // mostly sideways, slowing in as the gap closes.
+                        if (ahead.laneOffset.sqrMagnitude > 0.0004f)
+                        {
+                            moveDirection = (ahead.laneOffset.normalized + pathDirection * 0.15f).normalized;
+                            aroundUntil = 0f;
+                            laneMagnitude = Mathf.Clamp(ahead.laneOffset.magnitude * 4f, 0.25f, 1f);
+                        }
                         break;
 
                     case ObstacleProbe.Kind.Wall:
@@ -1896,7 +1968,11 @@ namespace LethalAccess
 
                 // Stand back up once the way ahead is clear at full height. Crouch(false) checks
                 // the space overhead itself and does nothing if the player would not fit.
-                if (ahead.kind == ObstacleProbe.Kind.Clear && autoCrouched && playerController.isCrouching)
+                // Clear well ahead too: the short probe passes the mouth of a crawl space, and
+                // standing there walks the head into its edge.
+                if (ahead.kind == ObstacleProbe.Kind.Clear && autoCrouched && playerController.isCrouching &&
+                    probeNow.Assess(pathDirection, STAND_UP_LOOKAHEAD).kind == ObstacleProbe.Kind.Clear &&
+                    probeNow.RoomToStand(pathDirection, STAND_UP_LOOKAHEAD))
                 {
                     playerController.Crouch(false);
                     autoCrouched = playerController.isCrouching;
@@ -1912,14 +1988,17 @@ namespace LethalAccess
             }
 
             Vector3 local = body.InverseTransformDirection(moveDirection);
-            AutoMoveInput = new Vector2(local.x, local.z).normalized;
+            AutoMoveInput = new Vector2(local.x, local.z).normalized * laneMagnitude;
 
             // The game's own Sprint input: stamina drains and exhaustion stops the run exactly as
             // it does for a player holding the key. Only on a clear way forward; sprinting into a
             // sidestep overshoots it.
             float moveAngle = Vector3.Angle(body.forward, moveDirection);
             bool narrow = OnNarrowFloor(moveDirection);
-            AutoSprintInput = ConfigManager.AutoPathfindingSprint.Value && clear && !narrow && moveAngle < AUTO_SPRINT_MAX_ANGLE;
+            // Never crouched: the game stands a sprinting player up (PlayerControllerB.Update), in
+            // the mouth of the crawl space they crouched for.
+            AutoSprintInput = ConfigManager.AutoPathfindingSprint.Value && clear && !narrow && !playerController.isCrouching &&
+                              moveAngle < AUTO_SPRINT_MAX_ANGLE;
 
             // On a girder or plank: a steadier walk, where a sideways drift of half a metre is a fall.
             if (narrow)
@@ -2382,6 +2461,8 @@ namespace LethalAccess
         {
             try
             {
+                UpdateCrouchStepOffset();
+
                 if (!isPathfinding)
                     return;
 
@@ -2414,6 +2495,7 @@ namespace LethalAccess
                     UpdateManualAudio();
                     UpdateManualObstacleCues();
                     UpdateManualGap();
+                    UpdateManualCrawl();
                 }
                 else
                 {
