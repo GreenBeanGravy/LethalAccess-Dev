@@ -191,6 +191,10 @@ namespace LethalAccess
         // FindObjectsOfType<DoorLock>() walks every loaded component of that type and allocates a
         // new array each call. Doors are created with the dungeon and do not appear mid-round, so
         // the set is cached and refreshed on an interval.
+        private DoorLock doorBeingOpened;
+        private float doorHoldTime;
+        private float doorWaitTime;
+        private InteractTrigger cannotClimbCueLadder;
         private DoorLock[] cachedDoors;
         private float cachedDoorsTime = -999f;
         #endregion
@@ -435,6 +439,8 @@ namespace LethalAccess
             autoCrouched = false;
             manualCrouchCued = false;
             manualLadder = null;
+            doorBeingOpened = null;
+            cannotClimbCueLadder = null;
             ClearAutoInput();
             ClearPath();
             ClearPathNodes();
@@ -1129,12 +1135,18 @@ namespace LethalAccess
             // Grabbing a ladder means aiming the camera at it, which a blind player cannot do
             // reliably. Walking into the one the path uses grabs it; the game's own climb input
             // takes over from there.
-            if (manualLadder != null && pushing && Time.time >= nextLadderTry)
+            // Interact on a ladder already in use lets go of it, hence the climbing check.
+            if (manualLadder != null && pushing && !playerController.isClimbingLadder && Time.time >= nextLadderTry)
             {
                 Vector3 toLadder = manualLadder.ladderHorizontalPosition.position - transform.position;
                 toLadder.y = 0f;
                 if (toLadder.magnitude <= LADDER_USE_DISTANCE)
                 {
+                    if (!CanUseTrigger(manualLadder))
+                    {
+                        SayCannotClimb(manualLadder);
+                        return;
+                    }
                     nextLadderTry = Time.time + 2f;
                     manualLadder.Interact(transform);
                     if (playerController.isClimbingLadder || playerController.inSpecialInteractAnimation)
@@ -1368,6 +1380,19 @@ namespace LethalAccess
                 return;
             }
 
+            // Stand at a closed door while holding interact on it, as a player would, instead of
+            // walking into it.
+            if (doorBeingOpened != null && DoorIsClosed(doorBeingOpened) && CanUseTrigger(doorBeingOpened.doorTrigger) &&
+                HorizontalDistance(transform.position, doorBeingOpened.transform.position) < 1.3f &&
+                doorWaitTime < 3f)
+            {
+                // Capped, so a door that never opens hands over to the stuck handling.
+                doorWaitTime += Time.deltaTime;
+                ClearAutoInput();
+                ResetStuckTracking();
+                return;
+            }
+
             Vector3 toNode = currentTargetNode.position - transform.position;
             toNode.y = 0f;
 
@@ -1393,6 +1418,14 @@ namespace LethalAccess
                     toLadder.y = 0f;
                     if (toLadder.magnitude <= LADDER_USE_DISTANCE)
                     {
+                        // Wait at the foot of it until the player's hands are free; the stuck
+                        // check ignores a player who is not trying to move.
+                        if (!CanUseTrigger(ladder))
+                        {
+                            SayCannotClimb(ladder);
+                            ClearAutoInput();
+                            return;
+                        }
                         if (Time.time >= nextLadderTry)
                         {
                             // Same call as pressing interact on the ladder.
@@ -1584,43 +1617,113 @@ namespace LethalAccess
             return cachedDoors;
         }
 
+        /// <summary>
+        /// Opens the closed door the path goes through the way a player does: hold interact on it
+        /// for its hold time (0.3 s on an unlocked door), then the trigger fires DoorLock.OpenOrCloseDoor,
+        /// which plays the animation and sound and syncs it. Doors to the side or behind are left
+        /// alone, and an open door is never closed.
+        /// </summary>
         private void OpenNearbyDoor()
         {
-            DoorLock closestDoor = null;
-            float closestDistance = DOOR_DETECTION_DISTANCE;
-
-            DoorLock[] doors = GetDoors();
-            if (doors == null)
+            DoorLock door = FindDoorAhead();
+            if (door != doorBeingOpened)
+            {
+                doorBeingOpened = door;
+                doorHoldTime = 0f;
+                doorWaitTime = 0f;
+            }
+            if (door == null)
                 return;
 
+            InteractTrigger trigger = door.doorTrigger;
+            if (!CanUseTrigger(trigger))
+            {
+                doorHoldTime = 0f;
+                return;
+            }
+
+            doorHoldTime += Time.deltaTime * Mathf.Max(trigger.timeToHoldSpeedMultiplier, 0.01f);
+            if (doorHoldTime < (trigger.holdInteraction ? trigger.timeToHold : 0f))
+                return;
+
+            doorHoldTime = 0f;
+            try
+            {
+                trigger.Interact(playerController.thisPlayerBody);
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"Error opening door: {ex.Message}");
+            }
+        }
+
+        private static bool DoorIsClosed(DoorLock door)
+        {
+            AnimatedObjectTrigger animated = door.GetComponent<AnimatedObjectTrigger>();
+            return animated != null && !animated.boolValue;
+        }
+
+        /// <summary>The closest closed, unlocked door within reach, on this floor and in the direction of travel.</summary>
+        private DoorLock FindDoorAhead()
+        {
+            DoorLock[] doors = GetDoors();
+            if (doors == null || currentTargetNode == null)
+                return null;
+
+            Vector3 heading = currentTargetNode.position - transform.position;
+            heading.y = 0f;
+            heading = heading.sqrMagnitude > 0.01f ? heading.normalized : transform.forward;
+
+            DoorLock best = null;
+            float bestDistance = DOOR_DETECTION_DISTANCE;
             foreach (var door in doors)
             {
-                if (door == null)
+                if (door == null || door.isLocked || door.doorTrigger == null || !DoorIsClosed(door))
                     continue;
 
-                float distance = Vector3.Distance(transform.position, door.transform.position);
-                if (distance < closestDistance)
-                {
-                    closestDistance = distance;
-                    closestDoor = door;
-                }
-            }
+                Vector3 toDoor = door.transform.position - transform.position;
+                if (Mathf.Abs(toDoor.y) > 2.5f)
+                    continue;
+                toDoor.y = 0f;
+                float distance = toDoor.magnitude;
+                if (distance >= bestDistance)
+                    continue;
+                if (distance > 0.8f && Vector3.Dot(toDoor / distance, heading) < 0.3f)
+                    continue;
 
-            if (closestDoor == null)
+                bestDistance = distance;
+                best = door;
+            }
+            return best;
+        }
+
+        /// <summary>The game's own checks before an interact press counts (PlayerControllerB.Interact_performed
+        /// and InteractTriggerUseConditionsMet), minus aiming at the trigger.</summary>
+        private bool CanUseTrigger(InteractTrigger trigger)
+        {
+            PlayerControllerB p = playerController;
+            if (trigger == null || p == null || !trigger.interactable || trigger.isPlayingSpecialAnimation || p.disableInteract)
+                return false;
+            if (p.isHoldingObject && !trigger.oneHandedItemAllowed)
+                return false;
+            if (p.twoHanded && (!trigger.twoHandedItemAllowed || trigger.specialCharacterAnimation))
+                return false;
+            if (p.sinkingValue > 0.73f)
+                return false;
+            if (p.jetpackControls && (trigger.specialCharacterAnimation || trigger.isLadder))
+                return false;
+            return true;
+        }
+
+        /// <summary>Said once per ladder when the player's hands stop them using it.</summary>
+        private void SayCannotClimb(InteractTrigger ladder)
+        {
+            if (cannotClimbCueLadder == ladder)
                 return;
-
-            var trigger = closestDoor.GetComponent<AnimatedObjectTrigger>();
-            if (trigger != null && !trigger.boolValue && !closestDoor.isLocked)
-            {
-                try
-                {
-                    closestDoor.OpenOrCloseDoor(playerController);
-                }
-                catch (Exception ex)
-                {
-                    Debug.LogError($"Error opening door: {ex.Message}");
-                }
-            }
+            cannotClimbCueLadder = ladder;
+            Utilities.SpeakText(playerController.twoHanded
+                ? "Can't climb while carrying a two-handed item. Drop it to use the ladder."
+                : "Can't use the ladder right now.");
         }
         #endregion
 
