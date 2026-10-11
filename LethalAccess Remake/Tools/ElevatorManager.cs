@@ -67,7 +67,7 @@ public class ElevatorManager
     }
 
     // Created once and repositioned thereafter. Creating them fresh inside
-    // UpdateElevatorObjects() - which runs on every refresh of the Elevator category - leaks three
+    // UpdateElevatorObjects() (which runs on every refresh of the Elevator category) leaks three
     // GameObjects per refresh, because nothing destroys the previous set.
     private GameObject topButtonMarker;
     private GameObject bottomButtonMarker;

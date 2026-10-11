@@ -11,7 +11,7 @@ namespace LethalAccess.Patches
     ///
     /// The previous implementation was a single postfix on FillEndGameStats. That method is called
     /// from EndOfGameClientRpc BEFORE the EndOfGame coroutine starts, and the coroutine waits a
-    /// full second before pulling the "displayStats" animator trigger - so the mod read the whole
+    /// full second before pulling the "displayStats" animator trigger, so the mod read the whole
     /// panel over the ship-leaving audio while the panel was still hidden.
     ///
     /// The rest of the screen arrives much later still, on the coroutine's clock:
@@ -23,7 +23,7 @@ namespace LethalAccess.Patches
     /// so each of those gets its own patch and speaks when its own numbers exist.
     ///
     /// The old penalty block read statsUIElements.penaltyAddition / penaltyTotal from inside the
-    /// FillEndGameStats postfix - roughly thirteen seconds before ApplyPenalty writes them. It was
+    /// FillEndGameStats postfix, roughly thirteen seconds before ApplyPenalty writes them. It was
     /// gated on the animator already being in "displayPenalty", which nothing resets between
     /// rounds, so it was dead on the first round of a session and read the PREVIOUS round's
     /// penalty on every round after that. It is deleted; ApplyPenalty is patched instead.
@@ -264,7 +264,7 @@ namespace LethalAccess.Patches
 
             // The rank is written by GetRankAndSubmitScore, an `async void` awaiting two Steam
             // calls. There is nothing to patch that reliably marks its completion, so the panel's
-            // own text is polled - it is the same thing a sighted player is waiting to see.
+            // own text is polled; it is the same thing a sighted player is waiting to see.
             string before = ui.challengeRankText.text;
             float deadline = Time.realtimeSinceStartup + ChallengeRankTimeoutSeconds;
 

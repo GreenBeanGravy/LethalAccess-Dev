@@ -17,7 +17,7 @@ namespace LethalAccess
     /// than from an absolute path, and whichever copy is alive gets registered when it opens.
     ///
     /// The panel root is found by walking UP from a SettingsOption, because SettingsOption.OnEnable
-    /// fires for every control the moment either panel is activated - there is no C# entry point
+    /// fires for every control the moment either panel is activated; there is no C# entry point
     /// that opens the panel (both are serialized UnityEvents on the Settings button), and
     /// GameObject.Find cannot see an inactive root anyway.
     ///
@@ -103,7 +103,7 @@ namespace LethalAccess
 
             // Register while the panel is ALREADY open: UIScreenRegistry attaches its notifier
             // immediately and AddComponent on an active GameObject runs OnEnable synchronously, so
-            // this call itself announces the screen and seeds focus. That is what we want here -
+            // this call itself announces the screen and seeds focus. That is what we want here:
             // the panel is open right now and nothing else is going to tell us about it.
             UIScreenRegistry.Register(BuildPanelDescriptor(id, root));
             UIScreenRegistry.Register(BuildConfirmDescriptor(id, root));
@@ -161,7 +161,7 @@ namespace LethalAccess
                 // entries are written. This panel is a three-column layout and its sections are
                 // logical groupings that run across the columns, so the authored order does not
                 // track what the eye sees: Display is written Brightness, Fullscreen, Framerate,
-                // PixelRes but sits at screen heights 710, 892, 1085, 783 - i.e. pressing Down
+                // PixelRes but sits at screen heights 710, 892, 1085, 783, i.e. pressing Down
                 // moved the highlight UP the screen twice in a row. Measured in the running game.
                 //
                 // Actions is deliberately NOT sorted: Back and Reset measure one pixel apart on
@@ -180,7 +180,7 @@ namespace LethalAccess
                         },
                         new UIEntry("MicSettings/ChooseDevice", "Input device", "button")
                         {
-                            // The device name exists ONLY in this button's own TMP - the
+                            // The device name exists ONLY in this button's own TMP; the
                             // previous registration supplied a fixed DisplayName ("Current Input
                             // Device"), and because registered names beat scraped text the mod
                             // permanently hid the one thing the user needed to hear. A live state
@@ -297,8 +297,8 @@ namespace LethalAccess
         /// `IngamePlayerSettings.SetChangesNotAppliedTextVisible` retitles this one button between
         /// "BACK"/"Back" and "DISCARD"/"Discard changes" depending on hidden state, so scraping its
         /// text made one control announce two different names with no explanation. The authored
-        /// label stays "Back"; the difference that actually matters -
-        /// that pressing it now throws work away - is said out loud instead.
+        /// label stays "Back"; the difference that actually matters
+        /// (that pressing it now throws work away) is said out loud instead.
         /// </summary>
         private static string ChangesPendingState()
         {
@@ -335,7 +335,7 @@ namespace LethalAccess
                 {
                     // This TMP is the single place the live device name is written, by
                     // RefreshAndDisplayCurrentMicrophone and SwitchMicrophoneSetting.
-                    // Reading it - rather than settings.micDevice or unsavedSettings.micDevice -
+                    // Reading it (rather than settings.micDevice or unsavedSettings.micDevice)
                     // is the only way to always match what is on screen, because those two writers
                     // target different Settings instances.
                     return NormaliseDeviceText(option.textElement.text);
@@ -470,7 +470,7 @@ namespace LethalAccess
         ///     Discard button that line 781 deactivated one statement earlier, which kills arrow
         ///     navigation with no announcement.
         /// Vanilla only ever calls this with visible = true (PlayerControllerB.OpenMenu_performed), so the
-        /// repair below is for other mods and for any future caller - it is not dead code by
+        /// repair below is for other mods and for any future caller; it is not dead code by
         /// accident, and it costs nothing on the show path.
         /// </summary>
         [HarmonyPatch(typeof(IngamePlayerSettings), nameof(IngamePlayerSettings.DisplayConfirmChangesScreen))]
@@ -516,7 +516,7 @@ namespace LethalAccess
         /// <summary>
         /// Mirrors the manager lookup DisplayConfirmChangesScreen itself performs, including the
         /// MenuManager-wins-over-QuickMenuManager order, so we always repair the same panel the
-        /// game just touched. FindObjectOfType only sees active objects - that is exactly what the
+        /// game just touched. FindObjectOfType only sees active objects; that is exactly what the
         /// game relies on to tell the main menu apart from the pause menu.
         /// </summary>
         private static void ResolveManagerPanels(out GameObject confirmPanel, out GameObject keybindsPanel)
@@ -548,7 +548,7 @@ namespace LethalAccess
     ///
     /// This is not defensive coding, it is a race the descriptor cannot win on its own. Opening
     /// Settings runs a serialized onClick list, and the `Selectable.Select()` entry targeting
-    /// BackButton runs AFTER the `EnableUIPanel` entry that activates the panel - so the panel's
+    /// BackButton runs AFTER the `EnableUIPanel` entry that activates the panel, so the panel's
     /// OnEnable (and therefore UIScreenRegistry.ScreenShown, and therefore the seed) has already
     /// happened by the time the game overwrites the selection. With the action buttons moved to the
     /// end of the order, BackButton is the wrong place to start.

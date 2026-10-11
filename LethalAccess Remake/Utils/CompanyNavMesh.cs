@@ -42,8 +42,8 @@ namespace LethalAccess
                     // older Unity, and on the current build its prefab loses its MonoBehaviours:
                     //   "The referenced script on this Behaviour (Game Object 'CompanyNavSurface') is missing!"
                     //   "The referenced script (NodeHelper) on this Behaviour is missing!"
-                    // so the old order deleted working enemy-AI nodes - for every player in the
-                    // lobby, not just the mod user - and installed a non-functional replacement.
+                    // so the old order deleted working enemy-AI nodes (for every player in the
+                    // lobby, not just the mod user) and installed a non-functional replacement.
                     //
                     // Now: build and validate the replacement first, and only touch the vanilla
                     // nodes once it is known good. If it is not, leave vanilla alone and say so.
@@ -62,7 +62,7 @@ namespace LethalAccess
 
                     // The prefab must supply an outside-node container and an inside-node
                     // container, each with children. If its scripts failed to load, or its shape
-                    // has changed, this is where we find out - before anything is destroyed.
+                    // has changed, this is where we find out, before anything is destroyed.
                     bool prefabUsable =
                         navTransform.childCount >= 2 &&
                         navTransform.GetChild(0).childCount > 0 &&

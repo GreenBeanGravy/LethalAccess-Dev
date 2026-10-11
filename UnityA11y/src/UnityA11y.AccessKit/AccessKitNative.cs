@@ -54,7 +54,7 @@ namespace UnityA11y.AccessKitInterop
         }
 
         /// <summary>
-        /// accesskit_text_position. `character_index` is size_t, so UIntPtr - it is 8 bytes in
+        /// accesskit_text_position. `character_index` is size_t, so UIntPtr; it is 8 bytes in
         /// this process and an int field would misalign everything after it.
         /// </summary>
         [StructLayout(LayoutKind.Sequential)]

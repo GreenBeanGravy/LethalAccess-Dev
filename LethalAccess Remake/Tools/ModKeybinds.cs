@@ -13,8 +13,8 @@ namespace LethalAccess
     /// Every key LethalAccess acts on, in one table.
     ///
     /// With LethalCompanyInputUtils installed the table becomes an InputUtils action map, so the
-    /// mod's keys appear in the game's own Remap Controls screen as a "LethalAccess" section - the
-    /// way every other mod's keys do - and are rebound, reset, saved per profile and conflict-checked
+    /// mod's keys appear in the game's own Remap Controls screen as a "LethalAccess" section (the
+    /// way every other mod's keys do) and are rebound, reset, saved per profile and conflict-checked
     /// there. Without InputUtils each key is the BepInEx config entry it always was.
     ///
     /// The table is static because InputUtils builds a mod's whole action map once, when the mod
@@ -158,7 +158,7 @@ namespace LethalAccess
             }
             catch (Exception e)
             {
-                // The config entries are already bound, so every key still works - it just cannot be
+                // The config entries are already bound, so every key still works; it just cannot be
                 // changed from the remap screen. Never let this take Awake down with it.
                 for (int i = 0; i < definitions.Count; i++)
                 {

@@ -14,7 +14,7 @@ namespace LethalAccess
     /// the one menu in this game whose controls do not exist until the moment they matter: every
     /// row is a clone of LobbySlotPrefab, so every row shares ONE hierarchy path
     /// (".../Content/LobbyListItem(Clone)/JoinButton") and every row's join button therefore
-    /// announced the same thing - the button's own label, the word "Join". Everything that tells
+    /// announced the same thing: the button's own label, the word "Join". Everything that tells
     /// the rows apart lives on the parent LobbySlot component, and everything that orders them
     /// lives in the sibling order under SteamLobbyManager.levelListContainer.
     ///
@@ -51,7 +51,7 @@ namespace LethalAccess
         private SteamLobbyManager lobby;
 
         // Static controls. Resolved from component references and from onClick wiring rather than
-        // from hard-coded paths - see ResolveStaticControls.
+        // from hard-coded paths. See ResolveStaticControls.
         private Selectable tagField;
         private Selectable distanceDropdown;
         private Button moddedArrow;
@@ -136,7 +136,7 @@ namespace LethalAccess
 
         /// <summary>
         /// SteamLobbyManager.OnEnable clears the tag field every time the panel is shown, so the
-        /// component is expected to live inside serverListUIContainer - but that is scene wiring,
+        /// component is expected to live inside serverListUIContainer, but that is scene wiring,
         /// not something the game's code guarantees, and it could not be confirmed against the
         /// running game (the process was sitting in the launch-options scene, where the main menu
         /// is not loaded). Fall back to a whole-scene search that, unlike FindObjectOfType, can
@@ -269,7 +269,7 @@ namespace LethalAccess
             rows.Clear();
 
             // "Loading servers." is deliberately not said here: the load flag is raised by the same
-            // click that opens the panel, so Update says it on the very next frame - and stays
+            // click that opens the panel, so Update says it on the very next frame, and stays
             // quiet in the case where nothing is actually loading.
             AnnouncementPolicy.Speak("Server list.");
         }
@@ -292,7 +292,7 @@ namespace LethalAccess
             {
                 // serverListBlankText is the game's own words for the outcome ("No available
                 // servers to join.", or a stale "Loading server list..." if the query never
-                // finished) - which is exactly what a sighted player is looking at.
+                // finished), which is exactly what a sighted player is looking at.
                 string blank = lobby.serverListBlankText != null ? lobby.serverListBlankText.text : null;
                 AnnouncementPolicy.Speak(string.IsNullOrEmpty(blank) ? "No servers found." : blank);
 
@@ -489,7 +489,7 @@ namespace LethalAccess
         ///
         /// Everything on this screen ships as Navigation.Mode.Automatic with null links, and the
         /// join buttons are pinned to each row's right edge with the scrollbar beyond them and the
-        /// filter band above - so Unity's geometric search sends right into the scrollbar and left
+        /// filter band above, so Unity's geometric search sends right into the scrollbar and left
         /// into a filter. An explicit chain removes the horizontal links outright, which also means
         /// the fix holds when ConfigManager.VerticalNavigationOnly is turned off.
         /// </summary>
@@ -528,7 +528,7 @@ namespace LethalAccess
         ///
         /// An inactive or non-interactable link in an explicit chain is a silent dead stop:
         /// Selectable.Navigate ignores a target that fails IsActive(), so the keypress is eaten
-        /// with no announcement - which is why <see cref="AddIfUsable"/> leaves those out.
+        /// with no announcement, which is why <see cref="AddIfUsable"/> leaves those out.
         ///
         /// The SAME test has to decide the "n of m" positions in <see cref="RegisterControls"/>,
         /// or the two sets drift and the numbers describe a screen the user cannot walk. Positions
@@ -667,7 +667,7 @@ namespace LethalAccess
         /// <summary>
         /// Describe every control on the screen by instance.
         ///
-        /// By instance and not by path, because the rows cannot be told apart by path - and because
+        /// By instance and not by path, because the rows cannot be told apart by path, and because
         /// the whole panel is inactive for the entire main menu, which is precisely when
         /// GameObject.Find (the resolver behind the path registrations) cannot see it.
         ///
@@ -718,7 +718,7 @@ namespace LethalAccess
             {
                 position++;
                 // A provider rather than letting the announcer sniff it: with no provider the text
-                // falls through to the first TMP in the dropdown's children, which is the caption -
+                // falls through to the first TMP in the dropdown's children, which is the caption,
                 // so it would announce the selected option twice and never say what the control is.
                 mgr.RegisterObject(distanceDropdown.gameObject, DescribeDistanceSort, "dropdown",
                     ScreenId, position, controlCount);
@@ -727,8 +727,8 @@ namespace LethalAccess
             if (IsUsable(moddedArrow))
             {
                 position++;
-                // Declared "button" and not "checkbox": it IS a plain Button - the check state is a
-                // sibling Image being enabled - and declaring a type no component backs makes the
+                // Declared "button" and not "checkbox": it IS a plain Button (the check state is a
+                // sibling Image being enabled), and declaring a type no component backs makes the
                 // announcer discard the declaration and log an error.
                 mgr.RegisterObject(moddedArrow.gameObject, DescribeModdedFilter, "button",
                     ScreenId, position, controlCount);
@@ -802,7 +802,7 @@ namespace LethalAccess
         }
 
         /// <summary>
-        /// How many of these the arrow keys will actually stop on - the denominator of every
+        /// How many of these the arrow keys will actually stop on: the denominator of every
         /// "n of m" in the static run. Shares <see cref="IsUsable"/> with the chain builder, so the
         /// counted set and the walked set cannot drift apart again.
         /// </summary>
@@ -839,7 +839,7 @@ namespace LethalAccess
             // and an active field swallows the arrow keys, so a user who arrows onto it has no way
             // out unless they are told about Enter.
             //
-            // No full stop after "arrows" - see TrimTrailingFullStop. The announcer appends the
+            // No full stop after "arrows". See TrimTrailingFullStop. The announcer appends the
             // position straight onto this string, and "...arrows., 1 of 6" is a full stop
             // immediately followed by a comma, which screen readers render as a double pause.
             return "Server tag filter, input field, " + spoken +
@@ -864,7 +864,7 @@ namespace LethalAccess
             {
                 // The shipped wording is "WARNING: Modifying Lethal Company is not recommended."
                 // (read off the live scene), and it is the last thing this provider says before the
-                // announcer appends ", 3 of 6" - the same full-stop-then-comma double pause as the
+                // announcer appends ", 3 of 6", the same full-stop-then-comma double pause as the
                 // tag field. Trimmed here rather than rewritten, because these are the game's words.
                 string spokenWarning = TrimTrailingFullStop(warning.text);
                 if (spokenWarning.Length > 0)
@@ -922,8 +922,8 @@ namespace LethalAccess
         }
 
         /// <summary>
-        /// These filters are NOT Toggles - they are plain Buttons whose "checked" state is a second
-        /// sibling Image being enabled - so nothing the announcer can sniff will ever report their
+        /// These filters are NOT Toggles: they are plain Buttons whose "checked" state is a second
+        /// sibling Image being enabled, so nothing the announcer can sniff will ever report their
         /// state. Without this they announce as "Arrow, button": no label, no state.
         /// </summary>
         private static string DescribeFilter(Button arrow, Image checkedIcon, string fallbackLabel,
@@ -969,14 +969,14 @@ namespace LethalAccess
         /// Drop a sentence-ending full stop from the last words of a text provider.
         ///
         /// UIAccessibilityManager.GetElementIndex appends the position directly onto what a provider returns
-        /// (", 3 of 6"), so a string ending in a full stop is spoken as "...recommended., 3 of 6" -
+        /// (", 3 of 6"), so a string ending in a full stop is spoken as "...recommended., 3 of 6":
         /// a full stop immediately followed by a comma, which screen readers render as an awkward
         /// double pause. Trailing whitespace goes with it so a " ." cannot leave a dangling space
         /// in front of the comma; trailing runs of dots go too, so an ellipsis cannot be left as
         /// a stub.
         ///
         /// Only for strings that come from the game or the player. Literals written in this file
-        /// simply do not end with a full stop - see DescribeTagField.
+        /// simply do not end with a full stop. See DescribeTagField.
         /// </summary>
         private static string TrimTrailingFullStop(string text)
         {

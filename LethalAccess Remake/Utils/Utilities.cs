@@ -26,8 +26,8 @@ namespace LethalAccess
         /// <summary>
         /// The label text for a UI object.
         ///
-        /// Order: the first text component in its own subtree that actually says something, then -
-        /// for sliders and buttons only - a label on a sibling, then the GameObject name.
+        /// Order: the first text component in its own subtree that actually says something, then
+        /// (for sliders and buttons only) a label on a sibling, then the GameObject name.
         ///
         /// "Actually says something" is the important part. Returning the first TextMeshProUGUI
         /// unconditionally produces three separate wrong announcements:
@@ -35,7 +35,7 @@ namespace LethalAccess
         ///     InputUtils blanks bindLabel whenever it draws a sprite instead
         ///     (RebindButton.UpdateState: bindLabel.SetText("", true)).
         ///   - "SectionEntry" for every keybinds section, because the first TMP in that prefab is
-        ///     SectionEntry.indicator - a ">" that RemoveSpecialCharacters reduces to nothing, and
+        ///     SectionEntry.indicator: a ">" that RemoveSpecialCharacters reduces to nothing, and
         ///     whose Behaviour is disabled unless that section is the selected one.
         ///   - the GameObject name for every slider, because a Slider's subtree is Background /
         ///     Fill Area / Handle Slide Area and holds no text at all; the label is a sibling
@@ -54,8 +54,8 @@ namespace LethalAccess
                 return text;
             }
 
-            // Restricted to Slider and Button on purpose. A control that carries its own text -
-            // a toggle, a dropdown, the mic button reading "ENABLED" - must never be relabelled by
+            // Restricted to Slider and Button on purpose. A control that carries its own text
+            // (a toggle, a dropdown, the mic button reading "ENABLED") must never be relabelled by
             // whatever happens to sit next to it, and a container holding several buttons would
             // otherwise hand every one of them its neighbour's label.
             if (gameObject.GetComponent<UnityEngine.UI.Slider>() != null ||
@@ -77,7 +77,7 @@ namespace LethalAccess
         /// "Gamma/Brightness:", "Master volume:", "Look sensitivity:", "Voice volume",
         /// "With detected mods", "With challenge moon", and every keybind row's action name.
         ///
-        /// Siblings that are - or contain - a Selectable are skipped; their text is that control's
+        /// Siblings that are (or contain) a Selectable are skipped; their text is that control's
         /// own label. Public so screen descriptors can use it as a Label/State provider.
         /// </summary>
         public static string GetSiblingLabel(Transform element)
@@ -98,7 +98,7 @@ namespace LethalAccess
                     continue;
                 }
 
-                // A sibling that is - or contains - a control owns its text; taking it would
+                // A sibling that is (or contains) a control owns its text; taking it would
                 // announce the wrong control's name (MicSettings holds ChooseDevice, SpeakerButton
                 // and TalkMode side by side, and several settings rows wrap their button one level
                 // down). Reading a neighbour's label is worse than falling back to the object
@@ -106,7 +106,7 @@ namespace LethalAccess
                 //
                 // Note the interaction with FocusInjection.MakeFocusable: a heading or body TMP
                 // that has been made focusable becomes a Selectable and will be skipped here. That
-                // is intended - anything the user can focus in its own right should not also be
+                // is intended: anything the user can focus in its own right should not also be
                 // read out as some other control's name.
                 if (sibling.GetComponentInChildren<UnityEngine.UI.Selectable>(true) != null)
                 {
@@ -134,7 +134,7 @@ namespace LethalAccess
         }
 
         /// <summary>
-        /// The caption of a dropdown - what the control IS, not what it is currently set to.
+        /// The caption of a dropdown: what the control IS, not what it is currently set to.
         ///
         /// A TMP_Dropdown's first child TMP is "Label", which holds the CURRENT VALUE. Announcing
         /// that as the name is why every dropdown on the settings panel said its value twice and
@@ -171,8 +171,8 @@ namespace LethalAccess
         /// First text component in <paramref name="root"/>'s subtree whose text survives
         /// <see cref="RemoveSpecialCharacters"/>, preferring one that is actually being drawn.
         ///
-        /// The second pass matters because labels are read while their panel is still inactive -
-        /// screen descriptors resolve entries before the panel is shown - and because
+        /// The second pass matters because labels are read while their panel is still inactive
+        /// (screen descriptors resolve entries before the panel is shown), and because
         /// SectionEntry.SetIndicator toggles Behaviour.enabled, which leaves activeInHierarchy
         /// true.
         /// </summary>
@@ -184,7 +184,7 @@ namespace LethalAccess
                 return false;
             }
 
-            // Hierarchy order, self first - deterministic, unlike the old mix of an active-only
+            // Hierarchy order, self first: deterministic, unlike the old mix of an active-only
             // GetComponentInChildren followed by a manual recursion over inactive children.
             TMPro.TextMeshProUGUI[] tmps = root.GetComponentsInChildren<TMPro.TextMeshProUGUI>(true);
             for (int pass = 0; pass < 2; pass++)
@@ -290,7 +290,7 @@ namespace LethalAccess
         // reached reflectively. Resolving the MethodInfo and calling Invoke(new object[]{...})
         // happened on every frame a look target was set: a reflective lookup, a reflective
         // dispatch, a boxed Vector2 and a one-element object[] per frame. Bound once to an open
-        // delegate instead - the call site is then a normal delegate invoke with no allocation.
+        // delegate instead; the call site is then a normal delegate invoke with no allocation.
         private static Action<PlayerControllerB, Vector2> calculateNormalLookingInput;
         private static bool calculateNormalLookingInputResolved;
 

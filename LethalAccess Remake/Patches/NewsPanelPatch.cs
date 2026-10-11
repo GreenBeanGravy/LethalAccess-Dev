@@ -8,12 +8,12 @@ namespace LethalAccess
     ///
     /// MenuManager.Start is the right seam, and the timing is the whole point:
     ///   - It is where the news pop-up is shown and where the game parks focus on its dismiss
-    ///     button, via GetComponentInChildren&lt;Button&gt;() - the only Button under NewsPanel is
+    ///     button, via GetComponentInChildren&lt;Button&gt;(): the only Button under NewsPanel is
     ///     Panel/ResponseButton. A postfix runs after that, so our re-focus onto the heading
     ///     overwrites the game's choice in the same frame.
     ///   - Unity runs every Start before any Update, and UIAccessibilityManager announces from
     ///     Update. It therefore sees the heading as the first non-null selection and the Continue
-    ///     button is never announced at all - there is no double-speak to suppress.
+    ///     button is never announced at all; there is no double-speak to suppress.
     ///
     /// Start is private, so it is patched by string name; nameof would not compile.
     ///
@@ -53,7 +53,7 @@ namespace LethalAccess
             }
 
             // Registered even when hidden, unlike the other two: this is the one panel the game
-            // activates LATER at runtime (every DisplayMenuNotification call - failed joins,
+            // activates LATER at runtime (every DisplayMenuNotification call: failed joins,
             // disconnects, kicks), and registering now puts the activation notifier on it so those
             // later appearances announce themselves. Nothing is claimed until it is actually shown.
             GameObject notification = __instance.menuNotification;
@@ -68,7 +68,7 @@ namespace LethalAccess
             }
 
             // Only ever activated on the LAN launch path (MenuManager.Start), and the game itself
-            // only dereferences it when disableSteam is set - so a null here in a normal Steam
+            // only dereferences it when disableSteam is set, so a null here in a normal Steam
             // session is not evidence of anything wrong and is deliberately not logged.
             GameObject lanWarning = __instance.lanWarningContainer;
             if (lanWarning != null && lanWarning.activeSelf)

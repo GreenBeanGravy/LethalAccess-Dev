@@ -10,7 +10,7 @@ namespace LethalAccess
     /// <summary>
     /// Keyboard driving and labelling for the belt-bag inventory.
     ///
-    /// The bag's fifteen slots carry a SPRITE and nothing else - inventorySlotIcons[i].sprite is
+    /// The bag's fifteen slots carry a SPRITE and nothing else: inventorySlotIcons[i].sprite is
     /// the whole of what a sighted player sees, and there is no text child on a slot at all. The
     /// name only exists as objectsInBag[i].itemProperties.itemName, so every label here comes from
     /// a live provider rather than from anything scraped off the object.
@@ -46,7 +46,7 @@ namespace LethalAccess
         /// Submit to the slot's Button). Unity does not define whether the EventSystem's Update
         /// runs before or after this one, so NEITHER may assume it goes first. Both read the same
         /// frame-scoped device state to decide that a confirm happened, and both consult this
-        /// field to decide whether the take has already been done - so exactly one take happens
+        /// field to decide whether the take has already been done, so exactly one take happens
         /// per keypress in either ordering.
         /// </summary>
         private int lastTakeFrame = -1;
@@ -161,7 +161,7 @@ namespace LethalAccess
                 if (selectable == null)
                 {
                     // UNVERIFIED: the slot component types are inferred, not
-                    // confirmed - the bag cannot be opened from the main menu, so nothing here has
+                    // confirmed: the bag cannot be opened from the main menu, so nothing here has
                     // been observed live. If a slot turns out not to be a Button, injecting an
                     // inert Selectable at least keeps it reachable.
                     Debug.Log("[LethalAccess] Belt bag slot '" + slot.name + "' has no Selectable; injecting one " +
@@ -202,13 +202,13 @@ namespace LethalAccess
         /// Describe one slot by INSTANCE.
         ///
         /// Registration used to be keyed on Utilities.GetGameObjectPath, which concatenates
-        /// GameObject NAMES only - and Unity permits duplicate sibling names. Two slots sharing a
+        /// GameObject NAMES only, and Unity permits duplicate sibling names. Two slots sharing a
         /// name shared one dictionary entry, so both announced the last-registered slot's
         /// contents: a blind user would be told the wrong item is in the slot they are on.
         /// RegisterObject is keyed on the instance id, which cannot collide.
         /// </summary>
         /// <param name="gameSlot">
-        /// The GAME's slot number - the index into inventorySlots and objectsInBag. It is a
+        /// The GAME's slot number: the index into inventorySlots and objectsInBag. It is a
         /// parameter and therefore a fresh local per call, which is what makes the closure below
         /// correct; capturing the caller's `for` variable directly would give all fifteen
         /// providers the loop's final value.
@@ -248,7 +248,7 @@ namespace LethalAccess
 
             // The bag only accepts items with isScrap == false (BeltBagItem.ItemInteractLeftRight
             // rejects scrap outright), and those have a scrapValue of zero, so announcing
-            // "worth $0" on every tool would be noise. The value is still read when there is one -
+            // "worth $0" on every tool would be noise. The value is still read when there is one:
             // an item can be given a value by other means and the user should hear it.
             if (item.scrapValue > 0)
             {
@@ -261,7 +261,7 @@ namespace LethalAccess
         /// Locate the exit button by what it DOES, not by where it sits.
         ///
         /// ClickExitButton is a public no-argument method with no C# call site, so it is wired in
-        /// the inspector - which means the button can be identified from its persistent onClick
+        /// the inspector, which means the button can be identified from its persistent onClick
         /// listeners. Deliberately no hierarchy path: a guessed one silently strands the user in
         /// the bag with no way out.
         /// </summary>
@@ -357,7 +357,7 @@ namespace LethalAccess
             {
                 // OpenSpecialMenu only sets the selection when localPlayerUsingController is true,
                 // so on mouse and keyboard the EventSystem selection is whatever gameplay left
-                // behind - usually nothing. Falling back to the first slot is what makes the
+                // behind, usually nothing. Falling back to the first slot is what makes the
                 // screen exist at all for a keyboard user.
                 for (int i = 0; i < slotObjects.Count; i++)
                 {
@@ -440,7 +440,7 @@ namespace LethalAccess
         /// has dispatched Submit to a slot's Button.
         ///
         /// Returns true when this component owns the click and the vanilla mouse-drag handler must
-        /// be suppressed - that handler sets grabbingItemSlot and waits for an ActivateItem
+        /// be suppressed: that handler sets grabbingItemSlot and waits for an ActivateItem
         /// raycast the keyboard can never produce, which strands the item on the cursor.
         ///
         /// Returns false for a real mouse click, which is left to run vanilla: the drag-and-drop
@@ -450,7 +450,7 @@ namespace LethalAccess
         {
             if (ServicedConfirmRecently())
             {
-                // Already taken - by this component's own Update earlier in the same frame, or by
+                // Already taken, by this component's own Update earlier in the same frame, or by
                 // an earlier call here. Suppress without acting: a second take would remove a
                 // SECOND item, and after the first take the list has compacted, so it would not
                 // even be the item the user was standing on.

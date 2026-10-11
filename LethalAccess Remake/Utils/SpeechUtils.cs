@@ -39,7 +39,7 @@ namespace LethalAccess
 
         // Keys ordered longest first. Without this the table is applied in dictionary order, so
         // "EntranceTeleportA" rewrites the prefix of "EntranceTeleportA(Clone)" and the exit
-        // teleports announce as "Enter Factory(Clone)" - the "Exit Factory" and "Exit Fire Escape"
+        // teleports announce as "Enter Factory(Clone)"; the "Exit Factory" and "Exit Fire Escape"
         // entries could never fire at all. Rebuilt when the table changes.
         private static string[] replacementOrder;
 
@@ -47,7 +47,7 @@ namespace LethalAccess
         /// Installs the barge-in hook so AnnouncementPolicy.Speak(text, interrupt: true) actually
         /// cancels the backlog instead of logging that it cannot. Idempotent, and called by
         /// AnnouncementPolicy.BargeInHook's getter, so the hook is installed by the act of reading
-        /// it - no startup ordering to get wrong and no call site in Plugin.cs to forget.
+        /// it: no startup ordering to get wrong and no call site in Plugin.cs to forget.
         ///
         /// This was a static constructor, which is what made the first interrupt of every session
         /// silently ordinary: AnnouncementPolicy.Speak read BargeInHook before it ever touched this
@@ -67,7 +67,7 @@ namespace LethalAccess
         /// <summary>
         /// Primary speech function with text processing.
         ///
-        /// The old implementation returned early - silently dropping the utterance - if ANY
+        /// The old implementation returned early (silently dropping the utterance) if ANY
         /// speech had been raised in the previous 50 ms, regardless of content. Nothing is
         /// dropped now: SpeechQueue speaks everything, in order. See SpeechQueue.Enqueue.
         /// </summary>
@@ -145,7 +145,7 @@ namespace LethalAccess
         /// earlier designs filtered by time (anything within 50 ms of the previous utterance, then
         /// exact repeats within the same window) and both lost real announcements, which makes
         /// "I did not hear it" impossible to reason about. This is not a filter: it drops nothing
-        /// unless a caller explicitly asks, and the intended caller is a FOCUS CHANGE - at which
+        /// unless a caller explicitly asks, and the intended caller is a FOCUS CHANGE, at which
         /// point everything still queued describes a control the user has already left.
         ///
         /// Do NOT call this to suppress a repeated value from one control; that is what
@@ -170,14 +170,14 @@ namespace LethalAccess
         /// when the focused object actually changed, so calling it every frame is safe and calling
         /// it on a re-announce of the same control does not swallow that announcement.
         ///
-        /// CALL IT BEFORE THE NEW CONTROL'S ANNOUNCEMENT IS RAISED - from the announcer's
+        /// CALL IT BEFORE THE NEW CONTROL'S ANNOUNCEMENT IS RAISED, from the announcer's
         /// selection-change branch, above the AnnounceUIElement call. The cancel is synchronous and
         /// empties the queue as it stands at the moment of the call, so anything enqueued
         /// afterwards (i.e. the newly focused control's own announcement) is untouched. Called
         /// after that announcement instead, it would discard exactly the line the user is waiting
         /// for.
         ///
-        /// It is NOT the answer to a rapid state change - holding an arrow key on a slider
+        /// It is NOT the answer to a rapid state change: holding an arrow key on a slider
         /// re-announces the SAME control, this returns early, and the backlog builds up. That has to
         /// be solved by coalescing the repeated re-announcement BEFORE it is queued, at the site
         /// that raises it; do not "fix" it by cancelling on an unchanged focus, which would race
@@ -210,7 +210,7 @@ namespace LethalAccess
 
             // A live Unity object never has instance ID 0, so 0 means "no focus has ever been
             // recorded in this session". If that assumption were ever wrong the cost is one
-            // skipped barge-in - an extra announcement, never a lost one.
+            // skipped barge-in: an extra announcement, never a lost one.
             bool firstFocusOfSession = lastFocusInstanceId == 0;
             lastFocusInstanceId = id;
 
@@ -228,8 +228,8 @@ namespace LethalAccess
 
             if (preserving)
             {
-                // What is queued is the FIRST HALF of this same focus change - rule 4's screen
-                // title - not the tail of the previous control. See
+                // What is queued is the FIRST HALF of this same focus change (rule 4's screen
+                // title), not the tail of the previous control. See
                 // PreserveQueuedThroughNextFocusChange.
                 return;
             }
@@ -248,8 +248,8 @@ namespace LethalAccess
         ///
         /// One-shot and time-bounded: the next focus change consumes it, and it lapses by itself if
         /// that focus change never arrives (FocusManager.Seed refuses invisible or unseedable
-        /// targets and returns). A stale flag therefore costs at most one skipped barge-in - the
-        /// user hears one extra announcement - and can never drop an utterance.
+        /// targets and returns). A stale flag therefore costs at most one skipped barge-in (the
+        /// user hears one extra announcement) and can never drop an utterance.
         /// </summary>
         public static void PreserveQueuedThroughNextFocusChange()
         {
@@ -327,12 +327,12 @@ namespace LethalAccess
 
             // Collapse all whitespace runs in one pass. This replaced three Replace calls plus a
             // `while (text.Contains("  ")) text = text.Replace("  ", " ")` loop that allocated a
-            // whole new string on every iteration - for a long announcement with deep
+            // whole new string on every iteration, for a long announcement with deep
             // indentation that is many full-string copies per utterance.
             text = System.Text.RegularExpressions.Regex.Replace(text, @"\s+", " ");
 
             // Currency and percent read correctly only if the unit ends up AFTER the number.
-            // A plain Replace turns "$500" into "dollars500" and "60%" into "60percent" - which is
+            // A plain Replace turns "$500" into "dollars500" and "60%" into "60percent", which is
             // worse than leaving the symbol alone, because a screen reader already pronounces
             // "$500" as "500 dollars". This mattered the moment Utilities.SpeakText was folded in
             // here: ~150 call sites that previously bypassed all normalisation include

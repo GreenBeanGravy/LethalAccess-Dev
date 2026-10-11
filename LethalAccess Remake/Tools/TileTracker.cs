@@ -336,7 +336,7 @@ namespace LethalAccess
                 {
                     // Periodically check current tile if needed.
                     // The `currentTile == null` half of the old condition made this run on EVERY
-                    // frame whenever the player was between tiles - exactly the situation where
+                    // frame whenever the player was between tiles, exactly the situation where
                     // the check is most expensive and least likely to succeed. Throttled to the
                     // same ~1/second cadence in both cases.
                     if (Time.time - lastTileCheckTime > TILE_CHECK_INTERVAL)
@@ -500,7 +500,7 @@ namespace LethalAccess
         {
             // The Company building is the only level that contains a DepositItemsDesk, so look
             // the component up by type. The old probe was GameObject.Find("DepositItemsDesk"),
-            // but the GameObject is named "DepositCounter" - that Find never matched. The
+            // but the GameObject is named "DepositCounter"; that Find never matched. The
             // companion probe for "ItemCounter" never matched either; no object of that name
             // exists in any shipped scene.
             if (UnityEngine.Object.FindObjectOfType<DepositItemsDesk>() != null)
@@ -1270,7 +1270,7 @@ namespace LethalAccess
                 }
             }
 
-            // Sort by distance (closest first) - implemented manually instead of using LINQ
+            // Sort by distance (closest first), implemented manually instead of using LINQ
             pointsToPlay.Sort((a, b) =>
                 Vector3.Distance(playerPos, a.position).CompareTo(Vector3.Distance(playerPos, b.position))
             );

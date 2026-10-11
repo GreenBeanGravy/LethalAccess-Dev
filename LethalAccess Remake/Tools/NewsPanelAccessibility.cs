@@ -20,7 +20,7 @@ namespace LethalAccess
     ///      focused. The words on a modal the user cannot dismiss without reading are unreachable
     ///      by construction, not by misconfiguration.
     ///   2. The dismiss button ships navigation.mode == None. Selectable's four finders all return
-    ///      null for None, AND Selectable.FindSelectable skips None candidates - so nothing can
+    ///      null for None, AND Selectable.FindSelectable skips None candidates, so nothing can
     ///      navigate off it and nothing can navigate onto it. Rewriting that button's navigation
     ///      is required, not optional.
     ///
@@ -61,7 +61,7 @@ namespace LethalAccess
         /// <summary>
         /// The generic menu notification (disconnect reasons, Steam failures, incompatible save
         /// files). Public so <c>MenuManagerNotificationPatch</c> can call it after
-        /// <c>MenuManager.DisplayMenuNotification</c> rewrites the text on an already-open panel -
+        /// <c>MenuManager.DisplayMenuNotification</c> rewrites the text on an already-open panel:
         /// that path does not re-run OnEnable, so the screen would not otherwise re-announce.
         ///
         /// <paramref name="focusNotificationText"/> defaults to FALSE on purpose. The existing
@@ -80,7 +80,7 @@ namespace LethalAccess
         /// The LAN-mode warning. Its Confirm button is another Mode.None dead end.
         ///
         /// Content is passed as null because the child names under LANWarning/Panel have not been
-        /// established for this build - see DiscoverContent for what that costs and how to settle
+        /// established for this build. See DiscoverContent for what that costs and how to settle
         /// it.
         /// </summary>
         public static void ApplyLanWarning(GameObject lanWarning)
@@ -175,7 +175,7 @@ namespace LethalAccess
             }
 
             // Explicit chain with null left/right. This is belt-and-braces against
-            // SelectableNavigationPatch, which routes up/down through the authored screen order -
+            // SelectableNavigationPatch, which routes up/down through the authored screen order,
             // but only while ConfigManager.VerticalNavigationOnly is true. With that switched off
             // the scene's own Mode.None on the dismiss button reasserts itself and the modal
             // becomes a dead end again, so the chain has to exist in the components too.
@@ -200,7 +200,7 @@ namespace LethalAccess
                     contentEntries[i] = new UIEntry
                     {
                         // Direct, so the registry claims exactly the objects the chain above was
-                        // written on - a path re-resolution that landed somewhere else would leave
+                        // written on: a path re-resolution that landed somewhere else would leave
                         // navigation and position announcements describing different objects.
                         Direct = content[i],
                         // Never consulted (Direct wins) but it is what the registry's error
@@ -232,7 +232,7 @@ namespace LethalAccess
 
             // All three of these panels are modal: they cover the menu and the only way on is
             // through their dismiss button. Trapping focus is what makes them behave that way for
-            // a keyboard - without it the arrows walked the main menu underneath, reading out
+            // a keyboard; without it the arrows walked the main menu underneath, reading out
             // buttons the panel was covering, and the panel was never announced at all because the
             // main-menu registration landed in the same frame and won. The trap lifts when the
             // panel hides, and the registry then hands focus back to the screen beneath.
@@ -259,7 +259,7 @@ namespace LethalAccess
 
         /// <summary>
         /// Register attaches the activation notifier, and Unity runs OnEnable inside AddComponent
-        /// when the root is already active - so a panel that is open by the time we get here has
+        /// when the root is already active, so a panel that is open by the time we get here has
         /// usually announced itself already. It has NOT when the notifier already existed, which is
         /// the re-Apply case. ScreenShown ignores a second call in the same frame, so driving it
         /// here covers both without risking a doubled announcement.
@@ -277,7 +277,7 @@ namespace LethalAccess
         /// build. Only LANWarning uses it; every named panel goes through the explicit list,
         /// because a rename there produces a loud error instead of a silently reordered screen.
         ///
-        /// Order is top-to-bottom on screen, NOT sibling order - see the class comment for why
+        /// Order is top-to-bottom on screen, NOT sibling order. See the class comment for why
         /// sibling order is actively wrong on these panels. Only direct children of Panel that
         /// carry their own TextMeshProUGUI with non-blank text qualify, which excludes the decor
         /// Images and the dismiss button's own label (a grandchild).

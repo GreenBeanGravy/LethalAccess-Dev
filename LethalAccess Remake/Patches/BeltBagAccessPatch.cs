@@ -9,7 +9,7 @@ namespace LethalAccess.Patches
     /// One line is responsible for most of it: HUDManager.OpenSpecialMenu only calls
     /// SetSelectedGameObject when StartOfRound.Instance.localPlayerUsingController is true. On
     /// mouse and keyboard nothing is ever focused, so the announcer has nothing to announce and no
-    /// arrow key does anything - the screen might as well not exist. Everything else in this file
+    /// arrow key does anything: the screen might as well not exist. Everything else in this file
     /// depends on that selection being seeded.
     /// </summary>
     public static class BeltBagAccessPatch
@@ -136,7 +136,7 @@ namespace LethalAccess.Patches
         /// is stranded on the cursor.
         ///
         /// The EventSystem dispatches Submit from ITS OWN Update, and Unity does not define
-        /// whether that runs before or after BeltBagNavigator.Update - so neither of them may
+        /// whether that runs before or after BeltBagNavigator.Update, so neither of them may
         /// assume it goes first. This prefix therefore does not read a flag the navigator sets;
         /// it asks the navigator, which asks the keyboard device the same frame-scoped question
         /// its own Update asks. Whichever of the two runs first performs the take and records the
@@ -219,7 +219,7 @@ namespace LethalAccess.Patches
                     return;
                 }
 
-                // The only guard that can reject an occupied slot is tryingAddToBag - an insert is
+                // The only guard that can reject an occupied slot is tryingAddToBag; an insert is
                 // still in flight to the server. Silence here would look identical to a dead key.
                 AnnouncementPolicy.Speak(__state.WasBusy
                     ? "Cannot take " + __state.ItemName + ", bag is busy."

@@ -83,13 +83,13 @@ namespace LethalAccess
         public List<UIEntry> Entries;
 
         /// <summary>
-        /// Walk this section in the order it appears ON SCREEN - top to bottom, then left to right
-        /// for controls on the same row - rather than in the order the entries are written.
+        /// Walk this section in the order it appears ON SCREEN (top to bottom, then left to right
+        /// for controls on the same row) rather than in the order the entries are written.
         ///
         /// Needed wherever a section is a LOGICAL grouping laid out across columns. The settings
         /// panel is the case that forced it: its Display section is authored
         /// Brightness, Fullscreen, Framerate, PixelRes, whose on-screen heights are 710, 892, 1085,
-        /// 783 - so pressing Down moved the highlight UP the screen twice, and a sighted person
+        /// 783, so pressing Down moved the highlight UP the screen twice, and a sighted person
         /// watching a blind user navigate sees the arrows working backwards.
         ///
         /// Off by default, because authored order is right wherever it disagrees with geometry on
@@ -103,7 +103,7 @@ namespace LethalAccess
         /// Sections sharing a non-null PositionGroup are counted as one set for "n of m", even
         /// when other sections sit between them.
         ///
-        /// For lists whose members each own a run of controls that appears directly under them -
+        /// For lists whose members each own a run of controls that appears directly under them:
         /// the keybinds screen's collapsible categories. Each header has to be its own section so
         /// its controls can follow it in the arrow-key order, yet the headers are one list to the
         /// user: "LethalAccess, 2 of 2", not "1 of 1" twice.
@@ -144,13 +144,13 @@ namespace LethalAccess
 
         /// <summary>
         /// Optional. Runs before Escape falls back to <see cref="EscapeTarget"/>. Return true when
-        /// the press was used up - closing something smaller than the screen, such as a section
-        /// the user expanded - and Escape must not also leave the screen.
+        /// the press was used up (closing something smaller than the screen, such as a section
+        /// the user expanded), and Escape must not also leave the screen.
         /// </summary>
         public Func<bool> OnEscape;
 
         /// <summary>
-        /// Confine focus to this screen for as long as it is shown - a modal.
+        /// Confine focus to this screen for as long as it is shown: a modal.
         ///
         /// While a trap is up, nothing outside it can take focus: another screen becoming visible
         /// registers silently underneath instead of announcing over the top, arrows and Tab stop at
@@ -170,8 +170,8 @@ namespace LethalAccess
         public string TrapSection;
 
         /// <summary>
-        /// Optional. What Escape activates on this screen, when the default - the first visible
-        /// entry whose label begins with "Back" - is wrong or absent. A modal whose dismiss
+        /// Optional. What Escape activates on this screen, when the default (the first visible
+        /// entry whose label begins with "Back") is wrong or absent. A modal whose dismiss
         /// control is worded differently ("Continue", "Discard changes") names it here.
         /// </summary>
         public Func<Transform> EscapeTarget;
@@ -180,7 +180,7 @@ namespace LethalAccess
         /// A dialog: something that opened ON TOP of what the user was doing and has to be dealt
         /// with. Confirmations, pop-ups, error screens.
         ///
-        /// It changes one thing - how a screen reader names this screen on arrival. An ordinary
+        /// It changes one thing: how a screen reader names this screen on arrival. An ordinary
         /// screen is a pane, whose name is read with no role after it; a dialog is announced as
         /// one, and a screen reader reads a dialog's body text before the focused control so the
         /// question arrives before the buttons. Calling the main menu a dialog is just wrong, and
@@ -207,7 +207,7 @@ namespace LethalAccess
         /// <summary>
         /// Other registered screens whose controls belong to this one in the published tree.
         ///
-        /// Keyboard order is untouched - a companion keeps its own up/down walk, which is the
+        /// Keyboard order is untouched; a companion keeps its own up/down walk, which is the
         /// reason it exists as a separate screen (see KeybindsAccessibility.ExtrasScreenId). But
         /// the tree only publishes the ACTIVE screen, so a control on a companion was focusable
         /// and absent from the tree: the screen reader had nothing to read and fell back to the
@@ -221,7 +221,7 @@ namespace LethalAccess
     /// Harmony patch per panel.
     ///
     /// AddComponent works on inactive GameObjects, and OnEnable fires when the panel is
-    /// activated by ANY means - including the serialized GameObject.SetActive UnityEvents that
+    /// activated by ANY means, including the serialized GameObject.SetActive UnityEvents that
     /// switch NewsPanel, KeybindsPanel, LobbyHostSettings, PleaseConfirmChangesPanel and
     /// ConfirmKickPlayerPanel, none of which route through a patchable C# method. That is the
     /// whole reason this component exists.
@@ -255,7 +255,7 @@ namespace LethalAccess
     /// <summary>
     /// The authored screen model. Everything about order, position ("n of m") and section
     /// membership comes from here, so that no part of the mod ever infers order from
-    /// transform.GetSiblingIndex() or from geometry - sibling order is draw order in this game
+    /// transform.GetSiblingIndex() or from geometry; sibling order is draw order in this game
     /// and does not track visual order (the news popup is heading=8, Continue=9, body=10 while
     /// the visual order is heading, body, Continue).
     /// </summary>
@@ -282,7 +282,7 @@ namespace LethalAccess
             public int LastShownFrame = -1;
             public bool HasValidated;
 
-            // Shown, but its content is still changing - see SuppressAnnounceOnShow. Controls on it
+            // Shown, but its content is still changing. See SuppressAnnounceOnShow. Controls on it
             // stay silent until whoever owns the screen calls MarkSettled.
             public bool AwaitingSettle;
         }
@@ -593,13 +593,13 @@ namespace LethalAccess
             }
 
             // AddComponent on an ACTIVE GameObject runs OnEnable synchronously, INSIDE the
-            // AddComponent call - i.e. before the next line can assign ScreenId. OnEnable therefore
+            // AddComponent call, i.e. before the next line can assign ScreenId. OnEnable therefore
             // saw an empty id, took its no-op branch, and the screen was never shown.
             //
             // This was a live defect, not a hypothetical: the settings panel registered correctly
             // (its descriptor was in `screens`) but ActiveScreenId stayed empty and not one of its
             // controls was ever claimed, so every announcement fell through to the old sibling
-            // heuristic - "Back, button, 1 of 8", the exact defect the descriptor exists to fix.
+            // heuristic: "Back, button, 1 of 8", the exact defect the descriptor exists to fix.
             // The pre-init screen was unaffected only because its root is INACTIVE at registration,
             // which defers OnEnable until the id is already set.
             //
@@ -644,7 +644,7 @@ namespace LethalAccess
                 return;
             }
 
-            // A panel can be announced twice in one frame - the notifier's OnEnable plus a
+            // A panel can be announced twice in one frame: the notifier's OnEnable plus a
             // Harmony postfix on whatever opened it. Announcing the screen twice is worse than
             // missing the second call, and a genuine hide/show pair clears this stamp.
             if (s.LastShownFrame == Time.frameCount)
@@ -659,7 +659,7 @@ namespace LethalAccess
             shownStack.Add(id);
 
             // A screen appearing UNDERNEATH a modal is registered and stacked, so it is ready the
-            // moment the modal closes - but it must not announce itself or take focus. This is not
+            // moment the modal closes, but it must not announce itself or take focus. This is not
             // hypothetical: MenuManager.Start activates NewsPanel and is also postfixed by the
             // main-menu registration, so both land on one frame. Without this the main menu won on
             // arrival order, the pop-up was never announced, and the arrows read out main-menu
@@ -694,7 +694,7 @@ namespace LethalAccess
                 // Seeding here is not harmless: "the first visible entry" is computed against the
                 // unsettled screen, so focus landed on the gamma panel's Confirm. Muting matters
                 // just as much, because the GAME selects a control of its own here
-                // (SelectUIForGamepad.OnEnable) and the announcer would describe it - carrying the
+                // (SelectUIForGamepad.OnEnable) and the announcer would describe it, carrying the
                 // unsettled screen's title as its context prefix, which is the exact line this flag
                 // exists to suppress. MarkSettled lifts both.
                 s.AwaitingSettle = true;
@@ -737,12 +737,12 @@ namespace LethalAccess
             {
                 // Deliberately does NOT re-announce whatever is underneath. The game usually
                 // leaves the EventSystem pointing at a destroyed object here, and FocusManager's
-                // watchdog re-seeds and announces it - one recovery path, not two competing ones.
+                // watchdog re-seeds and announces it: one recovery path, not two competing ones.
                 return;
             }
 
             // A trap is the exception. The screen underneath was deliberately kept silent while the
-            // modal was up, so it has never been announced and focus was never seeded into it -
+            // modal was up, so it has never been announced and focus was never seeded into it:
             // there is nothing for the watchdog to recover TO. Hand focus back explicitly.
             string beneath = activeScreenId;
             if (string.IsNullOrEmpty(beneath))
@@ -839,7 +839,7 @@ namespace LethalAccess
         /// Position of this control WITHIN ITS SECTION, counting only currently-visible entries.
         /// index is 1-BASED, so it can be announced as "{index} of {count}" with no arithmetic
         /// at the call site. Returns false when the object is not claimed, or is itself not
-        /// visible - announcing a position we cannot stand behind is worse than announcing none.
+        /// visible; announcing a position we cannot stand behind is worse than announcing none.
         /// </summary>
         /// <summary>
         /// One visible control on the active screen, flattened for an external consumer.
@@ -983,7 +983,7 @@ namespace LethalAccess
 
         /// <summary>
         /// Whether this screen should be announced as a dialog. True when it says so, and when it
-        /// traps focus - a screen nothing can be focused outside of IS a modal, whatever it called
+        /// traps focus: a screen nothing can be focused outside of IS a modal, whatever it called
         /// itself.
         /// </summary>
         public static bool IsModalScreen(string screenId)
@@ -1117,7 +1117,7 @@ namespace LethalAccess
         ///
         /// Section name when the screen has more than one section, screen title when it has one.
         /// A single-section screen's section name is an internal grouping label ("Main", "Buttons")
-        /// that means nothing spoken aloud, whereas its title is what the user calls the screen -
+        /// that means nothing spoken aloud, whereas its title is what the user calls the screen,
         /// which is why the main menu reads "Main Menu, Host…" and the settings panel reads
         /// "Audio, Microphone…" rather than both using the same field.
         ///
@@ -1186,7 +1186,7 @@ namespace LethalAccess
 
         /// <summary>
         /// The next authored neighbour in flat order: +1 = down, -1 = up. Skips entries that are
-        /// not currently visible. Does NOT wrap - the top and bottom of a screen are dead ends,
+        /// not currently visible. Does NOT wrap; the top and bottom of a screen are dead ends,
         /// which is what a screen-reader user expects from arrow keys.
         /// </summary>
         public static Transform NextInFlatOrder(GameObject from, int delta)
@@ -1238,7 +1238,7 @@ namespace LethalAccess
         /// First visible entry of the next/previous section that has any visible entries.
         /// Wraps, because Tab is a cycling key and every arrival announces its section name, so
         /// a wrap is audible rather than disorienting. Returns null when the screen has only one
-        /// section with visible entries - there is nowhere else to go.
+        /// section with visible entries; there is nowhere else to go.
         /// </summary>
         public static Transform NextSection(GameObject from, int delta)
         {
@@ -1311,7 +1311,7 @@ namespace LethalAccess
 
         /// <summary>
         /// Every currently-visible entry of a screen, in authored flat order. Pass null for the
-        /// active screen. Allocates - not for the arrow-key path.
+        /// active screen. Allocates, so keep it off the arrow-key path.
         /// </summary>
         public static List<Transform> VisibleFlatOrder(string screenId)
         {
@@ -1440,7 +1440,7 @@ namespace LethalAccess
                     {
                         if (!entry.Optional)
                         {
-                            // Absent is a real error - the entry can never be reached. This
+                            // Absent is a real error: the entry can never be reached. This
                             // is distinct from "resolved but inactive", reported below.
                             Debug.LogError("[LethalAccess] Screen '" + d.Id + "', section '" + section.Name +
                                            "': entry '" + DescribeEntry(entry) + "' did not resolve. It is " +
@@ -1532,7 +1532,7 @@ namespace LethalAccess
                 if (!TryGetScreenCenter(items[i].T, out c))
                 {
                     // One unmeasurable entry makes the whole order arbitrary, so authored order is
-                    // kept rather than half-sorted - and it is said out loud, because a section that
+                    // kept rather than half-sorted, and it is said out loud, because a section that
                     // silently ignores its own ordering flag is very hard to notice.
                     Debug.LogWarning("[LethalAccess] Screen '" + screenId + "', section '" + sectionName +
                                      "': '" + items[i].T.name + "' has no RectTransform, so the section " +
@@ -1620,7 +1620,7 @@ namespace LethalAccess
         /// <summary>
         /// First-show validation. "Absent" is reported by the caller; here we report the
         /// two quieter failures: resolved-but-inactive, and a declared Type with no matching
-        /// component - the latter is what let "checkbox"/"toggle" be registered on plain Buttons
+        /// component; the latter is what let "checkbox"/"toggle" be registered on plain Buttons
         /// and announced as something the control is not.
         /// </summary>
         private static void ValidateResolvedEntry(string screenId, string sectionName, UIEntry entry, Transform t)

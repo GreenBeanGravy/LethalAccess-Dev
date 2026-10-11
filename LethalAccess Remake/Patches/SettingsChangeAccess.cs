@@ -9,9 +9,9 @@ namespace LethalAccess.Patches
     /// Every utterance in here now hangs off a method the USER invoked. The previous version
     /// announced from storage plumbing, which is why "Settings saved." fired at times the user had
     /// done nothing settings-related: <see cref="IngamePlayerSettings.SaveSettingsToPrefs"/> has
-    /// exactly two callers, and NEITHER of them is a settings save -
-    ///   IngamePlayerSettings.ResetSettingsToDefault - a destructive WIPE, announced as a save;
-    ///   IngamePlayerSettings.SaveChangedSettings - which PreInitSceneScript.ChooseLaunchOption
+    /// exactly two callers, and NEITHER of them is a settings save:
+    ///   IngamePlayerSettings.ResetSettingsToDefault: a destructive WIPE, announced as a save;
+    ///   IngamePlayerSettings.SaveChangedSettings, which PreInitSceneScript.ChooseLaunchOption
     ///   calls once at boot, so picking Online/LAN on the launch screen said "Settings saved."
     ///   (live-confirmed on this build, attributed to the old PostfixSaveSettingsToPrefs).
     /// A postfix on SaveSettingsToPrefs also cannot report failure: it swallows its own exception at
@@ -41,7 +41,7 @@ namespace LethalAccess.Patches
             }
 
             /// <summary>
-            /// "Reset all to default" wipes every setting AND writes it to disk immediately - there
+            /// "Reset all to default" wipes every setting AND writes it to disk immediately; there
             /// is no confirmation and no undo. It used to be announced as "Settings saved.", which
             /// is the opposite of a warning.
             /// </summary>
@@ -80,10 +80,10 @@ namespace LethalAccess.Patches
             /// (SettingsOption.SetSettingsOptionInt/Float -> IngamePlayerSettings.SetOption).
             /// Re-announcing the focused control here replaces three hand-written sentences that
             /// covered two sliders and the microphone and left the five dropdowns and six
-            /// sprite-toggles completely silent - and it obeys rule 3: the user hears what the
+            /// sprite-toggles completely silent, and it obeys rule 3: the user hears what the
             /// control IS and what it is NOW, not a free-floating "volume changed".
             ///
-            /// 3.2 - this goes through UIAccessibilityManager.RequestReAnnounce rather than
+            /// 3.2: this goes through UIAccessibilityManager.RequestReAnnounce rather than
             /// AnnouncementPolicy.ReAnnounceFocused because the same funnel also carries the three
             /// SLIDERS. SettingsOption.SetSettingsOptionFloat is wired to Slider.onValueChanged
             /// (SettingsOption.SetSettingsOptionFloat), and Slider.OnMove calls Set() on every repeat of a held
@@ -111,7 +111,7 @@ namespace LethalAccess.Patches
                 [HarmonyPostfix]
                 public static void PostfixStart()
                 {
-                    // Kept as the mod's liveness cue - it is attributable to the user launching the
+                    // Kept as the mod's liveness cue: it is attributable to the user launching the
                     // game. Routed through AnnouncementPolicy so there is one speech front door
                     //; the side effect is that it now respects the audio-cues config toggle,
                     // where Utilities.SpeakText ignored it.
@@ -150,7 +150,7 @@ namespace LethalAccess.Patches
 
             /// <summary>
             /// A finalizer rather than a postfix so the suppression scope is released even if the
-            /// save throws - a scope left open would silence the mod, which is the worst failure
+            /// save throws: a scope left open would silence the mod, which is the worst failure
             /// this file can have. The announcement is made here too, AFTER the release, because a
             /// postfix would still be inside the scope and would be swallowed.
             /// </summary>
@@ -184,7 +184,7 @@ namespace LethalAccess.Patches
         // __instance.currentText in full, unconditionally, while TerminalAccessPatch
         // installs its own prefix+postfix pair on the same method that speaks only the part of the
         // buffer the user has not heard yet. Harmony applied both and the order between two
-        // postfixes on one method is undefined, so every terminal page was read twice - once whole,
+        // postfixes on one method is undefined, so every terminal page was read twice: once whole,
         // once as the delta, in whichever order. Deleted rather than moved: TerminalAccessPatch
         // patched LoadNewNode and nothing else was patched here, and its postfix already covers
         // every case this one did (clearPreviousText and a null node both fall back to the whole

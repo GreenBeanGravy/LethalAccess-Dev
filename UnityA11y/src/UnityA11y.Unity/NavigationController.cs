@@ -67,7 +67,7 @@ namespace UnityA11y.Unity
     /// <summary>
     /// Who decides which control is focused.
     ///
-    /// A screen reader never moves focus - it only observes it - so something in
+    /// A screen reader never moves focus (it only observes it), so something in
     /// the process must. That is either this library (<see cref="NavigationController"/>,
     /// which takes the keyboard over) or the host game (<see cref="ExternalFocusOwner"/>,
     /// which leaves the game's own navigation alone and just reports what it picked).
@@ -98,8 +98,8 @@ namespace UnityA11y.Unity
     /// suppresses nothing, and never touches the EventSystem.
     ///
     /// This is what makes the library usable as a pure PROVIDER: the game keeps
-    /// whatever navigation it already had - including any authored reading order
-    /// the generic scanner knows nothing about - and this library restricts itself
+    /// whatever navigation it already had (including any authored reading order
+    /// the generic scanner knows nothing about), and this library restricts itself
     /// to publishing a tree and relaying the assistive technology's focus requests.
     /// </summary>
     public sealed class ExternalFocusOwner : IFocusOwner
@@ -113,7 +113,7 @@ namespace UnityA11y.Unity
         /// </param>
         /// <param name="requestFocus">
         /// Asks the host to move focus to a node id. Called when the assistive
-        /// technology issues a Focus action - NVDA's "move focus to navigator
+        /// technology issues a Focus action: NVDA's "move focus to navigator
         /// object". The host may decline; nothing here assumes it succeeded.
         /// </param>
         public ExternalFocusOwner(Func<ulong> readCurrentId, Action<ulong> requestFocus)

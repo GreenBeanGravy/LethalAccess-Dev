@@ -13,7 +13,7 @@ namespace LethalAccess
         private float behindFrequency = 220f; // 50% deeper tone
 
         // Both tones are generated once. The previous code built a fresh AudioClip (and a fresh
-        // 8820-sample float[]) on every play - roughly 40 native AudioClips a minute, none of
+        // 8820-sample float[]) on every play, roughly 40 native AudioClips a minute, none of
         // them ever destroyed, for as long as North Sound stayed on.
         private AudioClip normalToneClip;
         private AudioClip behindToneClip;

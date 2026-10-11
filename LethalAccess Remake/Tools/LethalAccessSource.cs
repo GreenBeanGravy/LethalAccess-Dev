@@ -15,7 +15,7 @@ namespace LethalAccess
     ///   - the SCREEN MODEL (what the controls are, their order, their sections, their
     ///     live state) already exists and does not change here;
     ///   - the WORDING stops being ours. Roles, states, "n of m", which parts to suppress
-    ///     as redundant - all of that becomes the screen reader's job;
+    ///     as redundant; all of that becomes the screen reader's job;
     ///   - NAVIGATION also does not change. The Selectable finder patches still own the
     ///     arrow keys, and this class only reports where focus already is.
     ///
@@ -60,8 +60,8 @@ namespace LethalAccess
         public int Priority { get { return 100; } }
 
         /// <summary>
-        /// Only while the registry actually claims a screen. Everything else - gameplay,
-        /// unregistered panels - is left to whatever else is registered, or to nothing.
+        /// Only while the registry actually claims a screen. Everything else (gameplay,
+        /// unregistered panels) is left to whatever else is registered, or to nothing.
         /// </summary>
         public bool IsActive
         {
@@ -128,7 +128,7 @@ namespace LethalAccess
             // The root is the game window and is named for the application, never for the current
             // screen. A screen reader reads a window's name when the application is switched to,
             // not when focus moves inside it, so a title put here is read once at startup and
-            // never again - which is what happened to every screen title the mod published.
+            // never again, which is what happened to every screen title the mod published.
             AccessNode root = new AccessNode(RootId, AccessRole.Window);
             root.Label = Application.productName;
             root.Focusable = false;
@@ -166,7 +166,7 @@ namespace LethalAccess
             // The set size must be on an ANCESTOR: accesskit_consumer's
             // size_of_set_from_container walks filtered parents and never reads the item's own,
             // so a grouped screen spoke "n of m" (the Group carries it) while the main menu and
-            // the startup screens - single section, no group - silently lost the "of m" half.
+            // the startup screens (single section, no group) silently lost the "of m" half.
             if (!useGroups && _views.Count > 0)
             {
                 screenNode.SizeOfSet = _views[0].SectionCount;
@@ -239,7 +239,7 @@ namespace LethalAccess
         // cursor through it, or say which character the caret just moved onto. A plain Value is
         // spoken once on focus and is silent for every keystroke after it.
 
-        // The run's id sits one bit above everything StableId can produce - that is derived from
+        // The run's id sits one bit above everything StableId can produce; that is derived from
         // a 32-bit instance id, so bit 32 is free and cannot collide with a control.
         private const ulong TextRunIdBias = 0x100000000UL;
 
@@ -273,7 +273,7 @@ namespace LethalAccess
 
             // Only while every index fits in the byte AccessKit stores them in. Past that the
             // indices would wrap and point at the wrong characters, so no word starts at all is
-            // the honest answer - ctrl+arrow then treats the field as one word.
+            // the honest answer; ctrl+arrow then treats the field as one word.
             run.WordStarts = run.CharacterLengths.Length <= 255 ? WordStarts(text) : null;
         }
 
@@ -454,7 +454,7 @@ namespace LethalAccess
             // it is published regardless of one. Leaving it inside the state fallback is exactly
             // the bug that shipped: the host-menu fields have authored State delegates, so their
             // selection was never set, and a TextPattern whose GetSelection returns nothing has
-            // no caret - the field read fine and the cursor was invisible.
+            // no caret: the field read fine and the cursor was invisible.
             if (node.Role == AccessRole.TextInput || node.Role == AccessRole.MultilineTextInput)
             {
                 TMPro.TMP_InputField input = v.Target.GetComponent<TMPro.TMP_InputField>();
@@ -468,7 +468,7 @@ namespace LethalAccess
         /// Every state a control had was previously reachable ONLY through a hand-written State
         /// delegate on its UIEntry, and four entries in the whole mod have one. So a checkbox
         /// published no toggle state, a dropdown published no selection, and an edit field
-        /// published no text - which a screen reader cannot compensate for: with no toggle state
+        /// published no text, which a screen reader cannot compensate for: with no toggle state
         /// there is nothing to say on focus and, worse, nothing to CHANGE, so toggling a checkbox
         /// was silent.
         ///
@@ -521,7 +521,7 @@ namespace LethalAccess
 
                     // The caption is what the player sees. The option's own text can be a raw
                     // localisation token that a LocaleResolver on the caption translates only on
-                    // screen - InputUtils' priority dropdown published "OverridePriority.PreferGlobal".
+                    // screen: InputUtils' priority dropdown published "OverridePriority.PreferGlobal".
                     string shown = dropdown.captionText != null ? dropdown.captionText.text : null;
                     if (!string.IsNullOrWhiteSpace(shown))
                     {
@@ -555,8 +555,8 @@ namespace LethalAccess
         /// <summary>
         /// Publish a Slider as a numeric range rather than as text.
         ///
-        /// A screen reader given min/max/value normalises it itself - NVDA reports a slider's
-        /// RangeValue as a percentage of its range - and it fires a value-change announcement
+        /// A screen reader given min/max/value normalises it itself (NVDA reports a slider's
+        /// RangeValue as a percentage of its range), and it fires a value-change announcement
         /// that speaks the number ALONE while the user holds an arrow key, instead of repeating
         /// the name and role on every step. A scraped string would get neither.
         ///
@@ -594,7 +594,7 @@ namespace LethalAccess
         ///
         /// This is where the mod stops inventing wording. A control the mod used to
         /// announce as "Invert Y-Axis, off, button" is a CheckBox with Toggled = False,
-        /// and the screen reader renders that in the user's own configured vocabulary -
+        /// and the screen reader renders that in the user's own configured vocabulary,
         /// which is also why the on/off text must NOT also go in Value: CheckBox is one of
         /// the roles whose value is suppressed precisely to stop "off  not checked".
         /// </summary>
@@ -604,7 +604,7 @@ namespace LethalAccess
             if (string.IsNullOrEmpty(type)) return AccessRole.Button;
 
             // Spaces removed before matching. The authored vocabulary and the one the legacy
-            // announcer sniffs are the same words spelled differently - "input field" is what
+            // announcer sniffs are the same words spelled differently: "input field" is what
             // four host-menu entries are registered as and what SniffElementType returns, and it
             // matched nothing here, so every edit field on that screen published as a button.
             switch (type.Replace(" ", "").ToLowerInvariant())
@@ -757,7 +757,7 @@ namespace LethalAccess
         // ---- Focus --------------------------------------------------------------
 
         /// <summary>
-        /// Where focus IS, read from the EventSystem - not where this class thinks it
+        /// Where focus IS, read from the EventSystem, not where this class thinks it
         /// should be. The finder patches own movement; this only observes.
         /// </summary>
         public ulong CurrentFocusId()
@@ -770,7 +770,7 @@ namespace LethalAccess
         }
 
         /// <summary>
-        /// A focus request from the assistive technology - NVDA's "move focus to navigator
+        /// A focus request from the assistive technology: NVDA's "move focus to navigator
         /// object". Routed through FocusManager so it goes through the same choke point,
         /// and the same focus trap, as every other focus change in the mod.
         /// </summary>

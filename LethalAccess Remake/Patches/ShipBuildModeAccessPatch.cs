@@ -8,7 +8,7 @@ namespace LethalAccess.Patches
     /// <summary>
     /// Ship build mode, which had no mod coverage at all.
     ///
-    /// Build mode is not an EventSystem screen - there are no Selectables, nothing is focused, and
+    /// Build mode is not an EventSystem screen: there are no Selectables, nothing is focused, and
     /// the only feedback the game gives is a red/green material swap on the ghost mesh plus a
     /// "deny" sound that arrives AFTER you have already tried to commit. Legality lives in the
     /// private ShipBuildModeManager.CanConfirmPosition, recomputed every frame in Update.
@@ -37,7 +37,7 @@ namespace LethalAccess.Patches
         /// True while the local player is positioning furniture.
         ///
         /// LACore.CheckKeybinds reads this to skip the mod's "announce current room" hotkey, which
-        /// is bound to R - also the game's rotate key in build mode (CreateGhostObjectAndHighlight
+        /// is bound to R, also the game's rotate key in build mode (CreateGhostObjectAndHighlight
         /// writes "Rotate: [R]" into the control tip).
         /// </summary>
         public static bool InBuildMode
@@ -54,8 +54,8 @@ namespace LethalAccess.Patches
         ///
         /// HUDManager.buildModeControlTip is a separate field from controlTipLines[], and
         /// ControlTipAccessPatch.SpeakControlTip walks the hard-coded ControlTip1..3 objects, so
-        /// the build-mode tip - the only place the confirm, rotate and store keys are written down
-        /// - is invisible to that loop. SpeakControlTip appends this to cover it.
+        /// the build-mode tip (the only place the confirm, rotate and store keys are written down)
+        /// is invisible to that loop. SpeakControlTip appends this to cover it.
         /// </summary>
         public static string GetBuildModeControlTip()
         {
@@ -365,7 +365,7 @@ namespace LethalAccess.Patches
                 return;
             }
 
-            // A transition inside the cooldown is not dropped - the condition above stays true, so
+            // A transition inside the cooldown is not dropped; the condition above stays true, so
             // it is announced on the first frame past the window and the user always ends up with
             // the current state rather than a stale one.
             if (Time.unscaledTime < nextLegalityTime)

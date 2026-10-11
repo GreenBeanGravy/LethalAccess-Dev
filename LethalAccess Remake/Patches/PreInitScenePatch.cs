@@ -25,10 +25,10 @@ namespace LethalAccess
     ///      deactivate and then repairs it (PreInitSceneScript.SkipToFinalSetting); PressContinueButton has
     ///      no equivalent.
     /// EventSystem.m_FirstSelected is null in this scene (verified live), so nothing recovers, and
-    /// the announcer is gated on a non-null selection - silent AND unnavigable from one cause.
+    /// the announcer is gated on a non-null selection: silent AND unnavigable from one cause.
     /// A postfix that re-seeds focus is the whole fix.
     ///
-    /// SECOND: the first-run SET-UP screen, which the mod had never described at all - no title,
+    /// SECOND: the first-run SET-UP screen, which the mod had never described at all: no title,
     /// no labels, no positions, and a CONFIRM button whose "n of m" fell out of a sibling scan that
     /// finds exactly one Button under Canvas/GameObject and therefore returns nothing.
     ///
@@ -92,7 +92,7 @@ namespace LethalAccess
             // OnlineButton in that same moment. If the descriptor is not in place by then, the
             // announcer describes the button from its raw scene text ("Online, button, 1 of 2"),
             // and the descriptor describes it AGAIN when it lands ("Online, recommended, button,
-            // 1 of 2") - the user hears one control twice, worded differently, with the screen
+            // 1 of 2"): the user hears one control twice, worded differently, with the screen
             // title wedged between. Registering against the still-inactive root defers resolution
             // until the notifier's OnEnable, which is exactly the frame the screen appears.
             //
@@ -109,7 +109,7 @@ namespace LethalAccess
         /// `currentLaunchSettingPanel &lt; Length` and then PRE-increments before indexing, so
         /// calling it on the final panel throws
         /// IndexOutOfRangeException. Unreachable from the UI because continueButton is deactivated
-        /// when the final panel is reached - and reachable the moment this mod, or any other, calls
+        /// when the final panel is reached, and reachable the moment this mod, or any other, calls
         /// the method directly.
         /// </summary>
         [HarmonyPatch("PressContinueButton")]
@@ -161,7 +161,7 @@ namespace LethalAccess
 
         /// <summary>
         /// The returning-player path. SkipToFinalSetting already selects OnlineModeButton itself,
-        /// so focus must not be fought over here - but it has never said WHICH screen the player
+        /// so focus must not be fought over here, but it has never said WHICH screen the player
         /// is on.
         ///
         /// This runs from waitToLoadSettings in the same frame that enables the container, which is
@@ -195,8 +195,8 @@ namespace LethalAccess
         /// repair there.
         ///
         /// What is left is navigation: Canvas/FilesCorruptedScreen/Panel/Confirm ships
-        /// Navigation.Mode.None (verified live), which makes it a dead end for the arrow keys - and
-        /// unreachable FROM anything, since Selectable.FindSelectable skips Mode.None candidates -
+        /// Navigation.Mode.None (verified live), which makes it a dead end for the arrow keys, and
+        /// unreachable FROM anything, since Selectable.FindSelectable skips Mode.None candidates,
         /// whenever VerticalNavigationOnly is off. That button deletes every save file, so it must
         /// not be the only thing a player can reach and it must not be reachable by accident.
         /// </summary>
@@ -295,12 +295,12 @@ namespace LethalAccess
             if (s.currentLaunchSettingPanel == 0 && panels.Length > 2)
             {
                 // The gamma panel asks the player to raise brightness "until the symbol on the right
-                // is barely visible" - there is nothing a blind player can act on, and the mod has
+                // is barely visible"; there is nothing a blind player can act on, and the mod has
                 // always skipped it. Done by hand rather than through PressContinueButton because
                 // this is not a user action: it must not fire the black transition.
                 //
                 // Guarded on Length > 2 so this can never land on the FINAL panel, which vanilla
-                // finalises by deactivating continueButton and rewriting the header - work this
+                // finalises by deactivating continueButton and rewriting the header, work this
                 // shortcut does not do.
                 if (panels[0] != null)
                 {
@@ -357,7 +357,7 @@ namespace LethalAccess
                 return;
             }
 
-            // Several paths legitimately settle on the same panel - PostfixSkipToFinalSetting and
+            // Several paths legitimately settle on the same panel: PostfixSkipToFinalSetting and
             // the coroutine can both land on the final one, in either order, depending on
             // MonoBehaviour update order. Announcing per PANEL rather than per call makes that
             // harmless. The scene is loaded once per process and lastAnnouncedPanel is reset when a
@@ -376,7 +376,7 @@ namespace LethalAccess
             {
                 // This is the re-seed that fixes the silent LAUNCH MODE screen described at the top
                 // of this file. OnlineModeButton is a serialized field wired to
-                // Canvas/GameObject/LANOrOnline/OnlineButton, so no lookup is needed - and using the
+                // Canvas/GameObject/LANOrOnline/OnlineButton, so no lookup is needed, and using the
                 // field rather than the screen order means focus is restored even if the descriptor
                 // failed to resolve.
                 target = s.OnlineModeButton.transform;
@@ -449,8 +449,8 @@ namespace LethalAccess
                 return null;
             }
 
-            // LANOrOnline has no Instruction child - its header ("LAUNCH MODE") already says
-            // everything - so absence here is normal and must not be reported as a fault.
+            // LANOrOnline has no Instruction child: its header ("LAUNCH MODE") already says
+            // everything, so absence here is normal and must not be reported as a fault.
             Transform instruction = panels[index].transform.Find("Instruction");
             if (instruction == null)
             {
@@ -483,9 +483,9 @@ namespace LethalAccess
             d.Id = ScreenId;
             d.Title = ScreenTitle;
 
-            // The container switches on with the GAMMA panel up and then advances - either by
+            // The container switches on with the GAMMA panel up and then advances (either by
             // SkipToFinalSetting for a returning player or by the gamma skip in PreInitFlow on a
-            // first run - inside the SAME frame. Announcing on show therefore read the title of a
+            // first run), inside the SAME frame. Announcing on show therefore read the title of a
             // panel nobody sees: every boot opened with "SET-UP. Adjust screen brightness until the
             // symbol on the right is barely visible." followed immediately by the real screen, and
             // on a first run the index went with it ("Confirm, button, 2 of 2" for a panel that has
@@ -541,9 +541,9 @@ namespace LethalAccess
             gamma.RelativePath = "GammaSetting/BrightnessSetting/Slider";
             gamma.Label = "Gamma and brightness";
             gamma.Type = "slider";
-            // Not needed for left/right to adjust the value - Slider overrides the finders and
+            // Not needed for left/right to adjust the value (Slider overrides the finders and
             // returns null while mode is Automatic and the axis is Horizontal, and its OnMove steps
-            // the value whenever the finder returns null - but flagged so the behaviour survives the
+            // the value whenever the finder returns null), but flagged so the behaviour survives the
             // explicit chain RebuildChain writes, which switches the mode away from Automatic.
             gamma.KeepsHorizontal = true;
             gamma.State = GammaState;
@@ -616,7 +616,7 @@ namespace LethalAccess
             e.RelativePath = relativePath;
             e.Label = label;
             // "button", not "toggle": SpeakerButton is a plain UnityEngine.UI.Button with a
-            // SettingsOption that swaps a sprite (verified live - no Toggle component anywhere on
+            // SettingsOption that swaps a sprite (verified live: no Toggle component anywhere on
             // the three). Declaring "toggle" would make the registry's type validation log an error
             // and would promise the announcer a checked/unchecked state that does not exist.
             e.Type = "button";
@@ -686,8 +686,8 @@ namespace LethalAccess
                 : null;
             confirm.RelativePath = "Panel/Confirm";
             // The scene text is "[ Delete files and restart]". Spelled out here because this button
-            // permanently deletes LCGeneralSaveData and all three save slots, and "Confirm" - which
-            // is what the GameObject is called - would not tell anyone that.
+            // permanently deletes LCGeneralSaveData and all three save slots, and "Confirm" (which
+            // is what the GameObject is called) would not tell anyone that.
             confirm.Label = "Delete files and restart";
             confirm.Type = "button";
             section.Entries.Add(confirm);
@@ -794,7 +794,7 @@ namespace LethalAccess
                 }
             }
 
-            // The screen model could not answer, so fall back to hierarchy order - which is DRAW
+            // The screen model could not answer, so fall back to hierarchy order, which is DRAW
             // order in this game and does not track visual order. Worth saying out loud, because a
             // focus that lands in the wrong place is much harder to diagnose than one that does not
             // land at all.

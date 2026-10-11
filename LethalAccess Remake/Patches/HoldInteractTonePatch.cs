@@ -51,8 +51,8 @@ namespace LethalAccess.Patches
         }
 
         // Pure functions of constants, so generated once for the process. Regenerating them when
-        // the AudioSources are rebuilt - which happens on each player-object rebuild, i.e. every
-        // round - allocates a 44100-sample float[] plus a native AudioClip each time, and nothing
+        // the AudioSources are rebuilt (which happens on each player-object rebuild, i.e. every
+        // round) allocates a 44100-sample float[] plus a native AudioClip each time, and nothing
         // destroys the old one.
         private static AudioClip cachedContinuousClip;
         private static AudioClip cachedCompletionClip;

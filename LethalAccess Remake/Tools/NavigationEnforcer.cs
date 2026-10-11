@@ -9,7 +9,7 @@ namespace LethalAccess
     ///
     /// The general "up/down only" rule is enforced by SelectableNavigationPatch, which is
     /// non-destructive and needs no invalidation story. This class is for the cases where the mod
-    /// owns the objects anyway - Selectables it injected, runtime clones it built - and writing
+    /// owns the objects anyway (Selectables it injected, runtime clones it built) and writing
     /// the chain directly is simpler than describing it.
     ///
     /// Every method here writes back through the `navigation` property: Navigation is a struct,
@@ -71,7 +71,7 @@ namespace LethalAccess
         ///
         /// Switching to Explicit freezes whatever up/down were authored. If the scene authored
         /// them as Automatic (geometry) they are null, and this would kill vertical movement
-        /// entirely - unless the registry claims the control, in which case
+        /// entirely, unless the registry claims the control, in which case
         /// SelectableNavigationPatch supplies up/down from the authored screen order and the null
         /// fields are never read. That is the only case where an empty explicit chain is safe, so
         /// anything else gets a warning.

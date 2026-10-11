@@ -189,7 +189,7 @@ namespace LethalAccess
                 Harmony harmony = new Harmony("LethalAccess");
                 // PatchAll(assembly) already covers every [HarmonyPatch] class in this assembly,
                 // including PreInitScenePatch. The extra PatchAll(typeof(PreInitScenePatch)) that
-                // used to follow applied the postfix a second time - visible in the log as two
+                // used to follow applied the postfix a second time, visible in the log as two
                 // "Pressing Continue button in PreInitScene" lines for one event.
                 harmony.PatchAll(Assembly.GetExecutingAssembly());
 
@@ -238,7 +238,7 @@ namespace LethalAccess
         private void RegisterUIElements()
         {
             // Every path below must name an object that actually ships in level2. Names that look
-            // right and do not exist have been added here more than once - MainButtons/JoinButton
+            // right and do not exist have been added here more than once: MainButtons/JoinButton
             // (it is JoinACrew), MicSettings/PushToTalk (the mic-mode control is TalkMode; the real
             // PushToTalk is under ControlsOptions, inactive, and its Selectable is on the child
             // PushToTalk/Button), MainButtons/PlayButton, SettingsPanel/TabButton(*) and
@@ -258,7 +258,7 @@ namespace LethalAccess
             // Register the main-menu buttons BEFORE grouping them. CreateGroup only
             // auto-registers paths it has not seen (UIAccessibilityHandler.CreateGroup), and that
             // auto-registration passes displayName == null, which makes RegisterElement fall back
-            // to GetNameFromPath - a camel-split of the GameObject name, i.e. "Host Button". The
+            // to GetNameFromPath, a camel-split of the GameObject name, i.e. "Host Button". The
             // scene labels are "> Host" etc., so registered and unregistered buttons on one screen
             // announced themselves in two different styles.
             uiAccessibilityManager.RegisterElement("Canvas/MenuContainer/MainButtons/HostButton", "Host", "button");
@@ -285,7 +285,7 @@ namespace LethalAccess
 
             // The real push-to-talk control, registered on its own rather than in the mic group:
             // it sits under ControlsOptions, not MicSettings, and the Selectable is on the child
-            // Button - the parent PushToTalk object has none. Its parent ships inactive, so this
+            // Button; the parent PushToTalk object has none. Its parent ships inactive, so this
             // entry is expected to be absent most of the time; that is only expressible as
             // UIEntry.Optional once the settings panel gets a UIScreenDescriptor (that file is
             // owned by the settings pass), and until then ValidateRegisteredPaths will report it.
@@ -315,7 +315,7 @@ namespace LethalAccess
                     UIUtils.GetSliderValue("Systems/UI/Canvas/QuickMenu/SettingsPanel/MasterVolume/Slider/Handle Slide Area/Handle")));
 
             // Three main-menu texts that have never been announced. Each is a bare TMP with no
-            // Selectable, so registering them does not by itself make them reachable - it means
+            // Selectable, so registering them does not by itself make them reachable; it means
             // that WHEN something focuses them (a main-menu UIScreenDescriptor, or an injected
             // Selectable) they announce their live value instead of their GameObject name.
             // The version string is read off the live TMP on purpose: the news popup's hand-authored
@@ -344,7 +344,7 @@ namespace LethalAccess
         ///
         /// UIUtils.GetTextFromGameObject falls back to the GameObject's NAME when it finds no text
         /// component, and returns "" when the path does not resolve. Both would be announced
-        /// verbatim - "VersionNum" or a bare label with nothing after it - so the empty case is
+        /// verbatim ("VersionNum" or a bare label with nothing after it), so the empty case is
         /// turned into a sentence that says the value is missing rather than sounding like the
         /// value is blank.
         /// </summary>
@@ -366,7 +366,7 @@ namespace LethalAccess
         private void Update()
         {
             // The RELEASE arm runs unconditionally, OUTSIDE the enableCustomKeybinds gate.
-            // Two sites clear that flag while a key may still be physically held -
+            // Two sites clear that flag while a key may still be physically held:
             // TerminalTogglePatch.PrefixBeginUsingTerminal, and AccessibleMenuSystem.BlockAllOtherInput,
             // which is the base of both SettingsMenu (F10) and AccessibleFriendsMenu, so three
             // things the user can open. While the release arm lived inside CheckKeybinds, letting go of
@@ -409,7 +409,7 @@ namespace LethalAccess
             CheckMainMenuActivation();
             CheckQuickMenuActivation();
 
-            // Enhanced turning system with arrow keys and snap turning - REMOVED BRACKET KEYS
+            // Turning with the arrow keys, including snap turns.
             //
             // This block used to sit OUTSIDE the enableCustomKeybinds gate above, so the
             // arrow keys yawed the player at the same time as they moved the selection in the
@@ -487,7 +487,7 @@ namespace LethalAccess
                 float currentAngle = Mathf.Atan2(forward.x, forward.z) * Mathf.Rad2Deg;
                 if (currentAngle < 0f) currentAngle += 360f;
 
-                // Snap to multiples of the configured angle, not a hard-coded 45 degrees -
+                // Snap to multiples of the configured angle, not a hard-coded 45 degrees,
                 // otherwise a configured 30 or 90 degree step was immediately rounded back
                 // onto the 45 degree grid.
                 float step = Mathf.Max(1f, Mathf.Abs(degrees));
@@ -550,7 +550,7 @@ namespace LethalAccess
         /// The mod polls Keyboard.current through the new Input System while TMP delivers
         /// characters to the focused field through its own IMGUI event queue. Neither consumes the
         /// other, so every mod keybind (P, O, N, L, K, R, Tab) fired AND typed its character. That
-        /// is why the lobby name "cannot be changed" - Tab yanked the selection out of the field
+        /// is why the lobby name "cannot be changed": Tab yanked the selection out of the field
         /// mid-edit while P and R ran pathfinding and room announcements over the top. The server
         /// tag filter and the terminal break in exactly the same way.
         /// </summary>
@@ -647,19 +647,19 @@ namespace LethalAccess
         /// Navigation is deliberately NOT handed over. An ExternalFocusOwner reports where
         /// focus already is and relays focus requests back; the Selectable finder patches
         /// keep owning the arrow keys, so the authored screen order survives. The generic
-        /// uGUI scanner is left unregistered for the same reason - its geometric guess would
+        /// uGUI scanner is left unregistered for the same reason: its geometric guess would
         /// compete with that order.
         ///
         /// Falls back to speaking menus itself if the bridge does not attach. That path is
         /// the mod's previous behaviour, so a missing accesskit.dll costs braille and NVDA's
-        /// own wording - never silence.
+        /// own wording, never silence.
         /// </summary>
         /// <summary>
         /// Report, once, how far an assistive technology actually got into the tree.
         ///
         /// "Attached" only means the WndProc was subclassed. It does NOT mean a screen
         /// reader ever queried the window, nor that the adapter answered. Those are three
-        /// separate failures with identical symptoms - silence - and telling them apart by
+        /// separate failures with identical symptoms (silence) and telling them apart by
         /// staring at node content is hopeless, so the counters say which one it is.
         /// </summary>
         private IEnumerator ReportTreeReachability(A11yRuntime runtime)
@@ -708,7 +708,7 @@ namespace LethalAccess
 
         /// <summary>
         /// Attaching cannot be done from Awake. The adapter needs the game's HWND, and this
-        /// runs during the first scene load - GetActiveWindow returns nothing until the
+        /// runs during the first scene load: GetActiveWindow returns nothing until the
         /// window has been shown and the process has pumped a message, so the first attempt
         /// finds no window and gives up. Live-confirmed: the bridge reported no window while
         /// the very same lookup, run a few seconds later, returned a valid handle.
@@ -780,7 +780,7 @@ namespace LethalAccess
         }
 
         /// <summary>
-        /// True while the local player is in a round and alive - the only time announcements about
+        /// True while the local player is in a round and alive, the only time announcements about
         /// the navigation categories mean anything.
         ///
         /// StartOfRound.Instance is non-null in the main menu scene too, so it cannot carry this on
@@ -817,7 +817,7 @@ namespace LethalAccess
         /// sufficient on its own either: IngamePlayerSettings.CancelRebind calls Dispose() without
         /// Cancel(), and SettingsOption.OnDisable routes every keybind row through it when the
         /// panel closes, which leaves Flags.Started set on an operation that can never finish. So
-        /// this also requires InputSystem.actions to still be disabled - RebindKey disables it and
+        /// this also requires InputSystem.actions to still be disabled: RebindKey disables it and
         /// both CompleteRebind and CancelRebind re-enable it, which makes it the one signal cleared
         /// on every exit path. The conjunction fails OPEN: a stale flag costs one spurious
         /// announcement, a stuck guard would cost the user their entire keyboard.
@@ -867,7 +867,7 @@ namespace LethalAccess
             //
             // This suppresses PRESSES only, and this whole method is PRESS-only now. 3.4: the
             // release arm that un-presses the simulated mouse buttons used to be the `else` half of
-            // the loop below, which put it behind the enableCustomKeybinds gate at the call site -
+            // the loop below, which put it behind the enableCustomKeybinds gate at the call site,
             // so a LeftAlt/RightAlt held when the terminal or an accessible menu opened could never
             // be released. It is now ReleaseHeldSimulatedClicks(), called unconditionally from
             // Update before this method.
@@ -875,7 +875,7 @@ namespace LethalAccess
 
             // A text field must not be a trap. Suppressing every keybind while typing also
             // suppressed the UI navigation key, so the only way out of a field was Enter, which
-            // no screen-reader user has any reason to expect - Tab leaves a field in every other
+            // no screen-reader user has any reason to expect: Tab leaves a field in every other
             // Windows application. The field is deactivated FIRST so the keypress that leaves is
             // not also delivered to it as a character, which is the collision this suppression
             // exists to prevent; every other keybind stays suppressed.
@@ -909,7 +909,7 @@ namespace LethalAccess
 
         // True while THIS mod is holding a simulated mouse button down. Written only where the
         // state event is actually queued (inside SimulateMouseClick, past its Mouse.current == null
-        // guard), so the flag can never claim a press that was never sent - which is what keeps
+        // guard), so the flag can never claim a press that was never sent, which is what keeps
         // ReleaseHeldSimulatedClicks from injecting mouse-up events over a real mouse the mod never
         // touched.
         private bool simulatedLeftButtonHeld;
@@ -918,11 +918,11 @@ namespace LethalAccess
         /// <summary>
         /// Queues the mouse-up for any simulated button this mod is holding, once the key that put
         /// it down is no longer down. Called every frame from Update regardless of
-        /// enableCustomKeybinds - see the call site for why.
+        /// enableCustomKeybinds. See the call site for why.
         ///
         /// The test is "the mod holds the button AND its key is not pressed" rather than
         /// wasReleasedThisFrame. That is a superset of the release edge: it still fires on the frame
-        /// the key comes up, and it additionally recovers when the edge is never observed at all -
+        /// the key comes up, and it additionally recovers when the edge is never observed at all:
         /// an InputSystem device reset on focus loss clears the key without reporting a release, a
         /// press and release inside one frame reports both edges at once (the old `if pressed else
         /// if released` chain took only the press and stuck), and rebinding LeftClickHold while it
@@ -949,7 +949,7 @@ namespace LethalAccess
         /// Is the key currently bound to <paramref name="keybindName"/> physically down?
         ///
         /// False when there is no keyboard, when the bind is missing, and when it is Key.None.
-        /// Key.None can never be held, and Keyboard's indexer does not merely return null for it -
+        /// Key.None can never be held, and Keyboard's indexer does not merely return null for it:
         /// the shipped Unity.InputSystem.dll decompiles to
         /// "int num = (int)(key - 1); if (num is out of m_Keys range) throw
         /// ArgumentOutOfRangeException", so Key.None (0) maps to index -1 and throws. Unlike
@@ -1024,7 +1024,7 @@ namespace LethalAccess
         }
 
         // LACore.SetUINavigation and LACore.SetupCustomUINavigation were deleted here.
-        // Both were dead - nothing outside this file ever called SetUINavigation, and its
+        // Both were dead: nothing outside this file ever called SetUINavigation, and its
         // fallback branch was only reachable when uiAccessibilityManager was null, which it never
         // is after Awake. SetupCustomUINavigation was also broken on its own terms: it assigned
         // selectOnUp/selectOnDown but never set Navigation.mode = Explicit, and Unity ignores the
@@ -1083,7 +1083,7 @@ namespace LethalAccess
             }
         }
 
-        // Replace the CheckReachedTrackedObject method in Plugin.cs with this fixed version:
+        // Notices when the player reaches the tracked object.
 
         private void CheckReachedTrackedObject()
         {
@@ -1209,7 +1209,7 @@ namespace LethalAccess
             RegisterKeybind("NavigateToLookingObject", Key.P, PathfindToSelected);
             RegisterKeybind("StopLookingAndPathfinding", Key.O, StopLookingAndPathfinding);
             RegisterKeybind(UiNavigationKeybindName, Key.Tab, FocusPreviousUIElement);
-            // FIXED: Changed from Semicolon/Quote to LeftAlt/RightAlt
+            // Mouse clicks are held on LeftAlt and RightAlt.
             RegisterKeybind("LeftClickHold", Key.LeftAlt, delegate
             {
                 SimulateMouseClick(0, true);
@@ -1228,13 +1228,13 @@ namespace LethalAccess
             // enableCustomKeybinds before LACore.Update runs in the same frame, so CheckKeybinds
             // saw the same F10 press still flagged wasPressedThisFrame and toggled straight back
             // open. The InputAction is the surviving binding because it works while
-            // enableCustomKeybinds is false - which is exactly the state the menu puts the mod in.
+            // enableCustomKeybinds is false, which is exactly the state the menu puts the mod in.
         }
 
         /// <summary>
         /// Everything THIS mod does with a physical key, by a name a person can say. Used by the
         /// keybinds screen to say when a game action has been given a key that LethalAccess also
-        /// acts on - which is a real in-game conflict: both fire on the one press.
+        /// acts on, which is a real in-game conflict: both fire on the one press.
         /// </summary>
         public static List<string> DescribeModKeyUses(Key key)
         {

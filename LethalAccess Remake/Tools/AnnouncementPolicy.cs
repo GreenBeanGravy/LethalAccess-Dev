@@ -9,7 +9,7 @@ namespace LethalAccess
     ///
     ///   1. Never announce from a storage or plumbing method. Announce at the user-intent call
     ///      site. ("Settings saved." came from SaveSettingsToPrefs, which the game also calls
-    ///      while WIPING settings and once at boot - so it fired at times the user did nothing.)
+    ///      while WIPING settings and once at boot, so it fired at times the user did nothing.)
     ///   2. Every utterance must be attributable to an action the user just took, or to a screen
     ///      change. If you cannot name the action, do not speak.
     ///   3. State changes RE-ANNOUNCE THE FOCUSED CONTROL. They do not emit free-floating
@@ -17,9 +17,9 @@ namespace LethalAccess
     ///      now; "Volume changed" tells you neither.
     ///   4. A screen change announces the screen title, then the newly focused control.
     ///
-    /// Everything speaks through SpeechUtils.SpeakText. The mod had two front doors -
+    /// Everything speaks through SpeechUtils.SpeakText. The mod had two front doors:
     /// Utilities.SpeakText (no config gate, no normalisation) and SpeechUtils.SpeakText (gated on
-    /// EnableAudioCues, normalises % to "percent" and $ to "dollars", collapses whitespace) - so
+    /// EnableAudioCues, normalises % to "percent" and $ to "dollars", collapses whitespace), so
     /// the same string was spoken differently depending on which layer raised it. SpeechUtils is
     /// the survivor because it is the one that normalises.
     /// </summary>
@@ -39,13 +39,13 @@ namespace LethalAccess
         /// yet, so the hook can never be observed null merely because of static-initialisation
         /// order.
         ///
-        /// It used to be a plain field, assigned from SpeechUtils's static constructor - and Speak
+        /// It used to be a plain field, assigned from SpeechUtils's static constructor, and Speak
         /// below reads it BEFORE it first touches SpeechUtils. An explicit static constructor makes
         /// a type non-beforefieldinit, so its initializer does not run until the first static
         /// access: on the FIRST interrupt of every session the field was still null, the interrupt
         /// was silently downgraded to an ordinary queued utterance, and the log said "no
         /// BargeInHook is installed". The first interrupt in the codebase is the keybind rebind
-        /// prompt - the one announcement that most needs to cut through. Reordering the two lines
+        /// prompt, the one announcement that most needs to cut through. Reordering the two lines
         /// inside Speak would have fixed that single call site and left the same trap for the next
         /// reader, so the guarantee lives on the property, where every reader gets it.
         ///
@@ -62,7 +62,7 @@ namespace LethalAccess
                     // Set BEFORE the call: InstallBargeInHook assigns through the setter below, so
                     // the flag has to be true already or that write could re-enter this branch.
                     // A direct method call (rather than RuntimeHelpers.RunClassConstructor) is
-                    // deliberate - if SpeechUtils ever loses the installer this stops compiling
+                    // deliberate: if SpeechUtils ever loses the installer this stops compiling
                     // instead of quietly becoming a no-op and restoring the original bug.
                     bargeInHookResolved = true;
                     SpeechUtils.InstallBargeInHook();
@@ -110,7 +110,7 @@ namespace LethalAccess
         }
 
         /// <summary>
-        /// Silence announcements for the duration of a call the user did not initiate - the
+        /// Silence announcements for the duration of a call the user did not initiate: the
         /// classic case being the settings write the game performs at boot inside
         /// PreInitSceneScript.ChooseLaunchOption. Nests.
         ///
@@ -189,7 +189,7 @@ namespace LethalAccess
         /// Speak a line that replaces anything still queued from the SAME control.
         ///
         /// This is the correct tool for a repeated state re-announcement (a held arrow on a
-        /// slider). The wrong tool - which this replaced - is Speak(text, interrupt: true), whose
+        /// slider). The wrong tool, which this replaced, is Speak(text, interrupt: true), whose
         /// hook flushes the ENTIRE backlog and so destroys unrelated lines that happened to be
         /// queued while the slider was moving.
         /// </summary>
@@ -213,20 +213,20 @@ namespace LethalAccess
         /// that control is announced by UIAccessibilityManager on the next Update, and the speech
         /// queue is FIFO, so the two arrive in that order.
         ///
-        /// Seeding happens even while suppressed - suppression silences speech, it must never
+        /// Seeding happens even while suppressed: suppression silences speech, it must never
         /// leave the keyboard without a focus.
         /// </summary>
         /// <summary>
         /// True once the accessibility tree is published and a screen reader is driving it.
         ///
-        /// Only UI PROPERTY ASSEMBLY is muted by this - the focused control and the screen
+        /// Only UI PROPERTY ASSEMBLY is muted by this: the focused control and the screen
         /// title, which the screen reader now composes itself from the tree. Gameplay
         /// speech (item names, hazards, "Settings saved.", pathfinding) keeps going through
         /// Tolk, because none of it is attached to a focusable control and there is no tree
         /// node for a screen reader to have spoken it from.
         ///
         /// Set from LACore only when the AccessKit bridge actually attached. If it did not,
-        /// this stays false and the mod speaks exactly as it always did - the failure mode
+        /// this stays false and the mod speaks exactly as it always did: the failure mode
         /// is the old behaviour, never silence.
         /// </summary>
         public static bool UiTreeOwnsSpeech;
@@ -237,8 +237,8 @@ namespace LethalAccess
         ///
         /// The tree covers registered screens and nothing else, so treating
         /// <see cref="UiTreeOwnsSpeech"/> as a blanket switch made every control the tree does
-        /// NOT publish completely silent - dropdown option lists, the belt bag, the server list,
-        /// this mod's own menu - where before they were announced. A control that no one speaks
+        /// NOT publish completely silent (dropdown option lists, the belt bag, the server list,
+        /// this mod's own menu) where before they were announced. A control that no one speaks
         /// for is the one failure a blind user cannot diagnose, so coverage is asked per control
         /// rather than assumed.
         /// </summary>
@@ -282,7 +282,7 @@ namespace LethalAccess
                 // rather than saying it twice in a row.
                 UIAccessibilityManager.NoteScreenTitleAnnounced(title);
 
-                // The seed below IS a focus change, and SpeechUtils barges in on focus changes -
+                // The seed below IS a focus change, and SpeechUtils barges in on focus changes,
                 // so without this the title just queued would be flushed by the second half of the
                 // very announcement it belongs to, and rule 4 would lose its first line. This is
                 // the one case where something queued is NOT the tail of a control the user has
@@ -297,8 +297,8 @@ namespace LethalAccess
         }
 
         /// <summary>
-        /// Rule 3. After a state change, say the focused control again - label, type, new value
-        /// and position - by clearing the announcer's "already said that" memo rather than
+        /// Rule 3. After a state change, say the focused control again (label, type, new value
+        /// and position) by clearing the announcer's "already said that" memo rather than
         /// composing a second, differently-worded sentence here. One announcer, one format.
         /// </summary>
         public static void ReAnnounceFocused()
@@ -311,7 +311,7 @@ namespace LethalAccess
             // Routed through the announcer's coalescer rather than clearing the memo directly.
             // A continuous control (slider, scrollbar) can raise this ~10 times a second from a
             // held arrow key, and clearing the memo each time queues a full ~2 s utterance per
-            // step - an unbounded backlog, because the speech queue deliberately drops nothing.
+            // step: an unbounded backlog, because the speech queue deliberately drops nothing.
             // RequestReAnnounce makes its own null-focus check, so the guard that used to live
             // here would be redundant.
             UIAccessibilityManager.RequestReAnnounce();

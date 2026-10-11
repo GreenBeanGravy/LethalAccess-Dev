@@ -21,7 +21,7 @@ namespace LethalAccess
     ///   CalculateNormalLookingInput  -> Mathf.Clamp(cameraUp, -80f, 80f)
     ///
     /// The normal-look patch previously searched for 60f, which does not occur in that method
-    /// at all, so it matched nothing and returned the instruction stream untouched - a silent
+    /// at all, so it matched nothing and returned the instruction stream untouched, a silent
     /// no-op with no error. Any future mismatch now logs an explicit error instead.
     /// </summary>
     internal static class LookDownTranspilerCore

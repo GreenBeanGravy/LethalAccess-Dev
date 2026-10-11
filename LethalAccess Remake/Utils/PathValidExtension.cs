@@ -168,7 +168,7 @@ namespace LethalAccess
                 // NavMeshPath.corners is a property, not a field: its getter calls
                 // CalculateCorners() and rebuilds the managed Vector3[] on EVERY access
                 // (see UnityEngine.AIModule). The old loop touched it three times per
-                // iteration - `.Length` plus both indexers - so an n-corner path did ~3n
+                // iteration (`.Length` plus both indexers), so an n-corner path did ~3n
                 // native round-trips and n array rebuilds. Read it once.
                 Vector3[] corners = path.corners;
                 if (corners == null || corners.Length < 2)

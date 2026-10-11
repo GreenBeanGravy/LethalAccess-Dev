@@ -29,7 +29,7 @@ namespace LethalAccess.Patches
     ///    button press on its own, so HostMenuAccessPatch stamps the frame ClickHostButton runs on
     ///    and this postfix ignores that one call.
     ///  * In LAN mode MenuManager.HostSetLobbyPublic returns early WITHOUT assigning
-    ///    hostSettings_LobbyPublic, yet the old postfix still announced the argument - it reported
+    ///    hostSettings_LobbyPublic, yet the old postfix still announced the argument: it reported
     ///    a state change that never happened.
     ///  * The sentence explaining what public and private mean is written into
     ///    privatePublicDescription (MenuManager.HostSetLobbyPublic), a TMP nothing focuses, so it was
@@ -39,7 +39,7 @@ namespace LethalAccess.Patches
     public static class MenuManagerHostSetLobbyPublicPatch
     {
         // Null until the first observed value. Used only to tell whether ServerTagInputField is
-        // about to appear or disappear - the announcement itself is NOT gated on a change, because
+        // about to appear or disappear; the announcement itself is NOT gated on a change, because
         // pressing "Public" while already public must still confirm that the press registered.
         private static bool? lastKnownPublic;
 
@@ -74,7 +74,7 @@ namespace LethalAccess.Patches
 
             if (changed)
             {
-                // The tag field is not merely cosmetic - it joins or leaves the up/down order, so
+                // The tag field is not merely cosmetic: it joins or leaves the up/down order, so
                 // silence here would leave the user with a chain that changed length unannounced.
                 message += setPublic
                     ? " Server tag field added below the server name."
@@ -83,7 +83,7 @@ namespace LethalAccess.Patches
 
             AnnouncementPolicy.Speak(message);
 
-            // MenuManager.Update - not this method - toggles ServerTagInputField from
+            // MenuManager.Update, not this method, toggles ServerTagInputField from
             // hostSettings_LobbyPublic (MenuManager.Update), so the chain can only be rebuilt
             // to match one frame from now.
             HostMenuAccess.ScheduleChainRebuild(__instance);

@@ -8,7 +8,7 @@ namespace LethalAccess.Patches
     ///
     /// The greeting used to be a POSTFIX on BeginUsingTerminal. BeginUsingTerminal calls
     /// LoadNewNode inside its own body, so by the time a postfix ran the whole welcome page had
-    /// already been queued ahead of it - "Terminal opened!" arrived last, after the page it was
+    /// already been queued ahead of it: "Terminal opened!" arrived last, after the page it was
     /// supposed to introduce. SpeechQueue is strict FIFO with no barge-in, so ordering here is
     /// purely a question of which side of the method body we speak from. It is a prefix now.
     ///

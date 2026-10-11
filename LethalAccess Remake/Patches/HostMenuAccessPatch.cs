@@ -20,7 +20,7 @@ namespace LethalAccess
     ///     nothing links to it, and ClickHostButton sets no selection at all. A mouse works only
     ///     because TMP_InputField.OnPointerDown calls SetSelectedGameObject itself, bypassing the
     ///     Mode.None guard in Selectable.OnPointerDown. The fix is to give every member of the
-    ///     chain - the input fields included - Mode.Explicit and real up/down links.
+    ///     chain, the input fields included, Mode.Explicit and real up/down links.
     ///
     ///  2. ClickHostButton neither moves selection nor hides menuButtons, so focus stayed
     ///     on MainButtons/HostButton and Down walked the main menu behind the overlay. The scene
@@ -84,7 +84,7 @@ namespace LethalAccess
         /// The frame on which ClickHostButton is running. ClickHostButton ends with
         /// HostSetLobbyPublic(hostSettings_LobbyPublic) purely to refresh the two Animators
         /// (MenuManager.ClickHostButton), and the postfix on that method cannot otherwise tell that refresh
-        /// from a real button press - which is why simply opening the host menu announced
+        /// from a real button press, which is why simply opening the host menu announced
         /// "Set to Private". Stamping the frame rather than holding a flag means a throw
         /// inside ClickHostButton cannot leave public/private permanently silent.
         /// </summary>
@@ -173,7 +173,7 @@ namespace LethalAccess
 
         /// <summary>
         /// Declare both screens. Registering while the host panel is already on screen makes
-        /// UIScreenRegistry resolve, announce and seed focus inside this call - which is exactly
+        /// UIScreenRegistry resolve, announce and seed focus inside this call, which is exactly
         /// what we want from the ClickHostButton postfix, because the panel is activated two
         /// statements earlier.
         /// </summary>
@@ -268,7 +268,7 @@ namespace LethalAccess
             };
 
             // The scene puts each row's DeleteButton on FileN.selectOnRight, and that button's
-            // onClick opens the delete confirmation and hides this panel - one keypress from an
+            // onClick opens the delete confirmation and hides this panel: one keypress from an
             // unguarded delete with no announcement in between. BuildChain still nulls every
             // horizontal link, so right-arrow cannot reach a delete button; the only route to one
             // is down onto it, where it names the file and says it is destructive.
@@ -295,7 +295,7 @@ namespace LethalAccess
         {
             // EnableLeaderboardDisplay only swaps HostSettingsContainer for ChallengeLeaderboard;
             // FilesPanel stays on screen (MenuManager.EnableLeaderboardDisplay). The file rows therefore keep
-            // their own screen and are deliberately NOT claimed here - two descriptors claiming
+            // their own screen and are deliberately NOT claimed here: two descriptors claiming
             // one GameObject makes the earlier screen's positions wrong. Getting from the
             // leaderboard back to the files is what Retry is for.
             List<Ctl> controls = new List<Ctl>
@@ -536,7 +536,7 @@ namespace LethalAccess
         /// <summary>
         /// Rebuild one frame later.
         ///
-        /// ServerTagInputField's active state is not changed by HostSetLobbyPublic - it is driven
+        /// ServerTagInputField's active state is not changed by HostSetLobbyPublic; it is driven
         /// from MenuManager.Update reading hostSettings_LobbyPublic, so
         /// immediately after a Public/Private press the panel still has its old shape. A coroutine
         /// that yields once resumes after every Update has run, which is the first moment the
@@ -761,7 +761,7 @@ namespace LethalAccess
                 // TODO(LAN, unverified): in LAN mode the visible field is LANOptions/ServerNameField,
                 // which the scene does NOT bind to MenuManager.lobbyNameInputField (the serialized
                 // reference is the OptionsNormal one). If the LAN field does not write through,
-                // Confirm can be unsatisfiable in LAN mode - a vanilla defect this patch must not
+                // Confirm can be unsatisfiable in LAN mode: a vanilla defect this patch must not
                 // paper over by copying text between fields. Settled by watching
                 // lobbyNameInputField.text while typing into the LAN field with -lan.
                 Transform target = UIScreenRegistry.ResolveFocusTarget(HostMenuAccess.HostScreenId);
@@ -814,7 +814,7 @@ namespace LethalAccess
 
             // ClickHostButton calls EnableLeaderboardDisplay(false) BEFORE it activates
             // LobbyHostSettings (MenuManager.ClickHostButton), so on that path there is nothing on
-            // screen yet to chain or focus - the ClickHostButton postfix does both a moment later.
+            // screen yet to chain or focus; the ClickHostButton postfix does both a moment later.
             // Seeding here anyway would make FocusManager.Seed refuse an invisible target and log
             // a warning on every single open.
             if (!IsHostVisible(__instance))

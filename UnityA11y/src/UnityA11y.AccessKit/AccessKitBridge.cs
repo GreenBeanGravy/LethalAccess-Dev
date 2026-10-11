@@ -179,7 +179,7 @@ namespace UnityA11y.AccessKitInterop
 
             // The window was shown, focused and inspected long before this adapter existed, so
             // any screen reader already asked WM_GETOBJECT, got nothing, and cached that answer.
-            // Nothing in UIA re-asks on its own - which is why the tree only appeared after an
+            // Nothing in UIA re-asks on its own, which is why the tree only appeared after an
             // alt-tab away and back, the one act that re-fires the focus chain. This synthesises
             // that nudge: a focus WinEvent on the client object makes a screen reader re-query
             // the window it believes it already knows, and the query now reaches the adapter.

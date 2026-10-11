@@ -18,7 +18,7 @@ namespace LethalAccess
     /// KepRemapPanel.OnEnable, reparents the vanilla Scroll View under a deactivated
     /// "Legacy Holder(Clone)" and REPLACES remappableKeys with an empty list, so vanilla
     /// LoadKeybindsUI loops over nothing and the 40 RemapKeySlot clones are never created. When
-    /// InputUtils is installed - it is, on this install - the InputUtils branch below is the one
+    /// InputUtils is installed (it is, on this install) the InputUtils branch below is the one
     /// that runs. Both are implemented because the mod must still work without it.
     ///
     /// Nothing here can be done through path registration: every control is a runtime clone and
@@ -35,7 +35,7 @@ namespace LethalAccess
         ///
         /// This is not decoration. SelectableNavigationPatch drives up/down from the registry's
         /// flat order for every claimed control, and KeepsHorizontal is only honoured for claimed
-        /// controls - there is no path- or type-based exemption. So a control that must keep
+        /// controls: there is no path- or type-based exemption. So a control that must keep
         /// left/right MUST be claimed, and anything claimed by the main screen also joins its
         /// up/down order. Putting the extras on their own screen keeps them out of the row
         /// walk while still letting them keep left/right, and gives them a sane vertical order
@@ -47,14 +47,14 @@ namespace LethalAccess
         /// <summary>
         /// Repeat cadence for the "waiting for a key" prompt. The vanilla rebind suppresses every
         /// matching input event AND disables InputSystem.actions, so during a rebind the keyboard
-        /// is genuinely dead - a user who missed the first prompt has no other way to find out
+        /// is genuinely dead: a user who missed the first prompt has no other way to find out
         /// what is happening.
         /// </summary>
         private const float PromptRepeatSeconds = 5f;
 
         /// <summary>
         /// Hard stop for a vanilla rebind. IngamePlayerSettings.RebindKey never calls
-        /// WithTimeout, and its only documented exit is the OpenMenu control - which is useless if
+        /// WithTimeout, and its only documented exit is the OpenMenu control, which is useless if
         /// OpenMenu happens to be unbound, because then RebindKey throws on
         /// controls[0] AFTER InputSystem.actions.Disable() has already run. This is the only
         /// guaranteed way out. THIS CHANGES GAME BEHAVIOUR: a vanilla rebind that would have
@@ -76,7 +76,7 @@ namespace LethalAccess
             public object GamepadButton;
             public Selectable GamepadSelectable;
 
-            // The category the row belongs to, and its RebindItem - the object a collapse hides.
+            // The category the row belongs to, and its RebindItem, the object a collapse hides.
             public Category Category;
             public GameObject Item;
         }
@@ -141,7 +141,7 @@ namespace LethalAccess
         // This used to be a HashSet of GameObject instance ids that HookSectionEntry refused to
         // hook twice, and nothing ever cleared it. Unity REUSES instance ids after a destroy, so a
         // rebuilt SectionEntry that landed on a retired id was silently left with no listener at
-        // all - pressing that category then scrolled the list and said nothing, which is the exact
+        // all: pressing that category then scrolled the list and said nothing, which is the exact
         // defect the hook exists to fix. Keeping our own delegate and doing
         // RemoveListener-then-AddListener is idempotent and never consults an id.
         private static readonly List<SectionHook> sectionHooks = new List<SectionHook>();
@@ -316,7 +316,7 @@ namespace LethalAccess
         /// The shipped UI: one RemapKeySlot clone per remappable key, plus one clone of
         /// sectionTextPrefab ("REBIND CONTROLLERS") that separates the keyboard rows from the
         /// controller rows. That divider carries no SettingsOption, which is exactly how it is
-        /// told apart - and it becomes a section boundary rather than a focus stop.
+        /// told apart, and it becomes a section boundary rather than a focus stop.
         /// </summary>
         private static void BuildVanilla(Transform root)
         {
@@ -399,7 +399,7 @@ namespace LethalAccess
 
         /// <summary>
         /// KepRemapPanel.LoadKeybindsUI writes the action name into the slot's FIRST
-        /// TextMeshProUGUI - a SIBLING of the Button - while the binding goes into Button/Key, a
+        /// TextMeshProUGUI (a SIBLING of the Button), while the binding goes into Button/Key, a
         /// CHILD. That is why a focused row announces the key instead of the action: any
         /// GetComponentInChildren starting at the Button finds Key first and stops.
         /// </summary>
@@ -492,7 +492,7 @@ namespace LethalAccess
             List<Selectable> resetChain = new List<Selectable>();
 
             // Every RebindItem and every section anchor is a direct child of the binds list
-            // content, so sibling order here IS creation order - the order the user sees.
+            // content, so sibling order here IS creation order, the order the user sees.
             Transform content = items[0].transform.parent;
             if (content == null)
             {
@@ -654,8 +654,8 @@ namespace LethalAccess
             kbmEntry.Label = action;
             kbmEntry.Type = "button";
             // Read straight off the binding rather than off bindLabel: RebindButton.UpdateState
-            // BLANKS bindLabel whenever it shows a glyph sprite instead - which is every gamepad
-            // bind and every mouse bind - and the announcement then falls back to "Rebind Button".
+            // BLANKS bindLabel whenever it shows a glyph sprite instead (which is every gamepad
+            // bind and every mouse bind), and the announcement then falls back to "Rebind Button".
             kbmEntry.State = delegate { return DescribeBinding(capturedKbm); };
             kbmEntry.Description = delegate { return ConflictWarning(capturedKbm); };
             kbmEntry.Help = delegate
@@ -668,7 +668,7 @@ namespace LethalAccess
             // horizontal movement is deliberately kept alive; see ExtrasScreenId.
             kbmEntry.KeepsHorizontal = true;
             // A closed category's rows are switched off on purpose. Without this every one of
-            // them logged "resolved but is inactive" on each rebuild - over fifty lines a time,
+            // them logged "resolved but is inactive" on each rebuild, over fifty lines a time,
             // and Unity's logging is slow enough to show in how long the screen takes to open.
             kbmEntry.Optional = category.Header != null;
             category.Entries.Add(kbmEntry);
@@ -787,7 +787,7 @@ namespace LethalAccess
                 }
 
                 // The first TMP under a SectionEntry is the ">" indicator, which the announcer's
-                // special-character stripping reduces to "" - hence "SectionEntry". The real name
+                // special-character stripping reduces to "", hence "SectionEntry". The real name
                 // is on the component's own `label` field.
                 string name = Clean(ReadText(InputUtilsBridge.GetField(entry, InputUtilsBridge.SectionEntryLabel)));
 
@@ -811,13 +811,13 @@ namespace LethalAccess
         }
 
         /// <summary>
-        /// A category button only scrolls the binds list - it never moves focus, so pressing one
+        /// A category button only scrolls the binds list; it never moves focus, so pressing one
         /// used to be completely silent. Move focus to the first bind of the section it jumped to.
         ///
         /// Remove-then-add rather than a "have I hooked this one before?" test: the removal is
         /// matched against the delegate recorded for this exact Button object, so a re-open cannot
         /// stack a second listener AND a rebuilt button can never be skipped. NEVER
-        /// onClick.RemoveAllListeners() - these buttons also carry InputUtils' own
+        /// onClick.RemoveAllListeners(): these buttons also carry InputUtils' own
         /// scroll-to-section handler and the game's click sound, and stripping those is the
         /// mistake this mod has to work around elsewhere, not a cheaper way to write this.
         /// </summary>
@@ -849,7 +849,7 @@ namespace LethalAccess
         /// <summary>
         /// Drop the listener this class previously put on <paramref name="button"/>, matched by
         /// MANAGED REFERENCE so a destroyed button and a new one that reused its instance id are
-        /// never confused - Unity's own == and GetHashCode both compare instance ids, which is
+        /// never confused: Unity's own == and GetHashCode both compare instance ids, which is
         /// precisely what made the old id set unsafe. Dead entries are pruned on the way past.
         /// </summary>
         private static void RemoveHookFor(Button button)
@@ -933,7 +933,7 @@ namespace LethalAccess
             Expand(category);
         }
 
-        /// <summary>Show one category's rows - only one at a time - and move to its first row.</summary>
+        /// <summary>Show one category's rows, only one at a time, and move to its first row.</summary>
         private static void Expand(Category category)
         {
             expandedCategoryName = category.Name;
@@ -992,7 +992,7 @@ namespace LethalAccess
         /// header has nothing to open it with, so its rows always stay shown.
         ///
         /// Deactivating a row takes its RebindButtons out of InputUtils' instance list, which is
-        /// what "reset all" walks - ExpandAllForBulkReset puts them back for that.
+        /// what "reset all" walks; ExpandAllForBulkReset puts them back for that.
         /// </summary>
         private static void ApplyCollapse()
         {
@@ -1031,7 +1031,7 @@ namespace LethalAccess
 
         /// <summary>
         /// Escape, from either the menu-scene handler or the in-game routes. True when it was used
-        /// here - closing the open category - so nothing else may act on the same press.
+        /// here (closing the open category), so nothing else may act on the same press.
         /// </summary>
         internal static bool HandleEscape()
         {
@@ -1092,7 +1092,7 @@ namespace LethalAccess
 
         /// <summary>
         /// Puts a select hook on every control that is outside the category rows. A hook rather than
-        /// a per-frame check, so the category is already closed in the same frame focus arrives -
+        /// a per-frame check, so the category is already closed in the same frame focus arrives:
         /// the screen reader then hears "collapsed" once, not "expanded" and a correction.
         /// </summary>
         private static void WatchForLeavingRows()
@@ -1193,7 +1193,7 @@ namespace LethalAccess
                 entry.Help = delegate { return priorityHelp; };
                 // Deliberately NOT KeepsHorizontal. TMP_Dropdown does not override the navigation
                 // finders the way Slider does, so left/right would not cycle its options even if
-                // they were allowed through - that would need a cycling handler of its own. Submit
+                // they were allowed through; that would need a cycling handler of its own. Submit
                 // opens the option list, whose Toggles are unclaimed and navigate normally.
                 result.Add(entry);
                 mainChain.Add(priority);
@@ -1201,7 +1201,7 @@ namespace LethalAccess
 
             // "Show Legacy Controls" is deliberately NOT registered when it would open an empty
             // panel. InputUtils empties remappableKeys before LoadKeybindsUI runs, so the legacy
-            // holder contains zero rows on every install where InputUtils is active - the button
+            // holder contains zero rows on every install where InputUtils is active; the button
             // is left on screen for mouse users but is not a keyboard stop.
             Button legacy = InputUtilsBridge.GetField(container, InputUtilsBridge.ContainerLegacyButton) as Button;
             if (legacy != null)
@@ -1295,8 +1295,8 @@ namespace LethalAccess
         }
 
         /// <summary>
-        /// An InputUtils rebind is not the vanilla hard lock - RebindButton.Update cancels it
-        /// after `timeout` seconds and its OnCancel restores the row - but it is silent, and it
+        /// An InputUtils rebind is not the vanilla hard lock: RebindButton.Update cancels it
+        /// after `timeout` seconds and its OnCancel restores the row, but it is silent, and it
         /// suppresses every matching input event for the whole of that window, so the prompt has
         /// to say how the user gets out and how long they have.
         /// </summary>
@@ -1339,7 +1339,7 @@ namespace LethalAccess
 
         /// <summary>
         /// Prefix on RebindButton.StartRebinding. Input System refuses to start an interactive
-        /// rebind of an action that is enabled - "Cannot rebind action ... while it is enabled" -
+        /// rebind of an action that is enabled ("Cannot rebind action ... while it is enabled")
         /// and when it throws, StartRebinding never reaches its postfix: no prompt, no sound, and a
         /// bind that simply does nothing. Observed live on a composite (Walk forward) while the
         /// action was enabled for a reason this class never found. Switching the one action off
@@ -1479,7 +1479,7 @@ namespace LethalAccess
 
         /// <summary>
         /// RebindButton.UpdateState hides a Reset button as soon as its binding is back at the
-        /// default - which pressing it just did. The EventSystem keeps a hidden object selected, and
+        /// default, which pressing it just did. The EventSystem keeps a hidden object selected, and
         /// no arrow key moves from it, so the keyboard went dead after every reset. Focus moves to
         /// the binding that was reset.
         /// </summary>
@@ -1514,8 +1514,8 @@ namespace LethalAccess
         }
 
         // Conflicts are worked out for every row at once and kept until a binding changes. They
-        // used to be recomputed per row on every read - each row scanning every other row by
-        // reflection - and the accessibility tree reads every row's description on each rebuild,
+        // used to be recomputed per row on every read (each row scanning every other row by
+        // reflection), and the accessibility tree reads every row's description on each rebuild,
         // twice a second, which made the open screen stutter.
         private static int bindingGeneration;
         private static int conflictsBuiltFor = -1;
@@ -1528,7 +1528,7 @@ namespace LethalAccess
         }
 
         /// <summary>
-        /// "Conflict: also used by Walk left and Speak time (LethalAccess)." - or null when this
+        /// "Conflict: also used by Walk left and Speak time (LethalAccess).", or null when this
         /// binding is its own. Live, so every row sharing a binding reports it, not only the one
         /// that was just changed.
         /// </summary>
@@ -1939,7 +1939,7 @@ namespace LethalAccess
         /// Back and SetDefault ship identical Explicit targets that are ALL OUTSIDE the panel
         /// (up = ControlsOptions/LookSensitivity/Slider, down = SettingsPanel/BackButton,
         /// right = SettingsPanel/SetToDefault), and KeybindsPanel is a child of SettingsPanel with
-        /// nothing deactivating the parent's controls - so any direction from either button drops
+        /// nothing deactivating the parent's controls, so any direction from either button drops
         /// the user onto the settings screen behind the overlay. Both are re-wired here and both
         /// are claimed by the screen, which is what stops the arrow keys leaving the panel at all.
         ///
@@ -2041,14 +2041,14 @@ namespace LethalAccess
                 main.CompanionScreens = new List<string> { ExtrasScreenId };
             }
 
-            // Register can announce and seed focus synchronously when the root is already active -
+            // Register can announce and seed focus synchronously when the root is already active,
             // which it is, because this runs from LoadKeybindsUI inside OnEnable. That is the
             // intended path for the first build of a panel open.
             bool wasActive = UIScreenRegistry.ActiveScreenId == ScreenId;
             UIScreenRegistry.Register(main);
 
             // Register only resolves entries as a side effect of ScreenShown, and ScreenShown is
-            // skipped when the notifier already exists - which is the case for the SECOND
+            // skipped when the notifier already exists, which is the case for the SECOND
             // LoadKeybindsUI of every InputUtils panel open. Resolve explicitly so the flat order
             // is never empty.
             UIScreenRegistry.Invalidate(ScreenId);
@@ -2069,7 +2069,7 @@ namespace LethalAccess
             {
                 // A rebuild that produced no row extras (the vanilla UI, or a UI whose gamepad
                 // column vanished) must not leave the previous registration claiming destroyed
-                // objects - claims are what the arrow keys consult.
+                // objects; claims are what the arrow keys consult.
                 UIScreenRegistry.Unregister(ExtrasScreenId);
             }
 
@@ -2085,7 +2085,7 @@ namespace LethalAccess
             }
 
             // Something later in the panel's open sequence selects its Back button, overwriting the
-            // seed ScreenShown just made - live-confirmed: the flat order resolves 25 bind rows and
+            // seed ScreenShown just made. Live-confirmed: the flat order resolves 25 bind rows and
             // FocusOnOpen names the first, yet focus lands on "Panel actions, Back, button, 2 of 2"
             // and stays there, so the user arrives on the way OUT of a screen they just opened.
             // A one-shot seed cannot win that race; this re-asserts across it and stops as soon as
@@ -2110,8 +2110,8 @@ namespace LethalAccess
         ///
         /// UIScreenRegistry.Register attaches a ScreenActivationNotifier to a screen's root; on an
         /// active root that fires immediately and both announces the screen and moves focus into
-        /// it. The extras are not a screen the user ever "opens" - they are horizontal neighbours
-        /// of rows on another screen - so their root must never become active. An inactive anchor
+        /// it. The extras are not a screen the user ever "opens": they are horizontal neighbours
+        /// of rows on another screen, so their root must never become active. An inactive anchor
         /// gives them registry claims (and therefore labels, positions and KeepsHorizontal)
         /// without ever announcing or stealing focus. Entry resolution is unaffected because every
         /// extras entry resolves through Direct, not through a path under the root.
@@ -2169,7 +2169,7 @@ namespace LethalAccess
                     }
 
                     // Only VISIBLE entries are registered, and `index` only advances for them.
-                    // Registering a hidden entry gave it the LAST VISIBLE entry's index - it kept
+                    // Registering a hidden entry gave it the LAST VISIBLE entry's index; it kept
                     // the position it inherited, so if RebindButton.UpdateState later revealed it
                     // (Reset and Remove appear and disappear with the binding) without a rebuild it
                     // announced a duplicate position. Nothing is lost by the skip: a hidden control
@@ -2309,7 +2309,7 @@ namespace LethalAccess
         }
 
         /// <summary>
-        /// The first category button when the categories are collapsible - the user picks one -
+        /// The first category button when the categories are collapsible (the user picks one),
         /// otherwise the first row.
         /// </summary>
         private static Transform ResolveOpeningFocus()
@@ -2341,7 +2341,7 @@ namespace LethalAccess
 
         /// <summary>
         /// The panel heading is a bare TextMeshProUGUI on no Selectable, so it has never been
-        /// announced. Read it live rather than hard-coding a title - the same trap as the news
+        /// announced. Read it live rather than hard-coding a title: the same trap as the news
         /// popup's stale "Welcome to Version 80!".
         /// </summary>
         private static string ResolveTitle()
@@ -2367,7 +2367,7 @@ namespace LethalAccess
             // The object name is live-confirmed: KeybindsPanel's heading child is "Controls (1)",
             // a bare TextMeshProUGUI currently reading "REMAP CONTROLS". This fallback is reached
             // only if a later version renames that child or leaves its text empty, and it will not
-            // follow a localisation - which is why the live read above is tried first.
+            // follow a localisation, which is why the live read above is tried first.
             return "Remap controls";
         }
 
@@ -2377,7 +2377,7 @@ namespace LethalAccess
 
         /// <summary>
         /// Record that a vanilla rebind has begun. Called from the RebindKey PREFIX so the
-        /// watchdog knows which row to restore even if RebindKey itself throws - which it does
+        /// watchdog knows which row to restore even if RebindKey itself throws, which it does
         /// when OpenMenu has no bound control, AFTER InputSystem.actions.Disable() has run.
         /// </summary>
         public static void NoteRebindStarting(SettingsOption optionUI)
@@ -2405,7 +2405,7 @@ namespace LethalAccess
 
         /// <summary>
         /// The action name of a vanilla keybind row, read from the slot rather than from the
-        /// focused Button - the binding lives under the Button, the action name is a sibling.
+        /// focused Button: the binding lives under the Button, the action name is a sibling.
         /// </summary>
         public static string ActionNameFor(SettingsOption optionUI)
         {
@@ -2424,7 +2424,7 @@ namespace LethalAccess
         }
 
         /// <summary>
-        /// The exact control RebindKey passed to WithCancelingThrough - not a guess at "Escape".
+        /// The exact control RebindKey passed to WithCancelingThrough, not a guess at "Escape".
         /// Returns null when OpenMenu has no such control, which is the case that makes the
         /// timeout the only way out.
         /// </summary>
@@ -2515,7 +2515,7 @@ namespace LethalAccess
                 return;
             }
 
-            // rebindingOperation is NEVER set back to null - the game only Disposes it, and
+            // rebindingOperation is NEVER set back to null: the game only Disposes it, and
             // Dispose does not clear the operation's flags. `started` is the only field that
             // actually tracks whether a rebind is in flight.
             InputActionRebindingExtensions.RebindingOperation operation = settings.rebindingOperation;
@@ -2813,7 +2813,7 @@ namespace LethalAccess
 
         /// <summary>
         /// The InputUtils assembly, found through its plugin entry. Types are then looked up in it
-        /// directly. AccessTools.TypeByName - what this used before - falls back to walking every
+        /// directly. AccessTools.TypeByName (what this used before) falls back to walking every
         /// type of every loaded assembly when a name is not in mscorlib, which with eleven lookups
         /// and a Roslyn-sized assembly loaded cost about 650 ms, all of it inside the first open
         /// of the keybinds screen.
@@ -2987,8 +2987,8 @@ namespace LethalAccess
 
         /// <summary>
         /// The binding a RebindButton currently shows, read from the action rather than from
-        /// bindLabel. UpdateState blanks bindLabel whenever it uses a glyph sprite instead - every
-        /// gamepad bind and every mouse bind - which is why those rows announced "Rebind Button".
+        /// bindLabel. UpdateState blanks bindLabel whenever it uses a glyph sprite instead (every
+        /// gamepad bind and every mouse bind), which is why those rows announced "Rebind Button".
         /// InputUtils postfixes InputControlPath.ToHumanReadableString to turn its two
         /// "not bound" sentinel paths into an empty string, so an empty result means unbound.
         /// </summary>
@@ -3115,7 +3115,7 @@ namespace LethalAccess
 
         /// <summary>
         /// What the in-flight operation looks like at the instant FinishRebinding starts: cancelled
-        /// or not, and whether the timer had run out. Nothing afterwards can tell - the method
+        /// or not, and whether the timer had run out. Nothing afterwards can tell: the method
         /// nulls the operation as its first act.
         /// </summary>
         internal static void ReadOperationOutcome(object rebindButton, out bool canceled, out bool timedOut)
@@ -3141,7 +3141,7 @@ namespace LethalAccess
 
         /// <summary>
         /// The action name for the row a RebindButton belongs to. Read from the RebindItem's own
-        /// controlNameLabel field - the label is a SIBLING of the bind button, so anything that
+        /// controlNameLabel field; the label is a SIBLING of the bind button, so anything that
         /// searches downwards from the button finds the binding instead.
         /// </summary>
         internal static string RowActionName(Component rebindButton)
@@ -3178,7 +3178,7 @@ namespace LethalAccess
         /// A local copy of RemappableKeyExtensions.GetRebindingIndex. Reimplemented rather than
         /// invoked reflectively because it is a static extension on a vanilla type and calling it
         /// by reflection every announcement costs more than the fifteen lines it contains.
-        /// TODO: if InputUtils changes this rule, gamepad rows will read the wrong binding - the
+        /// TODO: if InputUtils changes this rule, gamepad rows will read the wrong binding; the
         /// only way to settle that is to diff against the installed version's decompilation.
         /// </summary>
         private static int RebindingIndexOf(RemappableKey key, InputAction action)
@@ -3312,8 +3312,8 @@ namespace LethalAccess
     /// Bridge to UIAccessibilityManager's by-instance registration.
     ///
     /// RegisterObject/UnregisterObject/ClearScreen exist on UIAccessibilityManager and could be
-    /// called directly. They are bound by reflection instead - the same approach FocusManager uses
-    /// to reach that class's private `lastAnnouncedObject` - so that a signature change downgrades
+    /// called directly. They are bound by reflection instead (the same approach FocusManager uses
+    /// to reach that class's private `lastAnnouncedObject`), so that a signature change downgrades
     /// to one log line rather than forty keybind rows silently announcing the wrong text.
     /// </summary>
     internal static class AnnouncerBridge

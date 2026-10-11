@@ -233,7 +233,7 @@ namespace UnityA11y.AccessKitInterop
         ///
         /// character_lengths is validated before it crosses the boundary. AccessKit slices the
         /// string with these lengths, and a sum that does not match the string's UTF-8 length is
-        /// a Rust panic - which ABORTS THE PROCESS rather than raising something catchable. A
+        /// a Rust panic, which ABORTS THE PROCESS rather than raising something catchable. A
         /// screen reader losing a text field is recoverable; the game vanishing mid-round is not.
         /// </summary>
         private static void WriteText(IntPtr node, AccessNode n)

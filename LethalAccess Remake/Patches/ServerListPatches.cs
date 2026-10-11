@@ -31,7 +31,7 @@ namespace LethalAccess
 
     /// <summary>
     /// Pressing Join is silent from the press until either the game loads or an error notification
-    /// appears - JoinLobbyAfterVerifying deactivates serverListUIContainer and SetLoadingScreen
+    /// appears: JoinLobbyAfterVerifying deactivates serverListUIContainer and SetLoadingScreen
     /// deactivates menuButtons, so the selection goes null and nothing announces anything.
     /// </summary>
     [HarmonyPatch(typeof(LobbySlot), nameof(LobbySlot.JoinButton))]
@@ -39,7 +39,7 @@ namespace LethalAccess
     {
         /// <summary>
         /// Deliberately a PREFIX. JoinButton delegates to JoinLobbyAfterVerifying, which sets
-        /// GameNetworkManager.waitingForLobbyDataRefresh = true before returning - so a
+        /// GameNetworkManager.waitingForLobbyDataRefresh = true before returning, so a
         /// `!waitingForLobbyDataRefresh` guard in a POSTFIX is false on exactly the presses that
         /// DID something, and would suppress every successful announcement. Reading the flag
         /// before the call is the only place it still distinguishes an accepted press from a
@@ -52,7 +52,7 @@ namespace LethalAccess
             if (net != null && net.waitingForLobbyDataRefresh)
             {
                 // JoinButton's own early-out: the press does nothing at all. Saying so is the whole
-                // point - the vanilla behaviour is a silent no-op.
+                // point; the vanilla behaviour is a silent no-op.
                 AnnouncementPolicy.Speak("Still loading servers.");
                 return;
             }
@@ -69,7 +69,7 @@ namespace LethalAccess
     /// gap: on the LobbyListItemChallenge prefab both modStateUnknownIcon and modStateTrueIcon are
     /// null, and SetModdedIcon dereferences them for Unknown and Modded. The throw happens inside
     /// SteamLobbyManager.loadLobbyListAndFilter, which abandons the coroutine and therefore every
-    /// remaining lobby in the list - silently, from the player's point of view. It is unreachable
+    /// remaining lobby in the list, silently, from the player's point of view. It is unreachable
     /// with default filters only because the query pins dmods=f; turning on "With detected mods"
     /// makes it reachable.
     ///
@@ -162,7 +162,7 @@ namespace LethalAccess
     /// <summary>
     /// The two list filters are plain Buttons, so flipping one changes nothing the announcer would
     /// notice: the same object stays focused and its state lives on a sibling Image. Re-announcing
-    /// the focused control is announcement rule 3 - the user hears the label, the type and the new
+    /// the focused control is announcement rule 3: the user hears the label, the type and the new
     /// state, not a free-floating "filter changed".
     /// </summary>
     [HarmonyPatch(typeof(SteamLobbyManager))]
@@ -201,7 +201,7 @@ namespace LethalAccess
             }
 
             // Every non-loading path through SetLoadingScreen ends in DisplayMenuNotification,
-            // which selects its own back button and is announced by MenuManagerNotificationPatch -
+            // which selects its own back button and is announced by MenuManagerNotificationPatch,
             // so there is normally nothing to do here. The exception is the launch-options scene,
             // where DisplayMenuNotification returns without doing anything: there, the selection
             // stays null and the keyboard is dead until something seeds it.
@@ -216,8 +216,8 @@ namespace LethalAccess
 
         private static void AnnounceLoading(MenuManager menu)
         {
-            // TODO(verify): MenuManager.loadingText is never written by Assembly-CSharp - it is
-            // authored in the scene - while logText IS updated with connection progress
+            // TODO(verify): MenuManager.loadingText is never written by Assembly-CSharp; it is
+            // authored in the scene, while logText IS updated with connection progress
             // ("Connecting to host...", "Connection failed."). Which of the two the loading screen
             // actually displays could not be confirmed against the running game, because the
             // process was sitting in the launch-options scene where the main menu is not loaded.

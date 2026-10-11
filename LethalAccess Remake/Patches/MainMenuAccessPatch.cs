@@ -9,7 +9,7 @@ namespace LethalAccess.Patches
     /// Registers the main menu as a real screen.
     ///
     /// It was the last surface still described only by the legacy path map, which knows a control's
-    /// label but not what screen it belongs to - so every announcement there opened with the control
+    /// label but not what screen it belongs to, so every announcement there opened with the control
     /// name and no context ("Host, button, 1 of 5" rather than "Main Menu, Host, button, 1 of 5").
     ///
     /// The authored order here is deliberately identical to the group registered in
@@ -60,7 +60,7 @@ namespace LethalAccess.Patches
             var d = new UIScreenDescriptor();
             d.Id = ScreenId;
 
-            // Component reference, never GameObject.Find - the panel is deactivated whenever a
+            // Component reference, never GameObject.Find: the panel is deactivated whenever a
             // sub-screen (host settings, server list) is open, and Find cannot see it then.
             d.ResolveRoot = delegate
             {
@@ -68,7 +68,7 @@ namespace LethalAccess.Patches
                 return (live != null && live.menuButtons != null) ? live.menuButtons.transform : null;
             };
 
-            // One section, so the announcement prefix falls back to the title - which is what the
+            // One section, so the announcement prefix falls back to the title, which is what the
             // user calls this screen. A section name like "Buttons" would be meaningless spoken.
             d.Title = delegate { return "Main Menu"; };
 

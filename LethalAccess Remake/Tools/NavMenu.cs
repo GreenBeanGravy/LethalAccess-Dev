@@ -12,12 +12,12 @@ namespace LethalAccess
 {
     /// <summary>
     /// NavMenu handles in-game navigation menus for locations, items, and other game objects.
-    /// This class does NOT handle UI accessibility - that is now managed by UIAccessibilityManager.
+    /// This class does NOT handle UI accessibility: that is now managed by UIAccessibilityManager.
     /// </summary>
     public class NavMenu : MonoBehaviour
     {
         // Was `private const float ScanRadius = 80f`, which meant the Navigation/ScanRadius and
-        // Performance/MaxObjectsToScan config entries - both shown in the in-game settings menu -
+        // Performance/MaxObjectsToScan config entries (both shown in the in-game settings menu)
         // did nothing at all.
         private static float ScanRadius => ConfigManager.ScanRadius.Value;
         private static int MaxObjectsToScan => ConfigManager.MaxObjectsToScan.Value;
@@ -641,7 +641,7 @@ namespace LethalAccess
         // Runs entirely on the main thread. This used to be `async Task` and dispatched the
         // scans through Task.Run; every Unity call inside them (Physics.OverlapSphere,
         // FindObjectOfType, CompareTag, GetComponent, NavMesh.*) is main-thread-only, threw,
-        // and was swallowed by the catch below - which is why the Items category was always
+        // and was swallowed by the catch below, which is why the Items category was always
         // empty. Keybind handlers already run on the main thread, so no dispatch is needed.
         public void RefreshCategory(string category)
         {
@@ -717,7 +717,7 @@ namespace LethalAccess
                     }
                 }
 
-                // Already on the main thread - the dispatcher round-trip that used to wrap
+                // Already on the main thread; the dispatcher round-trip that used to wrap
                 // this block is gone along with the Task.Run scans.
                 {
                     {
@@ -835,7 +835,7 @@ namespace LethalAccess
 
                     List<Collider> validColliders = new List<Collider>();
 
-                    // First pass - filter colliders (with individual try/catch for each)
+                    // First pass: filter colliders (with individual try/catch for each)
                     foreach (Collider c in colliders)
                     {
                         try
@@ -870,7 +870,7 @@ namespace LethalAccess
                         }
                     }
 
-                    // Second pass - sort and process in manageable batches
+                    // Second pass: sort and process in manageable batches
                     int batchSize = 20; // Process in smaller batches
                     int totalBatches = Mathf.CeilToInt((float)validColliders.Count / batchSize);
 
@@ -959,7 +959,7 @@ namespace LethalAccess
 
                     Vector3 playerPos = LACore.PlayerTransform.position;
 
-                    // OPTIMIZATION: Reduce scan radius for unlabeled objects to improve performance
+                    // A smaller scan radius for unlabeled objects keeps the scan fast.
                     float optimizedScanRadius = ScanRadius * 0.8f; // 80% of original radius
 
                     // Cache all objects in the scene once instead of using physics calls which are expensive
@@ -1039,12 +1039,12 @@ namespace LethalAccess
                                 if (ShouldIgnoreObject(obj.name))
                                     continue;
 
-                                // OPTIMIZATION: Use lightweight distance check before expensive path validation
+                                // A cheap distance check first, before the costly path validation.
                                 float distance = Vector3.Distance(playerPos, obj.transform.position);
                                 if (distance > optimizedScanRadius)
                                     continue;
 
-                                // OPTIMIZATION: Skip objects with too many children (likely complex objects)
+                                // Skip objects with many children; they are likely complex objects.
                                 if (obj.transform.childCount > 20)
                                     continue;
 
@@ -1096,7 +1096,7 @@ namespace LethalAccess
         }
 
         // ignoreKeywords is public and mixed-case, and the old loop called keyword.ToLower()
-        // inside the loop - one string allocation per keyword (~70) per candidate object, on
+        // inside the loop: one string allocation per keyword (~70) per candidate object, on
         // top of the one for the object name. The lowered copy is built once and rebuilt only
         // if the public list is edited.
         private string[] loweredIgnoreKeywords;
@@ -1225,7 +1225,7 @@ namespace LethalAccess
                 return null;
             }
 
-            // First check our tracked GameObject references - this is the primary lookup method
+            // First check our tracked GameObject references; this is the primary lookup method
             if (menuItemObjects != null && menuItemObjects.TryGetValue(uniqueKey, out GameObject trackedObj) && trackedObj != null)
             {
                 return trackedObj;
@@ -1445,8 +1445,8 @@ namespace LethalAccess
         /// Track which navigation categories are reachable, and say so when that changes.
         /// </summary>
         /// <param name="announceChanges">
-        /// False outside living gameplay. Visibility is still applied and recorded - only the
-        /// speech is withheld - so the categories are correct the moment the player can use them
+        /// False outside living gameplay. Visibility is still applied and recorded; only the
+        /// speech is withheld, so the categories are correct the moment the player can use them
         /// and no transition is lost while suppressed.
         /// </param>
         public void UpdateCategoriesVisibility(bool isShipLanded, string currentPlanetName, bool announceChanges)
@@ -1490,7 +1490,7 @@ namespace LethalAccess
                 }
 
                 // Only a genuine TRANSITION is worth saying, and only where the user can act on it.
-                // The first observation of a category is its starting state, not a change - without
+                // The first observation of a category is its starting state, not a change; without
                 // the `known` test every launch opened with both categories reporting themselves
                 // hidden, at frame 0, before the menu existed. Recording it either way is what
                 // keeps the next real transition from being missed.

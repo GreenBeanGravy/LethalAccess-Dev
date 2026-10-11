@@ -24,7 +24,7 @@ namespace LethalAccess
     /// finder returned null. Patching the BASE method therefore composes correctly in both
     /// directions: an Automatic horizontal slider never reaches this patch and keeps adjusting,
     /// and one wired into an Explicit chain calls base, gets null from here, and also adjusts.
-    /// Sliders do not need KeepsHorizontal to adjust - flag them only to keep them out of the
+    /// Sliders do not need KeepsHorizontal to adjust; flag them only to keep them out of the
     /// up/down chain. TMP_Dropdown does NOT override, so it goes inert on left/right unless it is
     /// flagged KeepsHorizontal and given an option-cycling handler.
     /// </summary>
@@ -108,8 +108,8 @@ namespace LethalAccess
                 return true;
             }
 
-            // Selectable.Navigate silently ignores a target that fails IsActive() - i.e. one
-            // whose component is disabled even though its GameObject is on - so a single step is
+            // Selectable.Navigate silently ignores a target that fails IsActive() (i.e. one
+            // whose component is disabled even though its GameObject is on), so a single step is
             // not enough: that case would eat the keypress with no announcement and no clue why.
             // Step past such entries. The walk ends by itself at the end of the order; the bound
             // only exists so a future bug in NextInFlatOrder cannot spin here.

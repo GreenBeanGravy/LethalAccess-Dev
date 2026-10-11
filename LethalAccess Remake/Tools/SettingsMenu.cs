@@ -98,8 +98,8 @@ namespace LethalAccess
             AddMenuItem(() => $"Max Objects To Scan: {ConfigManager.MaxObjectsToScan.Value}",
                 onModify: delta => ModifyInt(ConfigManager.MaxObjectsToScan, delta * 5, 50, 500));
 
-            // Removed: "Object Scan Interval". Nothing read that setting - scans are triggered by
-            // the category keybinds rather than polled - so the control did nothing.
+            // Removed: "Object Scan Interval". Nothing read that setting (scans are triggered by
+            // the category keybinds rather than polled), so the control did nothing.
 
             // Keybinds
             AddKeybindEntries();
@@ -224,17 +224,17 @@ namespace LethalAccess
 
         /// <summary>
         /// Keys that must not be offered as a rebind target. Two unrelated reasons, grouped
-        /// together only because both mean "skip" - they are NOT interchangeable.
+        /// together only because both mean "skip"; they are NOT interchangeable.
         /// </summary>
         private bool IsInvalidRebindKey(Key key)
         {
-            // GROUP 1 - not addressable through Keyboard's indexer. Load-bearing: dropping either
+            // GROUP 1: not addressable through Keyboard's indexer. Load-bearing: dropping either
             // of these reintroduces a per-frame throw out of Update while the rebind prompt is up.
             //
             // Keyboard.get_Item is "num = (int)key - 1; if (num < 0 || num >= m_Keys.Length)
             // throw new ArgumentOutOfRangeException", and m_Keys is a KeyControl[]. Verified
             // against the running game rather than assumed: m_Keys.Length is 123 == (int)Key.F24,
-            // and indexing every value of Key reports exactly two bad entries and no others -
+            // and indexing every value of Key reports exactly two bad entries and no others:
             //   None (0)          throws ArgumentOutOfRangeException, since (int)key - 1 == -1.
             //   IMESelected (111) returns NULL. The device's IMESelected child is a ButtonControl
             //                     ("Button:/Keyboard/IMESelected"), not a KeyControl, so
@@ -243,7 +243,7 @@ namespace LethalAccess
             // This enum carries no Count/Begin/End range markers to skip. Its only other oddity
             // is duplicate-valued aliases (AltGr == RightAlt; LeftWindows/LeftApple/LeftCommand
             // == LeftMeta, and the Right- equivalents), which are real bindable controls and
-            // merely make the loop visit those values more than once - harmless.
+            // merely make the loop visit those values more than once, which is harmless.
             //
             // If a future Unity/Input System upgrade extends Key past m_Keys.Length, or adds
             // another non-KeyControl slot, this list is wrong and the loop above will throw
@@ -253,7 +253,7 @@ namespace LethalAccess
                 return true;
             }
 
-            // GROUP 2 - policy, not safety. These all index fine; they are reserved because the
+            // GROUP 2: policy, not safety. These all index fine; they are reserved because the
             // menu itself reads them (Escape cancels this prompt, Enter and Space select, the
             // arrows move the selection, F10 toggles the menu), so binding an action to one of
             // them would leave the menu unusable.
@@ -337,7 +337,7 @@ namespace LethalAccess
         private void CancelKeybindRebind()
         {
             // Keyed on isWaitingForKey, not on currentKeybindEntry: those two are set together,
-            // but if they ever diverged the old guard left the menu permanently modal - waiting
+            // but if they ever diverged the old guard left the menu permanently modal, waiting
             // for a key, with navigation suspended and no way out.
             if (!isWaitingForKey)
             {
@@ -369,7 +369,7 @@ namespace LethalAccess
         private System.Collections.IEnumerator WaitForResetConfirmation()
         {
             // StartCoroutine runs the body synchronously up to the first yield, and the Input
-            // System processes events before MonoBehaviour updates in the same frame - so without
+            // System processes events before MonoBehaviour updates in the same frame, so without
             // this yield the loop below reads the very Enter that ASKED for the confirmation and
             // wipes every setting with no chance to cancel. This has to stay the first statement.
             yield return null;

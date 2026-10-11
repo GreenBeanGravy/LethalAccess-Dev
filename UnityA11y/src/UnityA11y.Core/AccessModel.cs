@@ -148,7 +148,7 @@ namespace UnityA11y.Core
         // characters, and the caret/selection on the input node pointing into that run.
         // Together they are what makes a UIA TextPattern exist, which is the only way a
         // screen reader can read a field back, move a review cursor through it, or say
-        // which character the caret is on. A plain Value gives none of that - it is read
+        // which character the caret is on. A plain Value gives none of that; it is read
         // once on focus and is silent for every keystroke afterwards.
 
         /// <summary>
@@ -256,7 +256,7 @@ namespace UnityA11y.Core
                 h = h * 31 + (SizeOfSet ?? 0);
                 h = h * 31 + (Level ?? 0);
                 // Hashed by length only. The characters themselves are in Value, already
-                // hashed above, and these arrays are rebuilt from it - so a change in one is
+                // hashed above, and these arrays are rebuilt from it, so a change in one is
                 // a change in the other, and hashing every byte would cost a walk of the
                 // whole field on every frame the caret moves.
                 h = h * 31 + (CharacterLengths != null ? CharacterLengths.Length : -1);

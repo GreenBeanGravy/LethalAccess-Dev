@@ -9,7 +9,7 @@ using UnityEngine.UI;
 namespace LethalAccess.Patches
 {
     /// <summary>
-    /// Everything the terminal says - and the three separate reasons it said the welcome page
+    /// Everything the terminal says, and the three separate reasons it said the welcome page
     /// three times over.
     ///
     /// The three readings of the welcome page came from three independent places:
@@ -22,7 +22,7 @@ namespace LethalAccess.Patches
     ///
     /// (1) is fixed here by speaking only the delta. (3) is fixed in TerminalTogglePatch by
     /// making the greeting a prefix. (2) is reduced to a single short "Terminal command input,
-    /// input field" by registering a custom text provider for the field - see
+    /// input field" by registering a custom text provider for the field. See
     /// InstallInputFieldLabel. Full suppression would need a check inside the announcer's private
     /// AnnounceUIElement; the provider route uses only its public API and needs no such change.
     /// </summary>
@@ -193,7 +193,7 @@ namespace LethalAccess.Patches
                 return;
             }
 
-            // Door and turret codes deliberately produce no node - they broadcast and play an
+            // Door and turret codes deliberately produce no node; they broadcast and play an
             // effect. Without this branch every code would be reported as "not recognised".
             if (BroadcastedCodeRef(__instance))
             {
@@ -204,7 +204,7 @@ namespace LethalAccess.Patches
             string typed = string.IsNullOrEmpty(__state.Typed) ? "that" : __state.Typed;
 
             // Override options are the confirm/deny prompts of every purchase, and the whole set
-            // of valid answers is on the node - so say what they are instead of just "no".
+            // of valid answers is on the node, so say what they are instead of just "no".
             if (__state.Node != null && __state.Node.overrideOptions)
             {
                 string options = ListOverrideWords(__state.Node);
@@ -254,7 +254,7 @@ namespace LethalAccess.Patches
         ///
         /// Both used to be process-wide bools, and nothing clears them on scene teardown:
         /// Terminal.QuitTerminal is reached only from PressESC (guarded on terminalInUse), from
-        /// BeginUsingTerminal's own catch, and from StartOfRound.playersFiredClientRpc - so every
+        /// BeginUsingTerminal's own catch, and from StartOfRound.playersFiredClientRpc, so every
         /// other way a round can end (disconnect, host quit, any return to the menu) destroys the
         /// Terminal with the latches still set. The next round's Terminal was then never isolated
         /// and never labelled, and quitting THAT one wrote the PREVIOUS Terminal's stashed
@@ -265,7 +265,7 @@ namespace LethalAccess.Patches
         /// as both sides fail the native-alive test), so a destroyed stash could match a different
         /// destroyed Terminal; and a `stashedFor != null` style check would report "nothing is
         /// stashed" the instant the scene unloaded, which is exactly the leak being fixed here.
-        /// ReferenceEquals asks the only question that matters - "is this the same CLR object" -
+        /// ReferenceEquals asks the only question that matters ("is this the same CLR object")
         /// and is unaffected by native liveness. The separate "is this object usable" question is
         /// still asked with Unity's == below, because a destroyed component must not be written to.
         ///
@@ -347,7 +347,7 @@ namespace LethalAccess.Patches
         /// source rather than inferred: Selectable.FindSelectable skips every candidate whose
         /// navigation.mode is None (decompiled UnityEngine.UI/Selectable.cs, the
         /// `selectable2.navigation.mode == Navigation.Mode.None` continue at line 452), and the
-        /// array it walks - s_Selectables - is a single process-wide list of every enabled
+        /// array it walks (s_Selectables) is a single process-wide list of every enabled
         /// Selectable, not a per-canvas one. Mode.None is therefore the only thing that keeps the
         /// terminal's scrollbar from being an arrow TARGET, and stops it being a silent focus stop
         /// if anything selects it: a Scrollbar announces nothing, and landing on one costs the user
@@ -356,7 +356,7 @@ namespace LethalAccess.Patches
         /// screenText.Select(), leaving a window in which the field does not hold focus.
         ///
         /// TODO(unverified): whether anything actually reaches the scrollbar in a real session has
-        /// not been OBSERVED - only derived from the Unity source above. Testing it needs a loaded
+        /// not been OBSERVED, only derived from the Unity source above. Testing it needs a loaded
         /// ship: no Terminal instance exists in the main menu scenes.
         ///
         /// What would settle it: in the ship, open the terminal, click the vertical scrollbar to
@@ -452,7 +452,7 @@ namespace LethalAccess.Patches
     /// reads the keyboard directly.
     ///
     /// F1 and F2 are hard-coded rather than registered with LACore.RegisterKeybind, because
-    /// registered binds are dispatched from CheckKeybinds - the very thing that is disabled here.
+    /// registered binds are dispatched from CheckKeybinds, the very thing that is disabled here.
     /// They are function keys specifically so that they cannot end up inside the command the user
     /// is typing. Making them rebindable needs terminal-scoped entries in ConfigManager, which
     /// would have to be dispatched from this component rather than from CheckKeybinds.
@@ -472,7 +472,7 @@ namespace LethalAccess.Patches
             if (host == null)
             {
                 // Nothing has initialised the mod yet, which should be impossible by the time a
-                // terminal exists - say so rather than silently losing the hotkeys.
+                // terminal exists; say so rather than silently losing the hotkeys.
                 Debug.LogError("[LethalAccess] Terminal hotkeys could not be installed: LACore.Instance is null, " +
                                "so there is no component host. Repeat-page and credits keys are unavailable.");
                 return;

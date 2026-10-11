@@ -40,7 +40,7 @@ namespace LethalAccess
 
         // Escape key handling to prevent pass-through. Per-instance: as static state this was
         // shared by every menu in the process, so closing one menu could swallow the next menu's
-        // first Escape - or leave it armed for a menu that never saw the keypress at all.
+        // first Escape, or leave it armed for a menu that never saw the keypress at all.
         private bool escapeWasUsedToCloseMenu = false;
 
         // Menu properties
@@ -396,7 +396,7 @@ namespace LethalAccess
         /// <summary>
         /// Take arrows/Enter/Escape out of service while a modal sub-state owns the keyboard.
         /// Without this the keypress that ANSWERS a prompt is also delivered to the Select action,
-        /// which re-invokes whatever entry is focused - so confirming a destructive action
+        /// which re-invokes whatever entry is focused, so confirming a destructive action
         /// re-triggers it.
         /// </summary>
         protected void SuspendNavigationActions()

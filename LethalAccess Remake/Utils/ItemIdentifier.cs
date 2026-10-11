@@ -118,8 +118,8 @@ namespace LethalAccess
 
             // Count how many instances of this type exist, from the per-frame cache.
             // Do not reach for GameObject.FindObjectsOfType<GameObject>() here: it materialises a
-            // managed array of every active GameObject in the scene - tens of thousands inside a
-            // generated interior - and this runs once per item being named, so a category refresh
+            // managed array of every active GameObject in the scene (tens of thousands inside a
+            // generated interior), and this runs once per item being named, so a category refresh
             // costs O(items x sceneObjects). The cached counts give identical numbering in one pass.
             bool hasMultipleInstances = GetBaseNameCount(baseName) > 1;
 
@@ -225,7 +225,7 @@ namespace LethalAccess
             }
         }
 
-        // Debugging method - can remove in production
+        // For debugging; nothing in normal play calls it.
         public static void LogAssignedIds()
         {
             foreach (var kvp in assignedIdsByType)

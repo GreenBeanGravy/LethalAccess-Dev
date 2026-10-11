@@ -14,9 +14,9 @@ using LethalAccess;
 namespace LethalAccess
 {
     /// <summary>
-    /// Improved Pathfinder component that provides navigation capabilities for the player
-    /// in both automatic and manual mode. Supports audio cues, visual path
-    /// representation, and handles off-NavMesh destinations with improved performance.
+    /// Guides the player to a target,
+    /// in automatic or manual mode, with audio cues and a drawn path. Destinations off
+    /// the NavMesh are handled too.
     /// </summary>
     internal class Pathfinder : MonoBehaviour
     {
@@ -138,7 +138,7 @@ namespace LethalAccess
                 stoppingRadius = ConfigManager.PathfindingStoppingRadius.Value;
 
                 // Initialize the ground mask for terrain detection.
-                // "Ground" is not a layer in Lethal Company - LayerMask.GetMask contributes
+                // "Ground" is not a layer in Lethal Company; LayerMask.GetMask contributes
                 // nothing for a name it cannot resolve, so it was dead. "Room" and "Colliders"
                 // are the layers facility floors actually live on.
                 groundMask = LayerMask.GetMask("Terrain", "Default", "Room", "Colliders")
@@ -447,7 +447,7 @@ namespace LethalAccess
                 return;
             }
 
-            // Properly remove the NavMeshAgent BEFORE generating nodes
+            // Remove the NavMeshAgent BEFORE generating nodes.
             if (agent != null)
             {
                 if (agent.isActiveAndEnabled && agent.isOnNavMesh)
@@ -1166,7 +1166,7 @@ namespace LethalAccess
                     yield break;
                 }
 
-                // Wait a few frames to ensure the path is properly calculated
+                // Give the path a few frames to finish calculating.
                 for (int i = 0; i < 5; i++)
                 {
                     yield return null;
@@ -1237,7 +1237,7 @@ namespace LethalAccess
                     yield break;
                 }
 
-                // CRITICAL FIX: Properly remove the NavMeshAgent BEFORE generating nodes
+                // Remove the NavMeshAgent BEFORE generating nodes.
                 if (agent != null)
                 {
                     if (agent.isActiveAndEnabled && agent.isOnNavMesh)
@@ -1274,7 +1274,7 @@ namespace LethalAccess
                 {
                     Debug.LogError($"CRITICAL: Failed to remove all NavMeshAgents before generating nodes. Still have {remainingAgents.Length} agents.");
 
-                    // Last resort - normal Destroy and quit pathfinding
+                    // Last resort: normal Destroy and quit pathfinding
                     foreach (var remaining in remainingAgents)
                     {
                         Destroy(remaining);
@@ -1321,7 +1321,7 @@ namespace LethalAccess
 
                 Debug.Log("StopPathfinding called - cleaning up all NavMeshAgents");
 
-                // First thing - update our state
+                // Update our state first.
                 isPathfinding = false;
                 forcedPathActive = false;
                 isOffNavMeshTarget = false;
@@ -1445,7 +1445,7 @@ namespace LethalAccess
                     return;
                 }
 
-                // Only draw the path in auto mode - manual mode has its own visualization
+                // Only draw the path in auto mode; manual mode has its own visualization
                 if (currentMode == PathfindingMode.Auto)
                 {
                     lineRenderer.positionCount = path.corners.Length;
@@ -1629,7 +1629,7 @@ namespace LethalAccess
             if (!isPathfinding || currentMode != PathfindingMode.Manual)
                 return;
 
-            // Check if player has skipped ahead - find the closest node regardless of index
+            // Check if player has skipped ahead: find the closest node regardless of index
             PathNode closestNode = null;
             float closestDistance = float.MaxValue;
 
@@ -1674,7 +1674,7 @@ namespace LethalAccess
                 {
                     MarkNodeAsReached(currentTargetNode, true); // Announce when we explicitly reach a targeted node
 
-                    // Check if this is the last node - if so, we've reached the destination
+                    // Check if this is the last node. If so, we've reached the destination
                     bool isLastNode = true;
                     foreach (var checkNode in pathNodes)
                     {
@@ -1878,7 +1878,7 @@ namespace LethalAccess
             // Get forward vector of player (normalized)
             Vector3 playerForward = transform.forward.normalized;
 
-            // Determine directional relationship - only consider horizontal component
+            // Determine directional relationship: only consider horizontal component
             Vector3 horizontalToNode = new Vector3(directionToNode.x, 0, directionToNode.z).normalized;
             Vector3 horizontalForward = new Vector3(playerForward.x, 0, playerForward.z).normalized;
 
@@ -2115,7 +2115,7 @@ namespace LethalAccess
         {
             try
             {
-                // First attempt - standard cleanup
+                // First attempt: standard cleanup
                 if (agent != null)
                 {
                     // Make sure to stop and reset the agent first if it's active
@@ -2134,7 +2134,7 @@ namespace LethalAccess
                     Debug.Log("NavMeshAgent component destroyed via RemoveAgent()");
                 }
 
-                // Second attempt - find any remaining NavMeshAgent on this GameObject
+                // Second attempt: find any remaining NavMeshAgent on this GameObject
                 NavMeshAgent[] existingAgents = GetComponents<NavMeshAgent>();
                 if (existingAgents != null && existingAgents.Length > 0)
                 {
@@ -2176,7 +2176,7 @@ namespace LethalAccess
             {
                 Debug.LogError($"Exception in RemoveAgent: {ex.Message}");
 
-                // Extreme fallback - try DestroyImmediate on any agent we can find
+                // Extreme fallback: try DestroyImmediate on any agent we can find
                 try
                 {
                     NavMeshAgent[] allAgents = GetComponents<NavMeshAgent>();
@@ -2629,7 +2629,7 @@ namespace LethalAccess
                     return;
                 }
 
-                // Extra safety check - if we're not pathfinding, make sure no NavMeshAgent exists
+                // Extra safety check: if we're not pathfinding, make sure no NavMeshAgent exists
                 if (!isPathfinding && !isGeneratingPath && !isInitializingPathfinding)
                 {
                     return; // Early return to prevent further processing
@@ -2997,7 +2997,7 @@ namespace LethalAccess
                             // during Unity's own destruction pass (Pathfinder lives on the
                             // player object, which is destroyed on scene change).
                             // DestroyImmediate is not supported there. The agent is going away
-                            // with its GameObject anyway, so deferred destruction is fine here -
+                            // with its GameObject anyway, so deferred destruction is fine here,
                             // unlike the runtime paths in NavMeshProxy, which must complete
                             // before a replacement agent is added.
                             Destroy(a);

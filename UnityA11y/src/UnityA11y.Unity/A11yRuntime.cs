@@ -106,7 +106,7 @@ namespace UnityA11y.Unity
             if (focusOwner != null)
             {
                 // Host-owned navigation. Engage() is still called so a custom owner can
-                // do its own setup, but the built-in suppressor is never constructed -
+                // do its own setup, but the built-in suppressor is never constructed:
                 // nothing here touches EventSystem.sendNavigationEvents.
                 _nav = focusOwner;
             }

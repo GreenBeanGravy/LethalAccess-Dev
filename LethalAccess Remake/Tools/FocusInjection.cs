@@ -4,7 +4,7 @@ using UnityEngine.UI;
 namespace LethalAccess
 {
     /// <summary>
-    /// Makes non-interactive UI - headings, prompts, body copy, status lines - reachable by the
+    /// Makes non-interactive UI (headings, prompts, body copy, status lines) reachable by the
     /// keyboard. This is the general mechanism behind every "the text on this screen cannot be
     /// read because nothing can focus it" defect.
     /// </summary>

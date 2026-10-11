@@ -15,7 +15,7 @@ namespace LethalAccess
     ///
     /// Do NOT dispatch speech with `async void` + `Task.Run(...)` instead. That hands each
     /// utterance to an arbitrary thread-pool thread, so two announcements raised in the same frame
-    /// reach Tolk in either order - for a screen reader that is a correctness bug, not a nicety -
+    /// reach Tolk in either order (for a screen reader that is a correctness bug, not a nicety)
     /// and it enters Tolk, a COM/SAPI-backed native library, from a different thread each time.
     /// </summary>
     public static class SpeechQueue
@@ -44,7 +44,7 @@ namespace LethalAccess
         /// within 50 ms of the previous one regardless of content, and its replacement dropped
         /// exact repeats inside the same window. Both meant "line absent" could not be trusted to
         /// mean "line not spoken", which makes the output untrustworthy to reason about and makes
-        /// a genuine repeat - "3 of 8" twice while moving through a list - silently vanish.
+        /// a genuine repeat ("3 of 8" twice while moving through a list) silently vanish.
         /// If duplicate announcements are showing up, fix the thing raising them twice.
         /// </summary>
         public static bool Enqueue(string text)
@@ -62,8 +62,8 @@ namespace LethalAccess
         /// carries no information in the first line that the second does not, and speaking both
         /// puts the reader permanently behind the slider.
         ///
-        /// It exists because the alternative that was tried first - emitting with a global
-        /// barge-in - flushed the WHOLE backlog, so an unrelated "Took flashlight." or a health
+        /// It exists because the alternative that was tried first (emitting with a global
+        /// barge-in) flushed the WHOLE backlog, so an unrelated "Took flashlight." or a health
         /// warning raised while the slider was moving was destroyed before it was ever spoken.
         /// Pass 0 (or use the single-argument overload) for anything that must never be replaced.
         /// </summary>
@@ -92,7 +92,7 @@ namespace LethalAccess
 
         /// <summary>
         /// Drop every queued utterance carrying <paramref name="tag"/>. Returns how many went.
-        /// Order of the survivors is preserved - the queue is rebuilt in place rather than sorted.
+        /// Order of the survivors is preserved; the queue is rebuilt in place rather than sorted.
         /// </summary>
         public static int CancelTagged(int tag)
         {
@@ -129,7 +129,7 @@ namespace LethalAccess
         /// <summary>
         /// Drop the entire backlog. The intended caller is a FOCUS CHANGE, where everything still
         /// queued describes a control the user has already left. Returns how many went, so the
-        /// caller can log it - discarded speech that leaves no trace makes a "why did it go quiet"
+        /// caller can log it: discarded speech that leaves no trace makes a "why did it go quiet"
         /// report unanswerable.
         /// </summary>
         public static int CancelAll()
@@ -236,7 +236,7 @@ namespace LethalAccess
     {
         // NOTE: this type deliberately has NO static constructor. It used to have one that
         // called UnityMainThreadDispatcher.Instance(), which runs FindObjectOfType and
-        // `new GameObject` - main-thread-only calls. Because every caller reached SpeakText
+        // `new GameObject`: main-thread-only calls. Because every caller reached SpeakText
         // from inside Task.Run, the static constructor ran on a thread-pool thread, and a
         // throwing type initializer is cached by the CLR forever: one failure would have
         // silenced the screen reader for the whole session with no user-visible symptom.

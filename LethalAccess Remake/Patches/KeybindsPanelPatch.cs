@@ -18,7 +18,7 @@ namespace LethalAccess
     /// The rebind hooks exist because starting a rebind is the single worst accessibility defect
     /// in the game: IngamePlayerSettings.RebindKey shows a plain inactive `waitingForInput` object
     /// (no event, nothing to announce), disables InputSystem.actions, and starts an interactive
-    /// rebind that suppresses every matching input event - so the UI module sees nothing and
+    /// rebind that suppresses every matching input event, so the UI module sees nothing and
     /// LACore.CheckKeybinds, which polls Keyboard.current directly, sees nothing either. It never
     /// calls WithTimeout. Nothing in the game says a word about any of it.
     /// </summary>
@@ -56,7 +56,7 @@ namespace LethalAccess
         internal static class LoadKeybindsUIPatch
         {
             // Last, so this runs after any other mod that reshapes the panel in the same postfix
-            // slot - notably LcInputActionApi.LoadIntoUI's repositioning pass.
+            // slot, notably LcInputActionApi.LoadIntoUI's repositioning pass.
             [HarmonyPostfix]
             [HarmonyPriority(Priority.Last)]
             public static void Postfix(KepRemapPanel __instance)
@@ -88,7 +88,7 @@ namespace LethalAccess
             /// <summary>
             /// Record the row BEFORE the body runs. RebindKey disables InputSystem.actions and
             /// shows waitingForInput before it touches WithCancelingThrough, and that line throws
-            /// when the OpenMenu action has no control at the requested index - leaving the game
+            /// when the OpenMenu action has no control at the requested index, leaving the game
             /// with input disabled, the row stuck, and no postfix. The watchdog can only recover
             /// from that if it already knows which row to restore.
             /// </summary>
@@ -178,7 +178,7 @@ namespace LethalAccess
             /// <summary>
             /// ResetAllKeybinds -> UpdateAllKeybindOptions -> ResetKeybindsUI -> UnloadKeybindsUI
             /// DESTROYS every slot, including whichever one is focused. The scene-authored
-            /// KeybindsPanel/SetDefault.onClick calls Back.Select() first so that path survives -
+            /// KeybindsPanel/SetDefault.onClick calls Back.Select() first so that path survives,
             /// but SettingsPanel/SetToDefault carries the same handler with no such protection,
             /// and InputUtils strips the protective Select() with onClick.RemoveAllListeners().
             /// Unity has no focus recovery of its own, so without this the keyboard dies.
@@ -240,8 +240,8 @@ namespace LethalAccess
 
         #region LethalCompanyInputUtils rebind hooks
 
-        // InputUtils' own rebind is not a hard lock - RebindButton.Update cancels it after
-        // `timeout` seconds and its OnCancel restores the UI - but it is completely silent, and it
+        // InputUtils' own rebind is not a hard lock: RebindButton.Update cancels it after
+        // `timeout` seconds and its OnCancel restores the UI, but it is completely silent, and it
         // suppresses input for the whole of that window. These four hooks are attached by
         // reflection so the mod still loads when InputUtils is absent.
 
@@ -309,8 +309,8 @@ namespace LethalAccess
 
             // Narrow, reported, non-silent: this runs inside KepRemapPanel.LoadKeybindsUI's
             // postfix, so an exception from patching a THIRD-PARTY method would propagate into the
-            // game's own OnEnable and take the whole panel - including the screen registration
-            // that makes it navigable at all - down with it. One announcement going missing is
+            // game's own OnEnable and take the whole panel (including the screen registration
+            // that makes it navigable at all) down with it. One announcement going missing is
             // recoverable; a keybinds panel that throws on open is not. The failure is logged in
             // full, and the other hooks still get attached.
             try
@@ -399,7 +399,7 @@ namespace LethalAccess
             KeybindsAccessibility.RestoreCollapseAfterBulkReset();
             bulkResetInProgress = false;
             SpeakResetAllOnce();
-            // InputUtils' reset does not rebuild the UI, so the rows survive - only their
+            // InputUtils' reset does not rebuild the UI, so the rows survive; only their
             // bindings, and the visibility of the Reset buttons, have changed.
             KeybindsAccessibility.RefreshDynamicState();
             AnnouncementPolicy.ReAnnounceFocused();

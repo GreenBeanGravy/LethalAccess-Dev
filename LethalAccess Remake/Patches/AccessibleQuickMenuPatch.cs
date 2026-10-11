@@ -12,11 +12,11 @@ namespace LethalAccess
     ///
     /// The screen this replaces had no model at all: every announcement came from
     /// Utilities.GetTextFromComponent falling through to gameObject.name, and every arrow press
-    /// came from Unity's geometric search. That search is the root of the worst defect here -
+    /// came from Unity's geometric search. That search is the root of the worst defect here:
     /// Selectable.FindSelectable scores EVERY enabled Selectable in the scene whose
     /// navigation.mode != None, it is not scoped to a panel, so in multiplayer Down from "Quit"
     /// left the pause buttons entirely for an unlabelled player-list control, and MainButtons'
-    /// wrapAround made Up from "Resume" pick the FURTHEST candidate in the opposite direction -
+    /// wrapAround made Up from "Resume" pick the FURTHEST candidate in the opposite direction,
     /// again inside the player list. Solo it looks fine only because PlayerList is inactive.
     ///
     /// Three screens are described here:
@@ -25,7 +25,7 @@ namespace LethalAccess
     ///   quickmenu.kickconfirm  - the "kick out X?" prompt
     ///
     /// The settings panel inside this menu belongs to SettingsPanelAccessPatch and the keybinds
-    /// overlay to the KepRemapPanel.LoadKeybindsUI postfix - one implementation each covers both
+    /// overlay to the KepRemapPanel.LoadKeybindsUI postfix: one implementation each covers both
     /// the main-menu and in-game copies. Nothing here claims a SettingsPanel or KeybindsPanel
     /// object, and nothing here moves focus while either is up.
     ///
@@ -55,8 +55,8 @@ namespace LethalAccess
         private static int closeQuickMenuFrame = -1;
 
         // The KickButton the open kick prompt came from, so cancelling returns focus to it. The
-        // vanilla Deny button calls Select() on SettingsPanel/BackButton - the wrong panel, and
-        // inactive at that moment - which is what stranded the keyboard off-screen.
+        // vanilla Deny button calls Select() on SettingsPanel/BackButton, the wrong panel, and
+        // inactive at that moment, which is what stranded the keyboard off-screen.
         private static Transform kickReturnFocus;
 
         #region Patches
@@ -91,7 +91,7 @@ namespace LethalAccess
 
             // Vanilla resets leaveGameConfirmPanel and settingsPanel here but NOT
             // ConfirmKickUserPanel. Left set, it re-enables with its PlayerList parent later and
-            // a stale "Kick out X?" prompt reappears - which now also means an announced screen
+            // a stale "Kick out X?" prompt reappears, which now also means an announced screen
             // change and a stolen focus. Reset it with the panels it belongs to.
             if (__instance.ConfirmKickUserPanel != null && __instance.ConfirmKickUserPanel.activeSelf)
             {
@@ -109,7 +109,7 @@ namespace LethalAccess
 
             // Returning from Settings or from the leave prompt is a screen change and rule 4 says
             // it announces. The game's own onClick then Selects the button you came from
-            // (MainButtons/Settings or MainButtons/Quit), which runs after this and wins - so the
+            // (MainButtons/Settings or MainButtons/Quit), which runs after this and wins, so the
             // user hears "Pause menu" followed by the control they left from, not by Resume.
             UIScreenRegistry.ScreenShown(MainScreenId);
         }
@@ -168,7 +168,7 @@ namespace LethalAccess
 
             // leaveGameConfirmPanel was activated part-way through LeaveGame, so the screen has
             // already announced itself and seeded focus on Cancel. What it could NOT see is
-            // leaveGameClarificationText.enabled, which LeaveGame writes on its LAST line - after
+            // leaveGameClarificationText.enabled, which LeaveGame writes on its LAST line, after
             // the panel is up. Re-resolve so the warning joins (or leaves) the authored order,
             // then speak it.
             UIScreenRegistry.Invalidate(LeaveScreenId);
@@ -207,7 +207,7 @@ namespace LethalAccess
             EnsureScreens(__instance);
 
             // KickUserFromServer writes ConfirmKickPlayerText BEFORE activating the panel, so the
-            // screen title already read the live "Kick out X?" - nothing to re-announce here.
+            // screen title already read the live "Kick out X?"; nothing to re-announce here.
             SyncChains();
 
             kickReturnFocus = null;
@@ -284,7 +284,7 @@ namespace LethalAccess
 
             // The usernameHeader is written just above this, so the rebuilt labels carry the new
             // player's name. Every player-list label is baked at rebuild time for exactly this
-            // reason - AddUserToPlayerList is the only writer of that text.
+            // reason: AddUserToPlayerList is the only writer of that text.
             if (!EnsureScreens(__instance))
             {
                 RebuildMain();
@@ -339,7 +339,7 @@ namespace LethalAccess
             // Both confirm panels are inactive at this point, so registering them attaches their
             // notifiers without announcing anything. The main screen is registered last because
             // its root IS active while the menu is open, and attaching a notifier to an active
-            // GameObject runs OnEnable synchronously - which is how the first open announces
+            // GameObject runs OnEnable synchronously, which is how the first open announces
             // "Pause menu" and lands focus on Resume.
             UIScreenRegistry.Register(BuildLeaveDescriptor());
             UIScreenRegistry.Register(BuildKickDescriptor());
@@ -369,7 +369,7 @@ namespace LethalAccess
         }
 
         /// <summary>
-        /// Slot 0 is the host, and its KickButton ships with an EMPTY onClick list - it is
+        /// Slot 0 is the host, and its KickButton ships with an EMPTY onClick list: it is
         /// focusable and does nothing. It is left out of the authored order, which is enough
         /// while vertical-only navigation is on; taking it out of Unity's navigation as well
         /// makes it unreachable under every mode instead of only that one.
@@ -476,8 +476,8 @@ namespace LethalAccess
         }
 
         /// <summary>
-        /// DisableInviteFriendsButton only sets CanvasGroup.alpha = 0.2 - Button.interactable is
-        /// untouched - so the control announced identically whether or not it would do anything.
+        /// DisableInviteFriendsButton only sets CanvasGroup.alpha = 0.2 (Button.interactable is
+        /// untouched), so the control announced identically whether or not it would do anything.
         /// Read the predicate the button itself uses rather than the alpha, so the state is right
         /// even if a future build stops dimming it.
         /// </summary>
@@ -553,7 +553,7 @@ namespace LethalAccess
 
                 if (i > 0)
                 {
-                    // Slot 0's KickButton has no handler at all - see IsolateHostKickButton.
+                    // Slot 0's KickButton has no handler at all. See IsolateHostKickButton.
                     Transform kick = KickButtonOf(slot);
                     if (kick != null)
                     {
@@ -811,7 +811,7 @@ namespace LethalAccess
                 }
             }
             // AddUserToPlayerList is the only writer of that header, so an empty one means the
-            // slot was marked connected without a name - say which row it is rather than nothing.
+            // slot was marked connected without a name; say which row it is rather than nothing.
             return "player " + (index + 1);
         }
 
@@ -838,7 +838,7 @@ namespace LethalAccess
 
             // The row went away while the prompt was up (the player disconnected). Fall back to
             // the pause buttons rather than leaving selection on Deny's onClick target, which is
-            // SettingsPanel/BackButton - a different panel, and inactive.
+            // SettingsPanel/BackButton, a different panel, and inactive.
             Transform resume = MainButton("Resume");
             if (resume != null && UIUtils.IsUIElementVisible(resume.gameObject))
             {

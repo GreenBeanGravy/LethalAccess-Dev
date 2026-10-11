@@ -9,7 +9,7 @@ namespace LethalAccess
     /// UI utility functions for LethalAccess.
     ///
     /// Text scraping, special-character stripping and hierarchy-path building all live in
-    /// <see cref="Utilities"/>; the versions here are thin forwards. Keep them that way - as
+    /// <see cref="Utilities"/>; the versions here are thin forwards. Keep them that way: as
     /// byte-identical copies a label rule could be fixed in one and silently not apply through the
     /// other, because LACore's custom text providers go through this class while the announcer
     /// goes through Utilities.
@@ -27,7 +27,7 @@ namespace LethalAccess
         /// This exists because <c>GameObject.Find</c> is ACTIVE-ONLY. Every panel in this game
         /// ships with <c>m_IsActive = false</c> and is turned on by a serialized UnityEvent, so
         /// <c>GameObject.Find("Canvas/MenuContainer/SettingsPanel/...")</c> returns null right up
-        /// until the panel is on screen - which is why both SetNavigation calls in Plugin.cs never
+        /// until the panel is on screen, which is why both SetNavigation calls in Plugin.cs never
         /// applied and why ValidateRegisteredPaths reported every SettingsPanel and
         /// LobbyHostSettings path as broken on every launch.
         ///
@@ -137,7 +137,7 @@ namespace LethalAccess
                     continue;
                 }
 
-                // Root names are not unique - keep scanning rather than committing to the first
+                // Root names are not unique; keep scanning rather than committing to the first
                 // object that merely has the right name.
                 Transform resolved = remainder.Length == 0
                     ? root.transform
@@ -299,10 +299,10 @@ namespace LethalAccess
         ///
         /// <paramref name="index"/> is 1-BASED and <paramref name="total"/> is the number of rows
         /// currently visible, matching UIScreenRegistry.TryGetPosition. Pass 0 for both to omit
-        /// the position - do that when the announcer is already appending one, so the row is not
+        /// the position; do that when the announcer is already appending one, so the row is not
         /// numbered twice.
         ///
-        /// Pass `i + 1` when iterating rows - the index is 1-based so it matches TryGetPosition and
+        /// Pass `i + 1` when iterating rows; the index is 1-based so it matches TryGetPosition and
         /// every other "n of m" in the mod. An index outside 1..total is treated as "no position"
         /// rather than announced, so an off-by-one shows up as a missing position on row 1 instead
         /// of as a wrong number on every row.
@@ -349,8 +349,8 @@ namespace LethalAccess
                 label += ", " + players + " players";
             }
 
-            // LobbySlot.SetModdedIcon only ever ENABLES an icon - the Vanilla case enables neither
-            // and nothing ever disables one - so "both off" and "both on" are equally
+            // LobbySlot.SetModdedIcon only ever ENABLES an icon: the Vanilla case enables neither
+            // and nothing ever disables one, so "both off" and "both on" are equally
             // uninformative. Only speak a mod state when exactly one icon is showing, rather than
             // reporting a lobby as modded on the strength of a prefab default.
             // TODO(verify): open the server list and read the authored Image.enabled values on

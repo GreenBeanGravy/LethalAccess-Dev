@@ -14,9 +14,9 @@ namespace LethalAccess
     /// The announcer: it watches what the EventSystem has focused and says what it is.
     ///
     /// Three sources of truth feed it, most specific first:
-    ///   1. Instance registrations (<see cref="RegisterObject"/>) - keyed on GameObject instance
+    ///   1. Instance registrations (<see cref="RegisterObject"/>): keyed on GameObject instance
     ///      id, so runtime clones that all share one hierarchy path can each describe themselves.
-    ///   2. <see cref="UIScreenRegistry"/> - the authored screen model: label, type, live state
+    ///   2. <see cref="UIScreenRegistry"/>, the authored screen model: label, type, live state
     ///      and the "n of m" position within a named section.
     ///   3. The legacy path map (<see cref="RegisterElement"/> / <see cref="CreateGroup"/>) plus
     ///      component sniffing, for everything nothing has claimed yet.
@@ -40,7 +40,7 @@ namespace LethalAccess
         // suppressed anything and Tab ping-ponged between two controls forever.
         //
         // FocusManager.Seed normally clears lastAnnouncedObject, which already prevents the push;
-        // this flag is what keeps the behaviour correct when it cannot - Seed reaches that memo
+        // this flag is what keeps the behaviour correct when it cannot; Seed reaches that memo
         // reflectively and logs an error if the field is ever renamed, and the degraded path must
         // not silently bring the ping-pong back.
         private bool suppressNextHistoryPush;
@@ -130,7 +130,7 @@ namespace LethalAccess
         // What this does is COALESCE, not drop: repeated state re-announcements of ONE control
         // collapse into a single pending request, and the request is emitted with whatever value
         // the control holds at emission time. The final request of a held arrow is never
-        // discarded - it is emitted as soon as the window closes - so the value the user lands on
+        // discarded (it is emitted as soon as the window closes), so the value the user lands on
         // is always the value they hear. No distinct utterance is lost anywhere in here.
 
         /// <summary>
@@ -157,12 +157,12 @@ namespace LethalAccess
         private int supersedeTagForNextAnnouncement;
 
         /// <summary>
-        /// Rule 3 - say the focused control again, with its new value.
+        /// Rule 3: say the focused control again, with its new value.
         ///
         /// AnnouncementPolicy.ReAnnounceFocused routes through here, which gives every caller the
         /// coalescing for free and changes nothing for discrete controls.
         ///
-        /// Silent when nothing is focused - rule 3 forbids a free-floating sentence - and when an
+        /// Silent when nothing is focused (rule 3 forbids a free-floating sentence) and when an
         /// announcement-suppression scope is open, which matches ReAnnounceFocused exactly.
         /// </summary>
         public static void RequestReAnnounce()
@@ -179,7 +179,7 @@ namespace LethalAccess
 
         /// <summary>
         /// The same thing for a named control. Continuous controls (anything whose value changes
-        /// by repeat or by drag - Slider, Scrollbar) are coalesced; everything else re-announces
+        /// by repeat or by drag: Slider, Scrollbar) are coalesced; everything else re-announces
         /// immediately, so a dropdown, a sprite-toggle or a mic button still speaks once per
         /// press with no added latency.
         /// </summary>
@@ -249,7 +249,7 @@ namespace LethalAccess
             if (selected != pendingReAnnounceTarget)
             {
                 // Focus moved with a request still pending. The value the user LANDED ON has not
-                // been spoken yet, so dropping this outright loses the one number that mattered -
+                // been spoken yet, so dropping this outright loses the one number that mattered:
                 // the final position of a slider they nudged and immediately arrowed away from.
                 // Emit it, tagged, so it is superseded rather than stacked, and let the new
                 // control's own announcement follow it on this same frame.
@@ -263,7 +263,7 @@ namespace LethalAccess
             if (coalesceWindowOwner == selected &&
                 now - lastCoalescedReAnnounceAt < ReAnnounceCoalesceSeconds)
             {
-                // Inside the window. The request STAYS pending - nothing is discarded - so it goes
+                // Inside the window. The request STAYS pending (nothing is discarded), so it goes
                 // out as soon as the window closes, carrying the value at that moment. This is the
                 // only branch that delays anything, and the delay is bounded by the window.
                 return;
@@ -333,7 +333,7 @@ namespace LethalAccess
         ///
         /// count &lt;= 0 really does mean SILENT on position, not "fall back to a guess":
         /// <see cref="GetElementIndex"/> stops at the instance registration either way, so none of
-        /// the later sources - lobby-row counting, the legacy group map, the sibling heuristic -
+        /// the later sources (lobby-row counting, the legacy group map, the sibling heuristic)
         /// can supply one behind your back.
         ///
         /// The one thing that still outranks it is an authored
@@ -427,7 +427,7 @@ namespace LethalAccess
         /// <summary>
         /// Drop every instance registration belonging to a screen. Call this when the screen's
         /// controls are destroyed (keybind rows on "Set to defaults", lobby rows on refresh),
-        /// otherwise the map keeps dead instance ids - and Unity reuses instance ids, so a stale
+        /// otherwise the map keeps dead instance ids, and Unity reuses instance ids, so a stale
         /// entry can eventually be handed to an unrelated new object.
         /// </summary>
         public void ClearScreen(string screenId)
@@ -595,7 +595,7 @@ namespace LethalAccess
             if (selectedObject == null)
             {
                 // Without this, coming back to the SAME control after a focus wipe is
-                // silent - the announcer still thinks it already said it - and a value change can
+                // silent (the announcer still thinks it already said it) and a value change can
                 // never re-announce.
                 lastAnnouncedObject = null;
 
@@ -612,8 +612,8 @@ namespace LethalAccess
             }
 
             // A screen that is on screen but still rearranging itself mutes its own controls until
-            // it settles. Without this the pre-init scene described the gamma panel's Confirm -
-            // selected by the game's own SelectUIForGamepad - one frame before the panel it belongs
+            // it settles. Without this the pre-init scene described the gamma panel's Confirm
+            // (selected by the game's own SelectUIForGamepad), one frame before the panel it belongs
             // to was replaced. Deliberately does NOT touch lastAnnouncedObject: the control must
             // still be announceable the moment the screen settles.
             if (UIScreenRegistry.IsAwaitingSettle(selectedObject))
@@ -630,7 +630,7 @@ namespace LethalAccess
             // it, so barge-in never fired on a focus change and everything queued about the
             // control the user just left still had to be spoken before they heard the one they
             // moved to. It compares instance ids itself, so a coalesced re-announcement of the
-            // SAME control does not cut off its own utterance - only a genuine move does.
+            // SAME control does not cut off its own utterance; only a genuine move does.
             //
             // Deliberately not called on the null branch above: losing focus entirely is the
             // watchdog's business, and cancelling there would cut off the announcement of the
@@ -664,12 +664,12 @@ namespace LethalAccess
 
         /// <summary>
         /// Escape activates the current screen's Back control, so leaving a menu is one key
-        /// instead of a walk to the bottom of it - the Windows convention.
+        /// instead of a walk to the bottom of it, the Windows convention.
         ///
         /// Menu scenes only: in gameplay the game owns Escape (the pause menu, and
         /// `PlayerControllerB` routing in-game settings to the confirm-changes modal), and
         /// firing as well would back out of two things with one press. In the menu scenes the
-        /// game ignores Escape entirely - Assembly-CSharp has no ICancelHandler at all - so
+        /// game ignores Escape entirely (Assembly-CSharp has no ICancelHandler at all), so
         /// claiming it collides with nothing.
         /// </summary>
         private void HandleEscapeAsBack()
@@ -771,7 +771,7 @@ namespace LethalAccess
         }
 
         /// <summary>
-        /// Tab moves between CONTROLS, Ctrl+Tab between SECTIONS - the Windows convention a
+        /// Tab moves between CONTROLS, Ctrl+Tab between SECTIONS, the Windows convention a
         /// screen-reader user already has, rather than one this mod invented.
         ///
         /// Tab used to jump by section and Ctrl+Tab walked the focus history. The history walk
@@ -832,7 +832,7 @@ namespace LethalAccess
                 !string.IsNullOrEmpty(sectionName))
             {
                 // Skipped when announcements already open with their section, because the control
-                // itself is about to say "Actions, Confirm changes, button, 1 of 3" - a separate
+                // itself is about to say "Actions, Confirm changes, button, 1 of 3", a separate
                 // "Actions section." in front of that is the same word twice in a row.
                 AnnouncementPolicy.Speak(sectionName + " section.");
 
@@ -878,7 +878,7 @@ namespace LethalAccess
         ///
         /// Loops past candidates that have since been destroyed or hidden instead of consuming
         /// one and giving up, and suppresses the history push the resulting selection change
-        /// would otherwise generate - without that, every jump pushed the control it just left
+        /// would otherwise generate; without that, every jump pushed the control it just left
         /// and the key ping-ponged between two elements forever.
         /// </summary>
         public void NavigateToPreviousElementInHistory()
@@ -914,12 +914,12 @@ namespace LethalAccess
         /// Two changes from the version that produced the "4 stale paths" note:
         ///  * Resolution is inactive-aware (<see cref="UIUtils.FindByPathIncludingInactive(string)"/>).
         ///    The old active-only GameObject.Find reported every path inside SettingsPanel and
-        ///    LobbyHostSettings - both of which ship inactive - as broken on every launch, which
+        ///    LobbyHostSettings (both of which ship inactive) as broken on every launch, which
         ///    is noise that buries the genuinely dead entries.
         ///  * ABSENT (nothing of that name exists) is an error; RESOLVED-BUT-INACTIVE is normal
         ///    and logged at info level only.
         ///
-        /// Per-SCREEN validation is not done here - <see cref="UIScreenRegistry"/> validates each
+        /// Per-SCREEN validation is not done here; <see cref="UIScreenRegistry"/> validates each
         /// descriptor's entries the first time that screen is shown, which is the correct seam
         /// for anything with a screen root. This method covers only the legacy flat path map,
         /// whose keys are absolute scene paths with no screen to hang off.
@@ -1035,7 +1035,7 @@ namespace LethalAccess
         /// Announce a UI element with all its information.
         ///
         /// <paramref name="supersedeTag"/> is non-zero only on the coalesced re-announcement path
-        /// (3.2). It drops this control's own still-queued lines and nothing else - an earlier
+        /// (3.2). It drops this control's own still-queued lines and nothing else: an earlier
         /// value of the same slider is already wrong by the time it would be spoken, whereas an
         /// unrelated "Took flashlight." queued at the same moment must survive.
         /// </summary>
@@ -1094,7 +1094,7 @@ namespace LethalAccess
         }
 
         /// <summary>
-        /// The context word an announcement opens with - "Audio, Microphone, on, button, 1 of 4"
+        /// The context word an announcement opens with: "Audio, Microphone, on, button, 1 of 4"
         /// or "Main Menu, Host, button, 1 of 5".
         ///
         /// Section name on a multi-section screen, screen title otherwise; for elements the screen
@@ -1130,7 +1130,7 @@ namespace LethalAccess
 
             if (string.IsNullOrEmpty(prefix))
             {
-                // Nothing claims this element and no screen is active. Saying nothing is correct -
+                // Nothing claims this element and no screen is active. Saying nothing is correct:
                 // inventing a context from the hierarchy is how "SectionEntry" got announced as a
                 // label in the first place.
                 lastContextPrefix = null;
@@ -1138,7 +1138,7 @@ namespace LethalAccess
             }
 
             // The screen title was just spoken on its own; repeating it as this control's prefix
-            // would be the same words twice in a row. One-shot - the next control still gets it.
+            // would be the same words twice in a row. One-shot: the next control still gets it.
             if (!string.IsNullOrEmpty(titleJustAnnounced) &&
                 string.Equals(prefix, titleJustAnnounced, StringComparison.OrdinalIgnoreCase))
             {
@@ -1201,7 +1201,7 @@ namespace LethalAccess
         /// Speak the pending value of a control the user has just arrowed away from.
         ///
         /// Without this the final value of a slider is lost whenever focus moves inside the
-        /// coalescing window - i.e. exactly when someone nudges a slider once and immediately
+        /// coalescing window, i.e. exactly when someone nudges a slider once and immediately
         /// moves on, which is the common case. Tagged, so it still supersedes that control's own
         /// stale lines rather than stacking behind them.
         /// </summary>
@@ -1239,7 +1239,7 @@ namespace LethalAccess
         /// </summary>
         private string GetElementText(GameObject element, string path, string elementType)
         {
-            // 1. Instance registration - the only source that can tell 40 identical clones
+            // 1. Instance registration: the only source that can tell 40 identical clones
             //    apart. The provider is called fresh, so it reports live state.
             UIElementInfo instanceInfo;
             if (TryGetInstanceInfo(element, out instanceInfo))
@@ -1319,7 +1319,7 @@ namespace LethalAccess
                 }
             }
 
-            // 6. Whatever the components say - translated first when it is one of InputUtils' raw
+            // 6. Whatever the components say, translated first when it is one of InputUtils' raw
             //    tokens, which its dropdown options are until their first Update.
             string baseText = Utilities.RemoveSpecialCharacters(
                 InputUtilsBridge.TranslateToken(Utilities.GetTextFromComponent(element))).Trim();
@@ -1359,7 +1359,7 @@ namespace LethalAccess
         }
 
         /// <summary>
-        /// Enhance element text with state information based on element type
+        /// Adds the element's state to its text, based on the element type.
         /// </summary>
         private string EnhanceTextWithState(GameObject element, string baseText, string elementType)
         {
@@ -1500,7 +1500,7 @@ namespace LethalAccess
         ///
         /// The numeric cases in the game's switch are SettingsOptionType values: MicEnabled 4,
         /// InvertYAxis 11, SpiderSafeMode 12, AdvancedLighting 14, ToggleSprint 17,
-        /// HeadBobbing 18, and DontTell 19 - which is the InvertScreenOption
+        /// HeadBobbing 18, and DontTell 19, which is the InvertScreenOption
         /// (QuickMenuManager.specialOption), whose state is IngamePlayerSettings.flipCamera and
         /// NOT part of unsavedSettings.
         /// </summary>
@@ -1514,8 +1514,8 @@ namespace LethalAccess
 
             // The mic toggle is the one control in this family whose textElement is wired, and
             // the game writes the literal "ENABLED"/"DISABLED" into it (SettingsOption.ToggleEnabledImage).
-            // Scraped as a label that is all the user hears - "ENABLED" with no idea what is
-            // enabled - and appending ", on" to it would only make it "ENABLED, on".
+            // Scraped as a label that is all the user hears ("ENABLED" with no idea what is
+            // enabled), and appending ", on" to it would only make it "ENABLED, on".
             if (!string.IsNullOrEmpty(baseText))
             {
                 string trimmed = baseText.Trim();
@@ -1546,7 +1546,7 @@ namespace LethalAccess
             if (option == null && element.transform.parent != null)
             {
                 // The gamma/volume style controls put the SettingsOption on the wrapper and the
-                // Slider on the child. One level only - a wider search would attach an unrelated
+                // Slider on the child. One level only; a wider search would attach an unrelated
                 // ancestor's setting to a nested button.
                 option = element.transform.parent.GetComponent<SettingsOption>();
             }
@@ -1687,7 +1687,7 @@ namespace LethalAccess
             if (element.GetComponent<Slider>() != null)
                 return "slider";
 
-            // Without this a focused scrollbar announced "Handle, ui element" - the type had no
+            // Without this a focused scrollbar announced "Handle, ui element"; the type had no
             // branch at all and the text fell through to a child object's name.
             if (element.GetComponent<Scrollbar>() != null)
                 return "scroll bar";
@@ -1772,7 +1772,7 @@ namespace LethalAccess
                 return $", {index} of {count}";
             }
 
-            // 2. Instance registration, and it is TERMINAL - 8.2. RegisterObject documents
+            // 2. Instance registration, and it is TERMINAL (8.2). RegisterObject documents
             //    count <= 0 as "announce no position at all", and a driver relies on that. It only
             //    holds if this returns here: every later step, and the sibling heuristic in
             //    particular, will happily invent a position, so falling through turned a

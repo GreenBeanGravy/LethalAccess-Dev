@@ -42,7 +42,7 @@ namespace LethalAccess
 
         /// <summary>
         /// Point the EventSystem at a control and make sure it gets announced even if it was the
-        /// last thing announced. Announcement itself stays with UIAccessibilityManager - this
+        /// last thing announced. Announcement itself stays with UIAccessibilityManager; this
         /// only clears the "already said that" memo so the announcer runs on the next Update.
         /// </summary>
         public static void Seed(Transform target)
@@ -186,7 +186,7 @@ namespace LethalAccess
 
         /// <summary>
         /// The focus-loss watchdog. MUST be called every frame from
-        /// UIAccessibilityManager.Update - it is the only recovery path there is.
+        /// UIAccessibilityManager.Update; it is the only recovery path there is.
         ///
         /// Only ever acts while a registered screen is visible, so it can never steal focus
         /// during gameplay.
@@ -201,7 +201,7 @@ namespace LethalAccess
         /// open sequence than the seed does.
         ///
         /// Deliberately frame-bounded and self-cancelling: it stops the moment focus reaches the
-        /// target, and expires regardless. It must never become a fight with the user - by the time
+        /// target, and expires regardless. It must never become a fight with the user: by the time
         /// anyone can press a key the window is over.
         /// </summary>
         public static void SeedSticky(Transform target, int frames)
@@ -215,7 +215,7 @@ namespace LethalAccess
             stickyUntilFrame = Time.frameCount + Mathf.Max(1, frames);
         }
 
-        /// <summary>Abandon a sticky seed early - call when the user deliberately moves focus.</summary>
+        /// <summary>Abandon a sticky seed early. Call when the user deliberately moves focus.</summary>
         public static void CancelSticky()
         {
             stickyTarget = null;
@@ -296,7 +296,7 @@ namespace LethalAccess
             lastRecoveryTime = now;
 
             // The control the user was actually on, not the screen's opening target. Recovering
-            // to ResolveFocusTarget put the user at the FIRST entry - on the host screen that is
+            // to ResolveFocusTarget put the user at the FIRST entry: on the host screen that is
             // the server-name field, which TMP re-activates on select, so any transient null
             // (a panel toggling, a row rebuilding) read as "Down randomly threw me back into the
             // text field and started editing". Where they were is the only recovery that reads
@@ -327,7 +327,7 @@ namespace LethalAccess
             }
 
             // Seed re-announces the control by itself (it clears the last-announced memo), so
-            // recovery does not need - and must not add - an utterance of its own.
+            // recovery does not need, and must not add, an utterance of its own.
             Seed(target);
         }
     }
