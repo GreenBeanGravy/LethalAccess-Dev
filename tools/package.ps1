@@ -105,7 +105,9 @@ if ($Publish) {
     while ($end -lt $lines.Count -and $lines[$end] -notmatch $header) { $end++ }
     $notes = @('New to LethalAccess? Download LethalAccessUpdater.exe from the latest updater release and run it. Already have it? Run it to update.', '') + $lines[($start + 1)..($end - 1)]
     $notesPath = Join-Path $env:TEMP "LethalAccess-$version-notes.txt"
-    ($notes -join "`n").Trim() | Set-Content -Encoding utf8 $notesPath
+    # WriteAllText without an encoding writes UTF-8 with no BOM; Set-Content -Encoding utf8
+    # adds one in Windows PowerShell, and GitHub shows it at the start of the notes.
+    [System.IO.File]::WriteAllText($notesPath, ($notes -join "`n").Trim())
     $ghArgs = @('release', 'create', "v$version", $zipPath, '--title', "LethalAccess $version", '--notes-file', $notesPath)
     if ($Beta) { $ghArgs += '--prerelease' }
     & gh @ghArgs
