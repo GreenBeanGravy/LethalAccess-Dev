@@ -46,9 +46,9 @@ jobs:
           # as a pre-release. Only installs following Beta builds pick it up.
           git merge-base --is-ancestor "${{ github.sha }}" origin/master
           if ($LASTEXITCODE -eq 0) {
-            gh release create "${{ github.ref_name }}" "dist/LethalAccessUpdater.exe" `
+            gh release create "${{ github.ref_name }}" "dist/LethalAccessUpdater.exe" LICENSE THIRD-PARTY-NOTICES.txt `
               --title "LethalAccess Updater ${{ github.ref_name }}" --generate-notes
           } else {
-            gh release create "${{ github.ref_name }}" "dist/LethalAccessUpdater.exe" --prerelease `
+            gh release create "${{ github.ref_name }}" "dist/LethalAccessUpdater.exe" LICENSE THIRD-PARTY-NOTICES.txt --prerelease `
               --title "LethalAccess Updater ${{ github.ref_name }} (Beta)" --generate-notes
           }

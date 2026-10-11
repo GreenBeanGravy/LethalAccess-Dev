@@ -56,6 +56,12 @@ $files = [ordered]@{
 Get-ChildItem (Join-Path $root 'LethalAccess Remake\LethalAccessAssets') -File | ForEach-Object {
     $files["BepInEx/plugins/LethalAccess/LethalAccessAssets/$($_.Name)"] = "LethalAccess Remake\LethalAccessAssets\$($_.Name)"
 }
+# The license and the notices the third-party components require travel with the binaries.
+$files['BepInEx/plugins/LethalAccess/LICENSE.txt'] = 'LICENSE'
+$files['BepInEx/plugins/LethalAccess/THIRD-PARTY-NOTICES.txt'] = 'THIRD-PARTY-NOTICES.txt'
+Get-ChildItem (Join-Path $root 'licenses') -File | ForEach-Object {
+    $files["BepInEx/plugins/LethalAccess/licenses/$($_.Name)"] = "licenses\$($_.Name)"
+}
 
 $dist = Join-Path $root 'dist'
 New-Item -ItemType Directory -Force $dist | Out-Null

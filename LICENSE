@@ -1,0 +1,97 @@
+LethalAccess Source License, version 1.0
+
+Copyright (c) 2024-2026 GreenBeanGravy. All rights reserved.
+
+This license covers LethalAccess and UnityA11y: all source code, binaries,
+sounds, asset bundles and documentation in this repository, and the releases
+built from it (together, "the Software"), except the third-party components
+listed in THIRD-PARTY-NOTICES.txt, which keep their own licenses.
+
+The source code is published so that people can read it, learn how it works,
+fix it and build on it. Everything not expressly permitted below is reserved
+by the copyright holder.
+
+1. What you may do
+
+   Subject to the conditions in this license, you may, free of charge:
+
+   a. download, install and use the Software;
+   b. read and study the source code;
+   c. modify the Software and build your own versions of it;
+   d. share copies of the Software, and of your modified versions ("forks"),
+      and reuse parts of its code in other projects,
+
+   in each case only for non-commercial purposes and only under the
+   conditions in sections 2 and 3.
+
+2. Conditions for sharing copies, forks and reused code
+
+   If you share the Software, a fork of it, or any work that contains code
+   taken from it, all of the following apply:
+
+   a. Keep it open. The complete source code of what you share must be
+      publicly available, free of charge, for as long as you share it.
+   b. Same license. What you share must be licensed under this license and
+      no other. You may not add terms that take away any of the rights it
+      gives, and you may not relicense or sublicense the Software.
+   c. Attribution. Keep this license and all copyright notices intact, and
+      state clearly, in the README or an equivalent place, that your work is
+      based on LethalAccess by GreenBeanGravy, with a link to
+      https://github.com/GreenBeanGravy/LethalAccess-Dev
+   d. Mark your changes. Say that you changed the Software, and do not
+      present a modified version as the original or as made or endorsed by
+      GreenBeanGravy.
+
+3. What you may not do
+
+   a. No commercial use. You may not sell the Software or any work based on
+      it, charge for access to it, put it behind a paywall or subscription,
+      bundle it with a paid product or service, or use it to make money in
+      any other way. Playing games with the Software, including while
+      streaming or recording gameplay, is not commercial use of it.
+   b. No patents. You may not apply for, register or enforce any patent that
+      covers the Software, any part of it, or any work based on it. This
+      license grants no patent rights.
+   c. No claim to ownership. Nothing you do with the Software, and nothing in
+      this license, transfers, limits or revokes the copyright holder's
+      copyright or other rights in the Software. You may not register, or
+      claim, copyright in the original Software as your own.
+   d. No use of names. This license gives no right to use the names
+      LethalAccess, UnityA11y or GreenBeanGravy to promote your work, beyond
+      the attribution required by section 2c.
+
+4. Contributions
+
+   If you submit a contribution to this repository (for example a pull
+   request or a patch), you confirm that you have the right to submit it,
+   and you grant GreenBeanGravy a perpetual, worldwide, irrevocable,
+   royalty-free license to use, modify, distribute and relicense that
+   contribution as part of the Software, under this license or any other.
+   You keep the copyright in your contribution.
+
+5. Termination
+
+   Your rights under this license end automatically if you break any of its
+   terms. If you fix the breach within 30 days of being told about it, your
+   rights are restored. Copies that others received from you in compliance
+   with this license are not affected.
+
+6. Other permissions
+
+   Anything this license does not allow, including commercial use, needs
+   written permission from the copyright holder. Ask through the repository:
+   https://github.com/GreenBeanGravy/LethalAccess-Dev
+
+7. No warranty
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+   THE COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+   WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF
+   OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+   SOFTWARE.
+
+LethalAccess is a fan-made accessibility mod. It is not affiliated with or
+endorsed by Zeekerss, the developer of Lethal Company. Lethal Company is
+needed to use it and is not included.

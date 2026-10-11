@@ -1,0 +1,70 @@
+Third-party notices for LethalAccess
+
+LethalAccess and UnityA11y are covered by LICENSE. The components below are
+not; each keeps its own license, and nothing in LICENSE changes or limits
+their terms. The full license texts are in the licenses folder.
+
+
+Shipped with LethalAccess
+-------------------------
+
+AccessKit (accesskit.dll, accesskit-c 0.22.3)
+  Copyright The AccessKit Authors (Arnold Loubriat, Matt Campbell,
+  Leonard de Ruijter and contributors).
+  Used under the MIT license (AccessKit is offered under MIT or Apache-2.0).
+  Portions are derived from Chromium, Copyright 2015 The Chromium Authors,
+  under a BSD-style license. The Rust libraries compiled into accesskit.dll
+  are under the MIT or Apache-2.0 licenses.
+  Source: https://github.com/AccessKit/accesskit-c
+  License texts: licenses/AccessKit-MIT.txt, licenses/AccessKit-Chromium-BSD.txt
+
+Tolk and TolkDotNet (inside Lethal Speech Output.dll)
+  Copyright Davy Kager and contributors.
+  Licensed under the GNU Lesser General Public License, version 3.
+  Tolk is embedded in Lethal Speech Output.dll as its own library file.
+  Source: https://github.com/dkager/tolk
+  License texts: licenses/LGPL-3.0.txt and licenses/GPL-3.0.txt (the LGPL
+  version 3 builds on the GPL version 3)
+
+NVDA Controller Client (nvdaControllerClient64.dll, inside Lethal Speech Output.dll)
+  Copyright NV Access Limited.
+  Licensed under the GNU Lesser General Public License, version 2.1.
+  Source: https://github.com/nvaccess/nvda
+  License text: licenses/LGPL-2.1.txt
+
+System Access API client (SAAPI64.dll, inside Lethal Speech Output.dll)
+  Copyright Serotek Corporation. Redistributed as part of the Tolk
+  distribution, under its own terms.
+  Source: https://github.com/dkager/tolk/tree/master/libs
+
+
+Compiled into LethalAccessUpdater.exe
+-------------------------------------
+
+The Go standard library and golang.org/x/sys
+  Copyright 2009 The Go Authors.
+  Licensed under the BSD 3-Clause license.
+  Source: https://go.dev and https://github.com/golang/sys
+  License text: licenses/Go-BSD-3-Clause.txt
+
+
+Installed by the updater from their own releases (not part of this repository)
+-----------------------------------------------------------------------------
+
+BepInEx 5, the mod loader LethalAccess runs on.
+  Licensed under the GNU Lesser General Public License, version 2.1.
+  https://github.com/BepInEx/BepInEx
+  It includes HarmonyX (MIT license), which LethalAccess uses to patch the
+  game: https://github.com/BepInEx/HarmonyX
+
+LethalCompany InputUtils (optional).
+  Licensed under the GNU Lesser General Public License, version 3.
+  https://github.com/Rune580/LethalCompanyInputUtils
+
+
+Lethal Company
+--------------
+
+Lethal Company is made by Zeekerss and is not included. LethalAccess is not
+affiliated with or endorsed by Zeekerss. The source code references the
+game's own assemblies for building; they are not distributed here.

@@ -10,7 +10,7 @@ using System.Runtime.InteropServices;
 [assembly: AssemblyConfiguration("")]
 [assembly: AssemblyCompany("")]
 [assembly: AssemblyProduct("LethalAccess Remake")]
-[assembly: AssemblyCopyright("Copyright ©  2024")]
+[assembly: AssemblyCopyright("Copyright © 2024-2026 GreenBeanGravy")]
 [assembly: AssemblyTrademark("")]
 [assembly: AssemblyCulture("")]
 
