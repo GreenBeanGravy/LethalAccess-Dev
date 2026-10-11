@@ -91,16 +91,31 @@ namespace LethalAccess
 
         /// <summary>
         /// The tallest ledge a jump clears, from the player's jump force and the game's gravity,
-        /// with some margin.
+        /// with some margin. 0.93 of the 2.22 m peak (measured 2.26 m) is 2.07 m, enough for the
+        /// factory's 2 m "Jump" links onto machines and ledges.
         /// </summary>
         public float MaxJumpHeight
         {
             get
             {
                 float force = player != null ? player.jumpForce : 5f;
-                return Mathf.Clamp(force * force / (2f * PLAYER_GRAVITY) * 0.85f, 0.3f, 2f);
+                return Mathf.Clamp(force * force / (2f * PLAYER_GRAVITY) * 0.93f, 0.3f, 2.2f);
             }
         }
+
+        /// <summary>Seconds from leaving the ground until the feet come back down to rise metres
+        /// above the takeoff height, counted from the moment the jump lifts off.</summary>
+        public float AirTimeTo(float rise)
+        {
+            float force = player != null ? player.jumpForce : 5f;
+            float disc = force * force - 2f * PLAYER_GRAVITY * rise;
+            if (disc < 0f)
+                return 0f;
+            return (force + Mathf.Sqrt(disc)) / PLAYER_GRAVITY;
+        }
+
+        /// <summary>True while the mod itself presses jump, so the manual jump buffer lets it through.</summary>
+        public static bool ModJumping { get; private set; }
 
         public bool IsGrounded => Controller != null && Controller.isGrounded;
 
@@ -118,7 +133,15 @@ namespace LethalAccess
             if (JumpMethod == null || !CanJumpNow)
                 return false;
 
-            JumpMethod.Invoke(player, new object[] { default(InputAction.CallbackContext) });
+            ModJumping = true;
+            try
+            {
+                JumpMethod.Invoke(player, new object[] { default(InputAction.CallbackContext) });
+            }
+            finally
+            {
+                ModJumping = false;
+            }
             return true;
         }
 
@@ -216,16 +239,29 @@ namespace LethalAccess
                 if (Physics.Raycast(probe, Vector3.down, out RaycastHit topHit, maxJump + 0.3f, mask, QueryTriggerInteraction.Ignore) &&
                     topHit.normal.y >= WALKABLE_NORMAL_Y)
                 {
-                    rise = topHit.point.y - feetY;
+                    // Room to stand: the top of a 0.2 m catwalk railing is not a ledge.
+                    Vector3 further = probe + direction * 0.45f;
+                    if (Physics.Raycast(further, Vector3.down, out RaycastHit furtherHit, maxJump + 0.3f, mask, QueryTriggerInteraction.Ignore) &&
+                        Mathf.Abs(furtherHit.point.y - topHit.point.y) < 0.3f)
+                    {
+                        rise = topHit.point.y - feetY;
+                    }
                     break;
                 }
             }
 
             // A thin railing with a drop behind it: no surface to find on top, so its height
             // comes from its bounds.
+            // Only with floor to come down on within a few metres: over a factory shaft there is
+            // none, and jumping the railing is jumping into the pit.
             if (rise == float.MaxValue && dropAhead && hit.collider != null)
             {
-                rise = hit.collider.bounds.max.y - feetY;
+                Vector3 beyond = hit.point + direction * 0.8f;
+                beyond.y = feetY + 0.5f;
+                if (Physics.Raycast(beyond, Vector3.down, 4f, mask, QueryTriggerInteraction.Ignore))
+                {
+                    rise = hit.collider.bounds.max.y - feetY;
+                }
             }
 
             if (rise > maxJump)

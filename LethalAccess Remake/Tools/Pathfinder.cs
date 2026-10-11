@@ -27,7 +27,7 @@ namespace LethalAccess
     /// node and feeds the game's own Move and Sprint inputs (AutoWalkInputPatch). Gravity, steps,
     /// walk and sprint animations, footsteps, stamina and network sync all come from the game.
     /// </summary>
-    internal class Pathfinder : MonoBehaviour
+    internal partial class Pathfinder : MonoBehaviour
     {
         #region Types
         private enum PathfindingMode
@@ -249,6 +249,7 @@ namespace LethalAccess
                 nodeSphereMesh = CreateSphereMesh(NODE_RADIUS);
                 nodeBaseMaterial = new Material(Shader.Find("Sprites/Default")) { color = Color.cyan };
                 clickSound = GenerateClickSound();
+                CreateGapSounds();
                 StartCoroutine(LoadAudioResources());
                 InitializeNodePool();
             }
@@ -465,6 +466,7 @@ namespace LethalAccess
                 playerController.Crouch(false);
             }
             autoCrouched = false;
+            ResetGapState();
             manualCrouchCued = false;
             manualLadder = null;
             lockedDoorOnPath = null;
@@ -977,7 +979,7 @@ namespace LethalAccess
                     sinceLastNode += stepLength;
                     if (sinceLastNode >= NODE_SPACING || (atCorner && sinceLastNode >= CORNER_NODE_MIN_GAP))
                     {
-                        positions.Add(SnapToGround(KeepOffWalls(surface)));
+                        positions.Add(KeepOffEdges(SnapToGround(KeepOffWalls(surface))));
                         sinceLastNode = 0f;
                     }
                 }
@@ -1067,24 +1069,103 @@ namespace LethalAccess
         /// </summary>
         private Vector3 SnapToGround(Vector3 meshPoint)
         {
-            int hitCount = Physics.RaycastNonAlloc(meshPoint + Vector3.up * GROUND_RAY_UP, Vector3.down,
+            if (NearestGroundY(meshPoint, out float groundY) <= SOLID_GROUND_TOLERANCE)
+                return new Vector3(meshPoint.x, groundY + NODE_GROUND_OFFSET, meshPoint.z);
+
+            // Nothing a player can stand on here. Some NavMesh is baked on enemy-only colliders
+            // (layer NavigationSurface, which players pass through): girder rooms bake a 1.9 m
+            // beam over a 0.7 m girder, so the mesh overhangs the real girder by half a metre on
+            // each side. Move the node to the nearest real floor at the same height.
+            for (float radius = 0.25f; radius <= 1.01f; radius += 0.25f)
+            {
+                float bestOffset = float.MaxValue;
+                Vector3 best = Vector3.zero;
+                for (int a = 0; a < 12; a++)
+                {
+                    float angle = a * Mathf.PI / 6f;
+                    Vector3 probePoint = meshPoint + new Vector3(Mathf.Cos(angle), 0f, Mathf.Sin(angle)) * radius;
+                    float offset = NearestGroundY(probePoint, out float y);
+                    if (offset <= SOLID_GROUND_TOLERANCE && offset < bestOffset)
+                    {
+                        bestOffset = offset;
+                        best = new Vector3(probePoint.x, y + NODE_GROUND_OFFSET, probePoint.z);
+                    }
+                }
+                if (bestOffset < float.MaxValue)
+                    return best;
+            }
+
+            // Over a gap (or a link with no floor in between): keep the mesh point.
+            NearestGroundY(meshPoint, out groundY);
+            return new Vector3(meshPoint.x, groundY + NODE_GROUND_OFFSET, meshPoint.z);
+        }
+
+        /// <summary>
+        /// Centres a node on narrow floor: rings of rays round it find where the real floor
+        /// stops, and the node moves away from that side. KeepOffWalls works on the NavMesh,
+        /// which overhangs a factory girder; this works on what a player stands on.
+        /// </summary>
+        private Vector3 KeepOffEdges(Vector3 node)
+        {
+            Vector3 ground = node - Vector3.up * NODE_GROUND_OFFSET;
+            if (NearestGroundY(ground, out _) > SOLID_GROUND_TOLERANCE)
+                return node; // Over a gap: nothing to centre on.
+
+            for (int pass = 0; pass < 3; pass++)
+            {
+                Vector3 push = Vector3.zero;
+                int missing = 0;
+                for (int a = 0; a < 12; a++)
+                {
+                    float angle = a * Mathf.PI / 6f;
+                    Vector3 dir = new Vector3(Mathf.Cos(angle), 0f, Mathf.Sin(angle));
+                    Vector3 sample = ground + dir * EDGE_CLEARANCE;
+                    if (NearestGroundY(sample, out float y) > 0.35f || Mathf.Abs(y - ground.y) > 0.35f)
+                    {
+                        push -= dir;
+                        missing++;
+                    }
+                }
+                // Floor all round, or none to speak of on any side (a lone pillar top): leave it.
+                if (missing == 0 || missing >= 10 || push.sqrMagnitude < 0.01f)
+                    break;
+
+                Vector3 moved = ground + push.normalized * 0.12f;
+                if (NearestGroundY(moved, out float movedY) > 0.35f)
+                    break;
+                ground = new Vector3(moved.x, movedY, moved.z);
+            }
+            return ground + Vector3.up * NODE_GROUND_OFFSET;
+        }
+
+        // Nodes are kept this far from where the real floor stops, room for the player's 0.4 m
+        // radius; on a 0.7 m girder that lands them on its centre line.
+        private const float EDGE_CLEARANCE = 0.45f;
+
+        // A floor this far above or below the NavMesh still counts as the floor it was baked from.
+        private const float SOLID_GROUND_TOLERANCE = 0.8f;
+
+        /// <summary>The player-solid surface under point nearest its height; returns how far off
+        /// that is (MaxValue when there is none), with groundY = point.y in that case.</summary>
+        private float NearestGroundY(Vector3 point, out float groundY)
+        {
+            int hitCount = Physics.RaycastNonAlloc(point + Vector3.up * GROUND_RAY_UP, Vector3.down,
                 groundHitCache, GROUND_RAY_LENGTH, groundMask, QueryTriggerInteraction.Ignore);
 
             // The surface nearest the mesh height, so a pipe or ledge overhead never wins over
             // the floor the mesh was baked from.
             float best = float.MaxValue;
-            float groundY = meshPoint.y;
+            groundY = point.y;
             for (int i = 0; i < hitCount; i++)
             {
-                float offset = Mathf.Abs(groundHitCache[i].point.y - meshPoint.y);
+                float offset = Mathf.Abs(groundHitCache[i].point.y - point.y);
                 if (offset < best)
                 {
                     best = offset;
                     groundY = groundHitCache[i].point.y;
                 }
             }
-
-            return new Vector3(meshPoint.x, groundY + NODE_GROUND_OFFSET, meshPoint.z);
+            return best;
         }
 
         private void CreateNode(Vector3 position, int index)
@@ -1162,6 +1243,11 @@ namespace LethalAccess
             if (pathNodes.Count == 0)
                 return false;
 
+            // In the air over a gap nothing is reached yet: arriving mid-jump would drop the
+            // jump's input, and the landing marks what was flown past.
+            if (gapJumpInProgress)
+                return true;
+
             // Skipping ahead: when a later node is in reach, everything before it is done.
             for (int i = pathNodes.Count - 1; i >= 0; i--)
             {
@@ -1216,6 +1302,18 @@ namespace LethalAccess
 
             Vector3 offset = feet - node.position;
             offset.y = 0f;
+
+            // Past it along the way in as well as the way out. With only the outgoing side, a
+            // short sideways step after a node (along the far catwalk of a girder room) counted
+            // the player as past that node from six metres short of it, on the girder.
+            if (node.index > 0)
+            {
+                Vector3 incoming = node.position - pathNodes[node.index - 1].position;
+                incoming.y = 0f;
+                if (incoming.sqrMagnitude > 0.01f && Vector3.Dot(offset, incoming.normalized) < -0.5f)
+                    return false;
+            }
+
             // Wide enough for a corner cut by the look-ahead steering; a node left behind unmarked
             // would pull the aim back to it.
             return Vector3.Dot(offset, along.normalized) > 0f && offset.magnitude < AIM_LOOKAHEAD_MAX &&
@@ -1653,6 +1751,10 @@ namespace LethalAccess
                     return;
             }
 
+            // A gap ahead: run up and jump it.
+            if (UpdateAutoGap(body))
+                return;
+
             Vector3 toNode = currentTargetNode.position - transform.position;
             toNode.y = 0f;
 
@@ -1803,7 +1905,27 @@ namespace LethalAccess
             // it does for a player holding the key. Only on a clear way forward; sprinting into a
             // sidestep overshoots it.
             float moveAngle = Vector3.Angle(body.forward, moveDirection);
-            AutoSprintInput = ConfigManager.AutoPathfindingSprint.Value && clear && moveAngle < AUTO_SPRINT_MAX_ANGLE;
+            bool narrow = OnNarrowFloor(moveDirection);
+            AutoSprintInput = ConfigManager.AutoPathfindingSprint.Value && clear && !narrow && moveAngle < AUTO_SPRINT_MAX_ANGLE;
+
+            // On a girder or plank: a steadier walk, where a sideways drift of half a metre is a fall.
+            if (narrow)
+            {
+                AutoMoveInput *= 0.75f;
+            }
+        }
+
+        /// <summary>No floor within 0.6 m to one side or the other of the way ahead: a girder, a plank.</summary>
+        private bool OnNarrowFloor(Vector3 direction)
+        {
+            Vector3 side = Vector3.Cross(Vector3.up, direction).normalized;
+            Vector3 feet = transform.position;
+            foreach (float s in new[] { 0.6f, -0.6f })
+            {
+                if (NearestGroundY(feet + side * s, out float y) > 0.5f || Mathf.Abs(y - feet.y) > 0.5f)
+                    return true;
+            }
+            return false;
         }
 
         private static void ClearAutoInput()
@@ -1883,7 +2005,22 @@ namespace LethalAccess
                 if (toPoint.sqrMagnitude > 0.0001f &&
                     Physics.SphereCast(chest, 0.35f, toPoint.normalized, out _, toPoint.magnitude, groundMask, QueryTriggerInteraction.Ignore))
                     return false;
-                return !FirstQuicksandCrossed(new[] { feet, ground }, out _);
+                if (FirstQuicksandCrossed(new[] { feet, ground }, out _))
+                    return false;
+
+                // Real floor under the whole line: the NavMesh can overhang a narrow girder.
+                float length = HorizontalDistance(feet, point);
+                int steps = Mathf.CeilToInt(length / 0.4f);
+                float lineY = feet.y;
+                for (int s = 1; s <= steps; s++)
+                {
+                    Vector3 q = Vector3.Lerp(feet, point, (float)s / steps);
+                    q.y = lineY;
+                    if (NearestGroundY(q, out float y) > 1.0f)
+                        return false;
+                    lineY = y;
+                }
+                return true;
             }
 
             for (int i = currentTargetNode.index + 1; i < pathNodes.Count && travelled < lookahead; i++)
@@ -2256,11 +2393,14 @@ namespace LethalAccess
                 OpenNearbyDoor();
                 UpdateHazardCue();
                 UpdateLadderLetGo();
+                UpdateGapJumpState();
+                UpdateGapScan();
 
                 if (currentMode == PathfindingMode.Manual)
                 {
                     UpdateManualAudio();
                     UpdateManualObstacleCues();
+                    UpdateManualGap();
                 }
                 else
                 {
@@ -2370,8 +2510,18 @@ namespace LethalAccess
 
         public static Vector2 FilterMove(Vector2 keyboard, PlayerControllerB player)
         {
-            if (!Pathfinder.AutoWalkActive || !IsPathfinderPlayer(player))
+            if (!IsPathfinderPlayer(player))
                 return keyboard;
+
+            if (!Pathfinder.AutoWalkActive)
+            {
+                // Manual mode: the gap edge guard. The filter works in the body's frame, so undo
+                // the flipped-camera negation Update applies after this read, then redo it.
+                bool flip = IngamePlayerSettings.Instance != null && IngamePlayerSettings.Instance.flipCamera;
+                Vector2 raw = flip ? new Vector2(-keyboard.x, keyboard.y) : keyboard;
+                Vector2 filtered = Pathfinder.Instance.FilterManualMove(raw);
+                return flip ? new Vector2(-filtered.x, filtered.y) : filtered;
+            }
 
             // Update negates x right after this read when the camera is flipped; undo that here so
             // the auto input means what it says.
