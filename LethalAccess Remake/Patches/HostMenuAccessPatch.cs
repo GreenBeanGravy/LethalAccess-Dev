@@ -279,9 +279,8 @@ namespace LethalAccess
             {
                 Id = HostScreenId,
                 ResolveRoot = HostRoot,
-                // Said on every arrival, so it stays one sentence. Enter was the only way out of a
-                // text field when this was written; Tab and Escape now work too.
-                Title = () => "Host settings. Tab, Enter or Escape leaves a text field.",
+                // Said on every arrival, so it is the name alone.
+                Title = () => "Host settings",
                 FocusOnOpen = ResolveNameField
             };
             d.Sections.Add(Section("Host options", options));
@@ -626,11 +625,15 @@ namespace LethalAccess
 
             lastFieldText[id] = field.text ?? string.Empty;
             string capturedLabel = label;
-            field.onValueChanged.AddListener(delegate(string value) { OnFieldChanged(id, capturedLabel, value); });
-            field.onEndEdit.AddListener(delegate(string value) { OnFieldEndEdit(capturedLabel, value); });
+            GameObject go = field.gameObject;
+            field.onValueChanged.AddListener(delegate(string value) { OnFieldChanged(go, id, capturedLabel, value); });
+            field.onEndEdit.AddListener(delegate(string value) { OnFieldEndEdit(go, capturedLabel, value); });
         }
 
-        private static void OnFieldChanged(int id, string label, string value)
+        // These echoes are for Tolk only. When the tree publishes the field, the screen reader
+        // already speaks typed and deleted characters from the TextPattern, and speaking them
+        // here as well says everything twice.
+        private static void OnFieldChanged(GameObject go, int id, string label, string value)
         {
             string now = value ?? string.Empty;
             string before;
@@ -639,6 +642,10 @@ namespace LethalAccess
                 before = string.Empty;
             }
             lastFieldText[id] = now;
+            if (AnnouncementPolicy.UiTreeSpeaksFor(go))
+            {
+                return;
+            }
 
             if (now.Length == before.Length + 1 && now.StartsWith(before, StringComparison.Ordinal))
             {
@@ -660,8 +667,12 @@ namespace LethalAccess
             AnnouncementPolicy.Speak(now);
         }
 
-        private static void OnFieldEndEdit(string label, string value)
+        private static void OnFieldEndEdit(GameObject go, string label, string value)
         {
+            if (AnnouncementPolicy.UiTreeSpeaksFor(go))
+            {
+                return;
+            }
             AnnouncementPolicy.Speak(string.IsNullOrEmpty(value)
                 ? label + " left empty"
                 : label + " set to " + value);

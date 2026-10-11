@@ -432,12 +432,13 @@ namespace LethalAccess
             // An expandable control states it as expanded/collapsed, which a screen reader names in
             // its own words. Its State text is the spoken fallback's version of the same fact, so it
             // is not also published as a value.
+            bool isText = node.Role == AccessRole.TextInput || node.Role == AccessRole.MultilineTextInput;
             bool? expanded = SafeExpanded(entry, v.Target);
             if (expanded.HasValue)
             {
                 node.Expanded = expanded.Value;
             }
-            else
+            else if (!isText)
             {
                 ApplyState(node, state);
             }
@@ -445,8 +446,10 @@ namespace LethalAccess
             node.Description = SafeDescription(entry, v.Target);
 
             // An authored state is a deliberate override and always wins; this only fills the
-            // silence where no delegate was written, which was most controls.
-            if (string.IsNullOrEmpty(state)) ApplyComponentState(node, v.Target);
+            // silence where no delegate was written, which was most controls. Text fields are the
+            // exception: their authored state is the Tolk wording ("empty"), and the screen reader
+            // needs the real text, which must also match the TextRun, plus the placeholder.
+            if (isText || string.IsNullOrEmpty(state)) ApplyComponentState(node, v.Target);
 
             if (node.Role == AccessRole.Slider) ApplyRange(node, v.Target);
 
@@ -455,7 +458,7 @@ namespace LethalAccess
             // the bug that shipped: the host-menu fields have authored State delegates, so their
             // selection was never set, and a TextPattern whose GetSelection returns nothing has
             // no caret: the field read fine and the cursor was invisible.
-            if (node.Role == AccessRole.TextInput || node.Role == AccessRole.MultilineTextInput)
+            if (isText)
             {
                 TMPro.TMP_InputField input = v.Target.GetComponent<TMPro.TMP_InputField>();
                 if (input != null) ApplySelection(node, input);
