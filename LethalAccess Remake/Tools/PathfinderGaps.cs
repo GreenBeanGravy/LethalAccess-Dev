@@ -1231,7 +1231,7 @@ namespace LethalAccess
         {
             if (HorizontalDistance(transform.position, runUpStart) < 1f)
                 return true;
-            return ClearWalkLine(runUpStart + Vector3.up * NODE_GROUND_OFFSET);
+            return ClearChestLine(runUpStart + Vector3.up * NODE_GROUND_OFFSET);
         }
 
         private GameObject gapGuideObject;

@@ -155,6 +155,7 @@ namespace LethalAccess
         private ObstacleProbe probe;
         private bool autoCrouched;
         private object stuckNode;
+        private Vector3 stuckNodePosition;
         private float stuckBestDistance;
         private float nextJumpTime;
         private Vector3 aroundDirection;
@@ -207,6 +208,7 @@ namespace LethalAccess
         private const float AIM_MAX_RISE_PER_METER = 0.6f;
 
         private int groundMask;
+        private int bodyMask;
         private readonly RaycastHit[] groundHitCache = new RaycastHit[16];
 
         private LineRenderer lineRenderer;
@@ -241,6 +243,7 @@ namespace LethalAccess
 
                 stoppingRadius = ConfigManager.PathfindingStoppingRadius.Value;
                 groundMask = BuildGroundMask();
+                bodyMask = BuildBodyMask();
 
                 audioSource = gameObject.AddComponent<AudioSource>();
                 AudioSystemBypass.ConfigureAudioSourceForBypass(audioSource);
@@ -271,6 +274,18 @@ namespace LethalAccess
         /// "Room" and "Colliders" by hand and missed MiscLevelGeometry, which moons build ground
         /// and rock out of.
         /// </summary>
+        /// <summary>What a walking body bumps into: the ground mask plus doors, which sit on the
+        /// InteractableObject layer. An open door's panel stands in the room, where the NavMesh
+        /// still runs.</summary>
+        private int BuildBodyMask()
+        {
+            int playerLayer = playerController != null ? playerController.gameObject.layer : LayerMask.NameToLayer("Player");
+            int doors = LayerMask.NameToLayer("InteractableObject");
+            if (doors >= 0 && (playerLayer < 0 || !Physics.GetIgnoreLayerCollision(playerLayer, doors)))
+                return groundMask | (1 << doors);
+            return groundMask;
+        }
+
         private int BuildGroundMask()
         {
             int playerLayer = playerController != null ? playerController.gameObject.layer : LayerMask.NameToLayer("Player");
@@ -506,6 +521,8 @@ namespace LethalAccess
             isPathfinding = false;
             isOffNavMeshTarget = false;
             ShouldPreventFallDamage = false;
+            nearDoorOpen.Clear();
+            doorReplanAt = -1f;
             if (autoCrouched && playerController != null && playerController.isCrouching)
             {
                 playerController.Crouch(false);
@@ -1060,7 +1077,237 @@ namespace LethalAccess
                 }
             }
 
+            for (int i = 1; i < positions.Count - 1; i++)
+            {
+                // Ladder ends and jump takeoffs stay exactly where they are.
+                if (Mathf.Abs(positions[i].y - positions[i - 1].y) > 1f || Mathf.Abs(positions[i + 1].y - positions[i].y) > 1f)
+                    continue;
+                positions[i] = KeepBodyClear(positions[i], positions[i - 1], positions[i + 1]);
+            }
+            WidenClippedLegs(positions);
+            SmoothJogs(positions);
             return positions;
+        }
+
+        /// <summary>
+        /// Pulls each node toward the straight line between its neighbours, as far as the legs
+        /// either side stay clear. A node added to round a door edge, or a pair of corners on
+        /// either side of a doorway, otherwise leaves a sideways jog the ping swings across.
+        /// </summary>
+        private void SmoothJogs(List<Vector3> positions)
+        {
+            for (int pass = 0; pass < 2; pass++)
+            {
+                for (int i = 1; i < positions.Count - 1; i++)
+                {
+                    Vector3 a = positions[i - 1];
+                    Vector3 node = positions[i];
+                    Vector3 b = positions[i + 1];
+                    // Ladders, drops and jumps stay put, and so do nodes on a slope.
+                    if (Mathf.Abs(node.y - a.y) > 0.3f || Mathf.Abs(b.y - node.y) > 0.3f)
+                        continue;
+                    Vector3 chord = (a + b) * 0.5f;
+                    if (HorizontalDistance(node, chord) < 0.15f)
+                        continue;
+                    Vector3 down = Vector3.up * NODE_GROUND_OFFSET;
+                    bool meshLegs = !NavMesh.Raycast(a - down, node - down, out _, NavMesh.AllAreas) &&
+                                    !NavMesh.Raycast(node - down, b - down, out _, NavMesh.AllAreas);
+                    float edgeBefore = NavMesh.FindClosestEdge(node - down, out NavMeshHit edgeHit, NavMesh.AllAreas) ? edgeHit.distance : 0f;
+                    foreach (float t in new[] { 1f, 0.66f, 0.33f })
+                    {
+                        Vector3 guess = Vector3.Lerp(node, chord, t);
+                        NavMeshHit hit;
+                        if (!NavMesh.SamplePosition(guess - Vector3.up * NODE_GROUND_OFFSET, out hit, 0.3f, NavMesh.AllAreas))
+                            continue;
+                        Vector3 moved = SnapToGround(hit.position);
+                        if (Mathf.Abs(moved.y - node.y) > 0.3f || BodyOverlaps(moved) || !LegClear(a, moved) || !LegClear(moved, b))
+                            continue;
+                        // Not off the edge of a catwalk: legs that stayed on the mesh still do,
+                        // and the node keeps its distance from the mesh's edge.
+                        if (meshLegs && (NavMesh.Raycast(a - down, hit.position, out _, NavMesh.AllAreas) ||
+                                         NavMesh.Raycast(hit.position, b - down, out _, NavMesh.AllAreas)))
+                            continue;
+                        if (NavMesh.FindClosestEdge(hit.position, out NavMeshHit movedEdge, NavMesh.AllAreas) &&
+                            movedEdge.distance < Mathf.Min(edgeBefore, EDGE_CLEARANCE))
+                            continue;
+                        positions[i] = moved;
+                        break;
+                    }
+                }
+            }
+        }
+
+        private readonly Collider[] bodyOverlaps = new Collider[16];
+
+        /// <summary>A player standing at node point would be inside something: an open door's
+        /// panel, a pipe on the wall. Closed doors don't count. Knee and waist height only, so a
+        /// node in a crawl space, under a rack, isn't moved out of it.</summary>
+        private bool BodyOverlaps(Vector3 point, float radius = LEG_BODY_RADIUS + 0.03f)
+        {
+            Vector3 feet = point - Vector3.up * NODE_GROUND_OFFSET;
+            foreach (float h in new[] { 0.6f, 1.05f })
+            {
+                int count = Physics.OverlapSphereNonAlloc(feet + Vector3.up * h, radius, bodyOverlaps, bodyMask, QueryTriggerInteraction.Ignore);
+                for (int i = 0; i < count; i++)
+                {
+                    DoorLock door = bodyOverlaps[i].GetComponentInParent<DoorLock>();
+                    if (door != null && DoorIsClosed(door))
+                        continue;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// The nearest spot, within 0.8 m, where a node's body overlaps nothing; first choice one
+        /// in clear view of both neighbours, then of the one before. Nearest alone can be the far
+        /// side of an open door's panel, a dead end.
+        /// </summary>
+        private Vector3 KeepBodyClear(Vector3 point, Vector3 previous, Vector3 next)
+        {
+            if (!BodyOverlaps(point))
+                return point;
+            // Only close to something (a doorway a metre wide is that close to both sides): move
+            // only to a spot in clear view of both neighbours, or a doorway node leaves its
+            // doorway and the path zigzags. Inside something (an open door's panel): any spot.
+            bool inside = BodyOverlaps(point, 0.3f);
+            List<Vector3> candidates = new List<Vector3>();
+            foreach (float radius in new[] { 0.2f, 0.35f, 0.5f, 0.65f, 0.8f })
+            {
+                for (int k = 0; k < 12; k++)
+                {
+                    Vector3 offset = Quaternion.Euler(0f, k * 30f, 0f) * Vector3.forward * radius;
+                    NavMeshHit hit;
+                    if (!NavMesh.SamplePosition(point - Vector3.up * NODE_GROUND_OFFSET + offset, out hit, 0.4f, NavMesh.AllAreas))
+                        continue;
+                    Vector3 candidate = SnapToGround(hit.position);
+                    if (Mathf.Abs(candidate.y - point.y) >= 0.6f || BodyOverlaps(candidate))
+                        continue;
+                    if (LegClear(previous, candidate) && LegClear(candidate, next))
+                        return candidate;
+                    candidates.Add(candidate);
+                }
+            }
+
+            if (!inside)
+                return point;
+
+            // Nothing in clear view of both: the first spot whose legs can be routed round
+            // what is in the way. Which side of an open door's panel to pass is only found
+            // this way; the nearest free spot is as often the dead end behind it.
+            List<Vector3> trial = new List<Vector3>(8);
+            for (int c = 0; c < candidates.Count && c < 12; c++)
+            {
+                trial.Clear();
+                trial.Add(previous);
+                trial.Add(candidates[c]);
+                trial.Add(next);
+                WidenClippedLegs(trial);
+                bool clear = true;
+                for (int i = 0; i < trial.Count - 1 && clear; i++)
+                {
+                    clear = LegClear(trial[i], trial[i + 1]);
+                }
+                if (clear)
+                    return candidates[c];
+            }
+            return candidates.Count > 0 ? candidates[0] : point;
+        }
+
+        private const float LEG_BODY_RADIUS = 0.42f;
+
+        private readonly RaycastHit[] legHits = new RaycastHit[16];
+
+        /// <summary>A body walking from node a to node b, parallel to the ground between them,
+        /// touches nothing at knee or chest height. A closed door doesn't count, since it gets
+        /// opened; an open one does, its panel standing out into the room.</summary>
+        private bool LegClear(Vector3 a, Vector3 b)
+        {
+            Vector3 from = a - Vector3.up * NODE_GROUND_OFFSET;
+            Vector3 to = b - Vector3.up * NODE_GROUND_OFFSET - from;
+            if (new Vector2(to.x, to.z).sqrMagnitude < 0.0001f)
+                return true;
+            foreach (float h in new[] { 0.8f, 1.5f })
+            {
+                int count = Physics.SphereCastNonAlloc(from + Vector3.up * h, LEG_BODY_RADIUS, to.normalized, legHits, to.magnitude, bodyMask, QueryTriggerInteraction.Ignore);
+                for (int i = 0; i < count; i++)
+                {
+                    // Overlapping at the start (distance 0): the node itself sits that close, and
+                    // the leg can't be moved off it.
+                    if (legHits[i].distance <= 0f)
+                        continue;
+                    DoorLock door = legHits[i].collider.GetComponentInParent<DoorLock>();
+                    if (door != null && DoorIsClosed(door))
+                        continue;
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// The NavMesh is baked for enemies and leaves out wall pipes and trim, so a leg out of a
+        /// doorway corner can run through the edge of the frame for a player's wider body. Such
+        /// a leg gets a node in its middle, moved sideways until both halves are clear.
+        /// </summary>
+        private void WidenClippedLegs(List<Vector3> positions)
+        {
+            int added = 0;
+            int chain = 0;
+            for (int i = 0; i < positions.Count - 1 && added < 24; i++)
+            {
+                Vector3 a = positions[i];
+                Vector3 b = positions[i + 1];
+                Vector3 flat = new Vector3(b.x - a.x, 0f, b.z - a.z);
+                // Ladders, drops and jumps are not walked.
+                if (flat.magnitude < 0.8f || Mathf.Abs(b.y - a.y) > 1f || LegClear(a, b))
+                {
+                    chain = 0;
+                    continue;
+                }
+
+                Vector3 side = Vector3.Cross(Vector3.up, flat).normalized;
+                Vector3 mid = (a + b) * 0.5f;
+                Vector3? firstHalf = null;
+                bool done = false;
+                foreach (float offset in new[] { 0f, 0.3f, -0.3f, 0.5f, -0.5f, 0.7f, -0.7f, 0.9f, -0.9f, 1.2f, -1.2f })
+                {
+                    NavMeshHit hit;
+                    if (!NavMesh.SamplePosition(mid - Vector3.up * NODE_GROUND_OFFSET + side * offset, out hit, 0.5f, NavMesh.AllAreas))
+                        continue;
+                    Vector3 candidate = SnapToGround(hit.position);
+                    if (Mathf.Abs(candidate.y - mid.y) > 0.6f || BodyOverlaps(candidate) || !LegClear(a, candidate))
+                        continue;
+                    if (LegClear(candidate, b))
+                    {
+                        positions.Insert(i + 1, candidate);
+                        added++;
+                        i++;
+                        done = true;
+                        break;
+                    }
+                    if (firstHalf == null)
+                        firstHalf = candidate;
+                }
+
+                // Round something with a corner in the way of either half (an open door's panel
+                // across a doorway): a node clearing the first half, then the rest from there.
+                if (done)
+                {
+                    chain = 0;
+                }
+                else if (firstHalf.HasValue && chain < 3 && HorizontalDistance(firstHalf.Value, b) > 0.8f)
+                {
+                    positions.Insert(i + 1, firstHalf.Value);
+                    added++;
+                    chain++;
+                }
+                else
+                {
+                    chain = 0;
+                }
+            }
         }
 
         /// <summary>
@@ -1292,13 +1539,30 @@ namespace LethalAccess
 
         /// <summary>Nothing at body height between the player and point, for a body a little
         /// narrower than the player's (the capsule slides past what it only brushes).</summary>
-        private bool ClearWalkLine(Vector3 point)
+        /// <summary>The chest-high line alone, for seeing a gap's run-up start from a girder.</summary>
+        private bool ClearChestLine(Vector3 point)
         {
             Vector3 chest = transform.position + Vector3.up * 1.2f;
             Vector3 to = point - Vector3.up * NODE_GROUND_OFFSET + Vector3.up * 1.2f - chest;
             if (to.sqrMagnitude < 0.0001f)
                 return true;
             return !Physics.SphereCast(chest, 0.3f, to.normalized, out _, to.magnitude, groundMask, QueryTriggerInteraction.Ignore);
+        }
+
+        private bool ClearWalkLine(Vector3 point)
+        {
+            Vector3 feet = transform.position;
+            Vector3 to = point - Vector3.up * NODE_GROUND_OFFSET - feet;
+            if (to.sqrMagnitude < 0.0001f)
+                return true;
+            // Knee and chest, parallel to the ground between the two: a chest-high line alone
+            // passes over the low wall between two flights of a switchback stair.
+            foreach (float h in new[] { 0.6f, 1.2f })
+            {
+                if (Physics.SphereCast(feet + Vector3.up * h, 0.3f, to.normalized, out _, to.magnitude, groundMask, QueryTriggerInteraction.Ignore))
+                    return false;
+            }
+            return true;
         }
 
         /// <summary>
@@ -1329,8 +1593,12 @@ namespace LethalAccess
                     // from a node still a metre away cuts the corner, into the end of a wall or
                     // stair rail; so only once the next node is in clear view, or this one is
                     // close.
-                    if (currentMode == PathfindingMode.Manual && !IsLastNode(node) && !IsWithin(node, NODE_CLOSE_RADIUS) &&
-                        !ClearWalkLine(pathNodes[node.index + 1].position))
+                    // Auto mode the same: a corner by a doorway reached at 1.2 m leaves the wall
+                    // between the player and the next node, and it bounces off the door frame.
+                    if (!IsLastNode(node) && !IsWithin(node, NODE_CLOSE_RADIUS) &&
+                        !(currentMode == PathfindingMode.Manual
+                            ? ClearWalkLine(pathNodes[node.index + 1].position)
+                            : BodyLineClear(pathNodes[node.index + 1].position)))
                         continue;
                     MarkReachedThrough(node, announce: currentMode == PathfindingMode.Manual);
                     break;
@@ -1346,7 +1614,10 @@ namespace LethalAccess
                     PathNode node = pathNodes[i];
                     if (node.isReached)
                         continue;
-                    if (!PassedNode(node, pathNodes[i + 1]))
+                    // Beyond it along the next leg yet still behind the door frame it turns
+                    // round is not past it.
+                    if (!PassedNode(node, pathNodes[i + 1]) ||
+                        (!IsWithin(node, NODE_CLOSE_RADIUS) && !BodyLineClear(pathNodes[i + 1].position)))
                         break;
                     MarkReachedThrough(node, announce: false);
                 }
@@ -2038,6 +2309,15 @@ namespace LethalAccess
                 return;
             }
 
+            // The door just opened: let it swing and the path be laid round its panel before
+            // walking on, instead of into the panel as it comes round.
+            if (doorReplanAt > 0f && Time.time - doorOpenedAt < 1.5f)
+            {
+                ClearAutoInput();
+                ResetStuckTracking();
+                return;
+            }
+
             Transform body = playerController.thisPlayerBody != null ? playerController.thisPlayerBody : transform;
 
             // A locked door on a key route: walk up to it, then stand facing it, camera on the
@@ -2483,7 +2763,7 @@ namespace LethalAccess
             foreach (float h in new[] { 0.8f, 1.5f })
             {
                 Vector3 castFrom = feet + Vector3.up * h;
-                if (Physics.SphereCast(castFrom, 0.42f, toPoint.normalized, out _, toPoint.magnitude, groundMask, QueryTriggerInteraction.Ignore))
+                if (Physics.SphereCast(castFrom, 0.42f, toPoint.normalized, out _, toPoint.magnitude, bodyMask, QueryTriggerInteraction.Ignore))
                     return false;
             }
             return true;
@@ -2605,12 +2885,19 @@ namespace LethalAccess
             // against a wall moves plenty and gets nowhere.
             bool tryingToMove = AutoMoveInput.sqrMagnitude > 0.01f;
             float distance = currentTargetNode != null ? HorizontalDistance(transform.position, currentTargetNode.position) : 0f;
-            bool progressed = currentTargetNode != stuckNode || stuckBestDistance - distance >= STUCK_MIN_PROGRESS;
+            // A new node counts only if it is somewhere else: a replan rebuilds the same node at
+            // the same spot, and treating that as progress reset the count before it ever stopped.
+            bool newNode = currentTargetNode != stuckNode &&
+                           (stuckNode == null || currentTargetNode == null ||
+                            Vector3.Distance(currentTargetNode.position, stuckNodePosition) > STUCK_MIN_PROGRESS);
+            bool progressed = newNode || stuckBestDistance - distance >= STUCK_MIN_PROGRESS;
             if (progressed || distance < stuckBestDistance)
             {
                 stuckBestDistance = distance;
             }
             stuckNode = currentTargetNode;
+            if (currentTargetNode != null)
+                stuckNodePosition = currentTargetNode.position;
             stuckCheckPosition = transform.position;
             stuckCheckTime = Time.time;
 
@@ -2647,6 +2934,49 @@ namespace LethalAccess
             {
                 StopPathfinding(playSound: false);
                 Utilities.SpeakText("Stuck. Pathfinding stopped.");
+            }
+        }
+
+        private readonly Dictionary<DoorLock, bool> nearDoorOpen = new Dictionary<DoorLock, bool>();
+        private float doorScanTime;
+        private float doorReplanAt = -1f;
+        private float doorOpenedAt = -999f;
+
+        /// <summary>
+        /// A door that opens near the player swings its panel into the room, often across the
+        /// path laid through the closed doorway. Replan once it has finished swinging.
+        /// </summary>
+        private void UpdateDoorReplan()
+        {
+            if (doorReplanAt > 0f && Time.time >= doorReplanAt)
+            {
+                doorReplanAt = -1f;
+                if (!gapJumpInProgress && !hasGap && !crawl.active && !playerController.isClimbingLadder)
+                {
+                    lastReplanTime = -999f;
+                    Replan(null);
+                }
+                return;
+            }
+            if (Time.time - doorScanTime < 0.25f)
+                return;
+            doorScanTime = Time.time;
+
+            foreach (DoorLock door in GetDoors())
+            {
+                if (door == null)
+                    continue;
+                if (Vector3.Distance(door.transform.position, transform.position) > 4f)
+                {
+                    nearDoorOpen.Remove(door);
+                    continue;
+                }
+                bool open = !DoorIsClosed(door);
+                if (nearDoorOpen.TryGetValue(door, out bool wasOpen) && open && !wasOpen)
+                {
+                    doorReplanAt = Time.time + 0.8f;
+                }
+                nearDoorOpen[door] = open;
             }
         }
 
@@ -2693,6 +3023,7 @@ namespace LethalAccess
             try
             {
                 trigger.Interact(playerController.thisPlayerBody);
+                doorOpenedAt = Time.time;
             }
             catch (Exception ex)
             {
@@ -2906,6 +3237,7 @@ namespace LethalAccess
                 }
 
                 OpenNearbyDoor();
+                UpdateDoorReplan();
                 UpdateHazardCue();
                 UpdateLadderLetGo();
                 UpdateGapJumpState();
