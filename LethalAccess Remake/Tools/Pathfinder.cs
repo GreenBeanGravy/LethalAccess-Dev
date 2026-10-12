@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
@@ -488,7 +488,9 @@ namespace LethalAccess
 
                 Utilities.SpeakText(lockedDoorOnPath != null
                     ? $"Pathfinding to {GetTargetName()}, through a locked door. You'll need your key."
-                    : $"Pathfinding to {GetTargetName()}");
+                    : elevatorOnPath != null
+                        ? $"Pathfinding to {GetTargetName()}, by the elevator."
+                        : $"Pathfinding to {GetTargetName()}");
             }
             catch (Exception ex)
             {
@@ -550,6 +552,8 @@ namespace LethalAccess
             manualLadder = null;
             lockedDoorOnPath = null;
             lockedDoorCrossIndex = -1;
+            ResetElevatorRoute();
+            ForgetElevatorPress();
             doorBeingOpened = null;
             cannotClimbCueLadder = null;
             ClearAutoInput();
@@ -678,6 +682,7 @@ namespace LethalAccess
             lockedDoorOnPath = null;
             lockedDoorCrossIndex = -1;
             lockedDoorCued = false;
+            ResetElevatorRoute();
             float normalLength = pathIsPartial ? float.MaxValue : PathLength(navPath.corners);
             if (TryKeyRoute(startHit.position, normalLength, out Vector3[] toDoor, out Vector3[] fromDoor, out DoorLock door))
             {
@@ -688,6 +693,19 @@ namespace LethalAccess
                 positions.AddRange(BuildNodePositions(AvoidTooLow(fromDoor[0], AvoidQuicksand(fromDoor[0], fromDoor))));
                 lockedDoorOnPath = door;
                 pathIsPartial = false;
+            }
+            else if (pathIsPartial && TryElevatorRoute(startHit.position, out Vector3[] toStop, out Vector3[] fromStop,
+                         out MineshaftElevatorController elevator, out bool goingDown))
+            {
+                // The Mineshaft's elevator joins two levels the NavMesh does not: plan to its stop
+                // here and on from its stop there.
+                positions = BuildNodePositions(AvoidTooLow(startHit.position, AvoidQuicksand(startHit.position, toStop)), finalLeg: false);
+                elevatorCrossIndex = positions.Count;
+                positions.AddRange(BuildNodePositions(AvoidTooLow(fromStop[0], AvoidQuicksand(fromStop[0], fromStop))));
+                elevatorOnPath = elevator;
+                elevatorGoingDown = goingDown;
+                pathIsPartial = false;
+                Debug.Log($"Pathfinder: route by the elevator, going {(goingDown ? "down" : "up")}, crossing at node {elevatorCrossIndex}");
             }
             else
             {
@@ -1984,7 +2002,7 @@ namespace LethalAccess
 
         private void Replan(string announcement)
         {
-            if (Time.time - lastReplanTime < REPLAN_COOLDOWN)
+            if (Time.time - lastReplanTime < REPLAN_COOLDOWN || ElevatorCrossingInProgress)
                 return;
 
             lastReplanTime = Time.time;
@@ -2146,6 +2164,8 @@ namespace LethalAccess
             // The doorway of a locked door is not passed until it is unlocked.
             if (lockedDoorOnPath != null && lockedDoorOnPath.isLocked && node.index >= lockedDoorCrossIndex - 1)
                 return false;
+            if (HeldByElevator(node))
+                return false;
 
             Vector3 feet = transform.position;
             Vector3 along = next.position - node.position;
@@ -2175,6 +2195,13 @@ namespace LethalAccess
 
         private void MarkReachedThrough(PathNode node, bool announce)
         {
+            // Not past the elevator's stop before the ride.
+            if (HeldByElevator(node))
+            {
+                if (elevatorCrossIndex - 2 < 0)
+                    return;
+                node = pathNodes[elevatorCrossIndex - 2];
+            }
             for (int i = 0; i <= node.index; i++)
             {
                 if (!pathNodes[i].isReached)
@@ -2337,6 +2364,12 @@ namespace LethalAccess
         {
             ObstacleProbe probeNow = Probe;
             if (probeNow == null || currentTargetNode == null || !CanSteer())
+                return;
+            // At the elevator its own cues do the talking; walking into the car's wall on the way
+            // down is not "blocked", and the pillars and button panels round its doors are not
+            // something to crouch under.
+            if (elevatorOnPath != null &&
+                ((!elevatorRideDone && currentTargetNode.index >= elevatorCrossIndex - 1) || NearElevator()))
                 return;
 
             Vector3 toTarget = currentTargetNode.position - transform.position;
@@ -2603,7 +2636,7 @@ namespace LethalAccess
             // Before a gap the ping leads to the run-up and along it, not over the hole.
             AudioSource source = currentTargetNode.audioSource;
             Vector3 nodePos = currentTargetNode.position;
-            if (ManualGapGuide(out Vector3 guide) || ManualCrawlGuide(out guide))
+            if (ManualElevatorGuide(out Vector3 guide) || ManualGapGuide(out guide) || ManualCrawlGuide(out guide))
             {
                 source = GapGuideAudio(guide);
                 nodePos = guide;
@@ -2892,6 +2925,10 @@ namespace LethalAccess
             }
 
             Transform body = playerController.thisPlayerBody != null ? playerController.thisPlayerBody : transform;
+
+            // The Mineshaft's elevator: call it, ride it, step out.
+            if (UpdateAutoElevator(body))
+                return;
 
             // A locked door on a key route: walk up to it, then stand facing it, camera on the
             // door so the key's use ray hits it, until the player unlocks it.
@@ -3267,6 +3304,8 @@ namespace LethalAccess
                 if (Mathf.Abs(next.y - previous.y) > Mathf.Max(0.5f, step * AIM_MAX_RISE_PER_METER))
                     break;
                 if (lockedDoorOnPath != null && i >= lockedDoorCrossIndex)
+                    break;
+                if (elevatorOnPath != null && !elevatorRideDone && i >= elevatorCrossIndex)
                     break;
 
                 // Only as far along this segment as the lookahead reaches; if the end of that is
@@ -3917,6 +3956,7 @@ namespace LethalAccess
                 if (currentMode == PathfindingMode.Manual)
                 {
                     UpdateManualAudio();
+                    UpdateManualElevator();
                     // Crawl first: a crawl space's own cue replaces the plain crouch cue.
                     UpdateManualCrawl();
                     UpdateManualObstacleCues();

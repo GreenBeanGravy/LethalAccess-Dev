@@ -1454,6 +1454,9 @@ namespace LethalAccess
                 return false;
             if (currentTargetNode.position.y - NODE_GROUND_OFFSET < transform.position.y - GAP_HOLE_DEPTH + 0.5f)
                 return false;
+            // Stepping into or out of the Mineshaft's elevator crosses the gap at its door.
+            if (elevatorOnPath != null && !elevatorRideDone && currentTargetNode.index >= elevatorCrossIndex - 1)
+                return false;
             if (hasGap && plan.valid && LinedUp(body) && DistanceToTakeoff() > -0.3f)
                 return false;
             // A ledge to jump up onto: the jump cue handles it.

@@ -506,6 +506,7 @@
     <Compile Include="Tools\ObstacleProbe.cs" />
     <Compile Include="Tools\PathfinderGaps.cs" />
     <Compile Include="Tools\PathfinderCrawl.cs" />
+    <Compile Include="Tools\PathfinderElevator.cs" />
     <Compile Include="Patches\ClipboardTextPatch.cs" />
     <Compile Include="Patches\ControlTipPatch.cs" />
     <Compile Include="Patches\EndOfGamesStatsPatch.cs" />

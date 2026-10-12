@@ -1,4 +1,4 @@
-using System.Reflection;
+﻿using System.Reflection;
 using GameNetcodeStuff;
 using HarmonyLib;
 using UnityEngine;
@@ -193,6 +193,8 @@ namespace LethalAccess
                 // it stands on); they say nothing about what is ahead.
                 if (hits[i].distance <= 0f || hits[i].normal.y > WALKABLE_NORMAL_Y)
                     continue;
+                if (IsWallFitting(hits[i].collider))
+                    continue;
                 if (hits[i].distance < best)
                 {
                     best = hits[i].distance;
@@ -201,6 +203,21 @@ namespace LethalAccess
                 }
             }
             return found;
+        }
+
+        private const int INTERACTABLE_LAYER = 9;
+
+        /// <summary>
+        /// A button or switch box on a wall (the Mineshaft elevator's call buttons stick out
+        /// 0.13 m at head height). The player slides past it; read as an overhang it made a
+        /// crouch for nothing. Doors are on the same layer but far bigger.
+        /// </summary>
+        private static bool IsWallFitting(Collider collider)
+        {
+            if (collider == null || collider.gameObject.layer != INTERACTABLE_LAYER)
+                return false;
+            Vector3 size = collider.bounds.size;
+            return Mathf.Max(size.x, Mathf.Max(size.y, size.z)) < 0.5f;
         }
 
         /// <param name="dropAhead">The path goes down past this point (off a catwalk, off a

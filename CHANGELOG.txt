@@ -10,6 +10,7 @@ This is a big pathfinding update for Lethal Access! Pathfinding now moves you li
 * Stairs no longer set off false "Jump", "Crouch", "Ledge" or gap warnings, and pathfinding no longer says you've arrived from the floor above the target.
 * Getting on and off the ship works in both modes, using the ship's ladders. Pathfinding no longer tries to climb the side of the ship.
 * Pathfinding goes round places a player can't get through, like slopes too steep to walk up and gaps too low to crawl under, and if you get stuck somewhere it remembers the spot and finds another way.
+* Pathfinding takes the elevator in the Mineshaft. Automatic mode calls it, steps in, presses the button and steps out at the other end. Manual mode tells you each step and turns you to face each button, so pressing interact uses it.
 * Pathfinding crawls under server racks. Automatic mode lines up, crouches, crawls through and stands up on the other side. Manual mode says "Crouch, crawl space", keeps you lined up, and tells you when to stand up.
 * The game now says "Crouched", "Standing", "Sprinting" and "Walking" whenever that changes, including while automatic pathfinding moves you.
 * Looking at a door now reads its "Use door" prompt.
