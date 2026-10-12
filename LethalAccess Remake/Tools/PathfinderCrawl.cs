@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 using UnityEngine.AI;
 
 namespace LethalAccess
@@ -402,8 +402,13 @@ namespace LethalAccess
                 crawl.cued = true;
                 manualCrouchCued = true;
                 // Once per crawl space: the crouch cue may have named this one already. The next
-                // rack along is a new one, however soon it comes.
-                if (Time.time - lastCrawlCueTime > 4f || HorizontalDistance(transform.position, lastCrawlCuePosition) > 2f)
+                // rack along is a new one, however soon it comes. Not while still crouched from
+                // the last cue: along a low rock tunnel (Adamance's mine) a new crawl was found
+                // every 1.5 s, and "Crawl space" repeated with the player already crawling.
+                // (Crouched at most a few seconds after that cue: the cue is what made them crouch.)
+                bool stillCrawling = playerController.isCrouching && manualCrouchedAt <= lastCrawlCueTime + 3f;
+                if (!stillCrawling &&
+                    (Time.time - lastCrawlCueTime > 4f || HorizontalDistance(transform.position, lastCrawlCuePosition) > 2f))
                 {
                     lastCrawlCueTime = Time.time;
                     lastCrawlCuePosition = transform.position;

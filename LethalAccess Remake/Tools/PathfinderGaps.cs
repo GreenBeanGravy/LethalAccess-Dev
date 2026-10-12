@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using GameNetcodeStuff;
 using UnityEngine;
@@ -96,6 +96,8 @@ namespace LethalAccess
         private JumpPlan plan;
         private GapPhase gapPhase;
         private int gapAttempts;
+        // Gaps given up on this trip (cut out and routed round); reset only when pathfinding stops.
+        private int gapGiveUps;
         private float gapScanTime = -999f;
         private bool gapJumpInProgress;
         private float gapJumpStart;
@@ -990,6 +992,8 @@ namespace LethalAccess
             {
                 if (toTakeoff > 2f)
                     return false;
+                if (GiveUpOnGap())
+                    return true;
                 StopPathfinding(playSound: false);
                 Utilities.SpeakText("No safe jump across this gap. Pathfinding stopped.");
                 return true;
@@ -1059,6 +1063,12 @@ namespace LethalAccess
                 gapPhase = GapPhase.Approach;
                 if (gapAttempts >= 4)
                 {
+                    // The first gap that can't be made: cut it out and look for another way (a
+                    // girder room on March ends a beam 2.9 m short of the stairs, with a 3.6 m
+                    // run-up, and the stairs are reached the long way round). Stop only if that
+                    // finds nothing better.
+                    if (GiveUpOnGap())
+                        return true;
                     StopPathfinding(playSound: false);
                     Utilities.SpeakText("Could not make the jump. Pathfinding stopped.");
                     return true;
@@ -1236,7 +1246,11 @@ namespace LethalAccess
             float lateral = PlanLineOffset(plan).magnitude;
             bool farEnoughBack = toTakeoff > plan.runUp * 0.8f;
             bool onLineFarBack = lateral < 0.35f && farEnoughBack && toTakeoff < plan.runUp + 1f;
-            if (gapPhase == GapPhase.Approach && farEnoughBack && (onLineFarBack || HorizontalDistance(transform.position, RunUpStart()) < 0.8f))
+            // At the start itself, half the run-up back is enough: standing to one side of the
+            // line shortens the distance along it, and on March a player 0.65 m from the start
+            // was 1.06 m back of a 1.6 m run-up, short of the 80%, and the run-up never began.
+            bool atStart = HorizontalDistance(transform.position, RunUpStart()) < 1f && toTakeoff > plan.runUp * 0.5f;
+            if (gapPhase == GapPhase.Approach && (onLineFarBack || atStart))
             {
                 gapPhase = GapPhase.RunUp;
                 Utilities.SpeakText("Run-up here. Face the tone, then go.");
@@ -1426,9 +1440,28 @@ namespace LethalAccess
                     changed = true;
                 }
             }
-            else if (StripDrops(body, ref world))
+            else
             {
-                changed = true;
+                float pushed = world.magnitude;
+                if (StripDrops(body, ref world))
+                {
+                    changed = true;
+                    // Off the jump line near the takeoff with every step toward the hole taken
+                    // out: on March a player 0.9 m from the takeoff and half a metre off the line
+                    // stood still for good ("Ledge" over and over). Move them sideways onto the
+                    // line instead; once on it the guard lets them through to the takeoff.
+                    if (world.magnitude < pushed * 0.3f && hasGap && plan.valid && !LinedUp(body))
+                    {
+                        float toTakeoff = DistanceToTakeoff();
+                        Vector3 lineOffset = PlanLineOffset(plan);
+                        if (toTakeoff > 0.1f && toTakeoff < 3f && lineOffset.magnitude >= 0.3f)
+                        {
+                            Vector3 sideways = -lineOffset.normalized * pushed * 0.9f;
+                            if (!StripDrops(body, ref sideways))
+                                world = sideways;
+                        }
+                    }
+                }
             }
             if (!changed)
                 return input;
@@ -1501,7 +1534,10 @@ namespace LethalAccess
                 if (ledgeCueCount >= 3)
                 {
                     ledgeCueCount = 0;
-                    RememberBlockedSpot(dir);
+                    // 1.7 m ahead, past the 1.5 m around the player that is never cut out: at
+                    // 1.2 m (the stuck spot's distance) nothing was cut, the plan came back the
+                    // same, and "Ledge. Finding another way." repeated for minutes.
+                    RememberBlockedSpot(transform.position + dir * 1.7f, 1.2f);
                     Replan("Ledge. Finding another way.");
                 }
                 else
@@ -1510,6 +1546,24 @@ namespace LethalAccess
                 }
             }
             return changed;
+        }
+
+        /// <summary>
+        /// A gap that can't be jumped: cut it out and look for another way (a girder room on
+        /// March ends a beam 2.9 m short of the stairs, with a 3.6 m run-up). Up to three per
+        /// trip; false once those are used, and the caller stops.
+        /// </summary>
+        private bool GiveUpOnGap()
+        {
+            if (gapGiveUps >= 3)
+                return false;
+            gapGiveUps++;
+            Vector3 middle = (gap.edge + gap.landing) * 0.5f;
+            RememberBlockedSpot(middle, Mathf.Max(HorizontalDistance(gap.edge, gap.landing), 1f));
+            ResetGapState();
+            lastReplanTime = -999f;
+            Replan("Can't make that jump. Finding another way.");
+            return true;
         }
 
         private void ResetGapState()
