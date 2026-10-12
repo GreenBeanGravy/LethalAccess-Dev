@@ -1113,17 +1113,10 @@ namespace LethalAccess
 
                 if (distance <= stoppingDistance)
                 {
-                    if (!hasPlayedReachedSound)
+                    // While pathfinding, the pathfinder says "Reached" itself on arrival.
+                    if (!hasPlayedReachedSound && (Pathfinder.Instance == null || !Pathfinder.Instance.IsPathfinding))
                     {
-                        string objectName = navMenu != null ?
-                            navMenu.GetDisplayNameForObject(currentLookTarget) : "Unknown";
-
-                        if (objectName == "Unknown Object" || objectName == "Unknown" || string.IsNullOrEmpty(objectName))
-                        {
-                            GrabbableObject grabbable = currentLookTarget.GetComponent<GrabbableObject>();
-                            objectName = grabbable != null && grabbable.itemProperties != null && !string.IsNullOrEmpty(grabbable.itemProperties.itemName) ?
-                                grabbable.itemProperties.itemName : GetFriendlyObjectName(currentLookTarget.name);
-                        }
+                        string objectName = GetReachedName(currentLookTarget);
 
                         if (reachedPositionSound != null)
                         {
@@ -1166,6 +1159,26 @@ namespace LethalAccess
             {
                 Debug.LogError("Error in CheckReachedTrackedObject: " + ex.Message + "\n" + ex.StackTrace);
             }
+        }
+
+        /// <summary>The name "Reached" uses for an object, shared with the pathfinder so both say the same thing.</summary>
+        public string GetReachedName(GameObject target)
+        {
+            string objectName = navMenu != null ? navMenu.GetDisplayNameForObject(target) : null;
+            if (objectName == "Unknown Object" || objectName == "Unknown" || string.IsNullOrEmpty(objectName))
+            {
+                GrabbableObject grabbable = target.GetComponent<GrabbableObject>();
+                objectName = grabbable != null && grabbable.itemProperties != null && !string.IsNullOrEmpty(grabbable.itemProperties.itemName) ?
+                    grabbable.itemProperties.itemName : GetFriendlyObjectName(target.name);
+            }
+            return objectName;
+        }
+
+        /// <summary>The pathfinder announced arriving at target; the tracked-object check stays quiet for it.</summary>
+        public void MarkReachedAnnounced(GameObject target)
+        {
+            if (target != null && currentLookTarget == target)
+                hasPlayedReachedSound = true;
         }
 
         private string GetFriendlyObjectName(string objectName)

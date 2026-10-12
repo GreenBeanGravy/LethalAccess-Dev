@@ -71,7 +71,9 @@ namespace LethalAccess
         /// </summary>
         private void UpdateCrawlDetection()
         {
-            if (crawl.active || currentTargetNode == null)
+            // A gap ahead is the gap code's to handle; the floor of the far side overhead is not
+            // a crawl space.
+            if (crawl.active || currentTargetNode == null || hasGap || gapJumpInProgress)
                 return;
             if (Time.time < nextCrawlScan)
                 return;
@@ -105,13 +107,15 @@ namespace LethalAccess
 
             Vector3 toNode = currentTargetNode.position - transform.position;
             toNode.y = 0f;
-            if (toNode.sqrMagnitude > 0.01f && FindCrawlLine(toNode.normalized, out Vector3 lineEntry, out Vector3 lineExit))
+            if (toNode.sqrMagnitude > 0.01f && FindCrawlLine(toNode.normalized, out Vector3 lineEntry, out Vector3 lineExit) &&
+                PathReaches(lineExit))
             {
                 crawl = new CrawlSpace { active = true, entry = lineEntry, exit = lineExit };
             }
         }
 
         private float nextCrawlScan;
+        private float lastCrawlCueTime = -999f;
 
         /// <summary>
         /// A crawl line along the way ahead: where a ceiling too low to stand under begins and
@@ -335,9 +339,12 @@ namespace LethalAccess
             if (!crawl.cued && along > -1.5f)
             {
                 crawl.cued = true;
-                Utilities.SpeakText(playerController.isCrouching
-                    ? "Crawl space ahead. Stay crouched."
-                    : "Crawl space ahead. Crouch, and don't sprint.");
+                manualCrouchCued = true;
+                if (Time.time - lastCrawlCueTime > 4f)
+                {
+                    lastCrawlCueTime = Time.time;
+                    Utilities.SpeakText(playerController.isCrouching ? "Crawl space" : "Crouch, crawl space");
+                }
             }
 
             // A gentle draw onto the line once close, harder when crouched and under.

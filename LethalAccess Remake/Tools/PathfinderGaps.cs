@@ -188,7 +188,7 @@ namespace LethalAccess
                 Vector3 b = gapLine[seg + 1];
                 // A segment rising or falling more than a jump is a ladder, a climb link or a
                 // drop: nothing to jump, and nothing past it is reached by jumping from here.
-                if (Mathf.Abs(b.y - a.y) > (Probe != null ? Probe.MaxJumpHeight : 2f) + 0.5f)
+                if (Mathf.Abs(b.y - a.y) > (Probe != null ? Probe.MaxJumpHeight : 2f) + 0.5f || SegmentIsLadder(a, b))
                     return false;
                 float length = HorizontalDistance(a, b);
                 int steps = Mathf.Max(1, Mathf.CeilToInt(length / GAP_SCAN_STEP));
@@ -261,12 +261,36 @@ namespace LethalAccess
         private bool GroundAt(Vector3 point, float refY, out float groundY)
         {
             groundY = 0f;
-            RaycastHit hit;
-            if (!Physics.Raycast(new Vector3(point.x, refY + 2.3f, point.z), Vector3.down, out hit,
-                    2.3f + GAP_HOLE_DEPTH, groundMask, QueryTriggerInteraction.Ignore))
+            int count = Physics.RaycastNonAlloc(new Vector3(point.x, refY + 2.3f, point.z), Vector3.down, groundHitCache,
+                2.3f + GAP_HOLE_DEPTH, groundMask, QueryTriggerInteraction.Ignore);
+            float best = float.MaxValue;
+            for (int i = 0; i < count; i++)
+            {
+                if (!IsFloorHit(groundHitCache[i]) || groundHitCache[i].distance >= best)
+                    continue;
+                best = groundHitCache[i].distance;
+                groundY = groundHitCache[i].point.y;
+            }
+            return best < float.MaxValue;
+        }
+
+        /// <summary>A ladder runs from one end of this path segment to the other (a short one,
+        /// like the ship's, is less than a jump high but still a climb, not a gap).</summary>
+        private bool SegmentIsLadder(Vector3 a, Vector3 b)
+        {
+            if (Mathf.Abs(b.y - a.y) < 1.2f)
                 return false;
-            groundY = hit.point.y;
-            return true;
+            Vector3 low = a.y < b.y ? a : b;
+            Vector3 high = a.y < b.y ? b : a;
+            foreach (var ladder in GetLadders())
+            {
+                if (ladder == null)
+                    continue;
+                if (HorizontalDistance(ladder.bottomOfLadderPosition.position, low) < 2.5f &&
+                    HorizontalDistance(ladder.topOfLadderPosition.position, high) < 2.5f)
+                    return true;
+            }
+            return false;
         }
 
         /// <summary>Narrows a floor/hole boundary between a solid and a missing sample to a few centimetres.</summary>
@@ -336,7 +360,7 @@ namespace LethalAccess
         #endregion
 
         #region Planning
-        private int BlockerMask => groundMask | LayerMask.GetMask("Railing");
+        private int BlockerMask => groundMask;
 
         private static readonly float[] TakeoffOffsets = { 0f, -0.15f, 0.15f, -0.3f, 0.3f, -0.5f, 0.5f, -0.75f, 0.75f, -1f, 1f, -1.25f, 1.25f, -1.5f, 1.5f };
 
@@ -696,7 +720,7 @@ namespace LethalAccess
                 vy -= GRAVITY * dt;
 
                 if (vy < 0f && Physics.Raycast(next + Vector3.up * 0.6f, Vector3.down, out RaycastHit floor, 0.65f, groundMask, QueryTriggerInteraction.Ignore) &&
-                    floor.normal.y > 0.6f)
+                    floor.normal.y > 0.6f && IsFloorHit(floor))
                 {
                     Vector3 down = new Vector3(next.x, floor.point.y, next.z);
                     Vector3 past = down - g.edge;
@@ -939,7 +963,7 @@ namespace LethalAccess
 
             Vector3 runUpStart = RunUpStart();
             float lateral = PlanLineOffset(plan).magnitude;
-            if (gapPhase == GapPhase.Approach && toTakeoff > plan.runUp + 2.5f)
+            if (gapPhase == GapPhase.Approach && (toTakeoff > plan.runUp + 2.5f || !RunUpInView(runUpStart)))
                 return false;
 
             ResetStuckTracking();
@@ -1169,6 +1193,9 @@ namespace LethalAccess
             bool nearSide = Mathf.Abs(transform.position.y - plan.takeoff.y) < 0.8f && toTakeoff > -2.5f;
             if (!nearSide || toTakeoff > plan.runUp + 6f)
                 return false;
+            // Still round a corner from it: the path's own nodes lead there.
+            if (gapPhase == GapPhase.Approach && !RunUpInView(RunUpStart()))
+                return false;
 
             // Reaching the start puts the player on the run-up; wandering well off the line or
             // back past the start sends them to it again.
@@ -1193,6 +1220,18 @@ namespace LethalAccess
                 : RunUpStart();
             guide.y = plan.takeoff.y + NODE_GROUND_OFFSET;
             return true;
+        }
+
+        /// <summary>
+        /// The run-up's start can be walked to in a straight line. The gap code steers straight
+        /// at it, ignoring the path, so from round a corner it walks into the wall (and strafes
+        /// along it for ever); until then the ordinary path following brings the player there.
+        /// </summary>
+        private bool RunUpInView(Vector3 runUpStart)
+        {
+            if (HorizontalDistance(transform.position, runUpStart) < 1f)
+                return true;
+            return ClearWalkLine(runUpStart + Vector3.up * NODE_GROUND_OFFSET);
         }
 
         private GameObject gapGuideObject;
@@ -1278,10 +1317,8 @@ namespace LethalAccess
             Transform body = playerController.thisPlayerBody != null ? playerController.thisPlayerBody : transform;
             if (!LinedUp(body))
             {
-                // Close to the edge and facing off the jump line: a jump from here goes into the
-                // hole. Hold it back and say why.
-                if (toTakeoff > 1.5f)
-                    return false;
+                // Within reach of the edge and off the jump line: a jump from here goes into the
+                // hole (a walking jump carries about 2 m). Hold it back and say why.
                 if (Time.time - lastEdgeCueTime > 1.5f)
                 {
                     lastEdgeCueTime = Time.time;
@@ -1393,6 +1430,7 @@ namespace LethalAccess
                 return false;
             Vector3 dir = move.normalized;
             bool changed = false;
+            bool straightAhead = false;
             foreach (float angle in new[] { 0f, -45f, 45f })
             {
                 Vector3 probe = Quaternion.AngleAxis(angle, Vector3.up) * dir;
@@ -1406,8 +1444,12 @@ namespace LethalAccess
                     continue;
                 world -= probe * into;
                 changed = true;
+                // Only a drop straight ahead is worth saying; one off to the side (the open side
+                // of a staircase, a catwalk's edge) is just slid along quietly.
+                if (angle == 0f)
+                    straightAhead = true;
             }
-            if (changed && Time.time - lastLedgeCueTime > 3f)
+            if (straightAhead && Time.time - lastLedgeCueTime > 3f)
             {
                 lastLedgeCueTime = Time.time;
                 Utilities.SpeakText("Ledge");

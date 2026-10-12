@@ -35,24 +35,15 @@ namespace LethalAccess.Patches
             }
         }
 
-        // Method to handle the speaking functionality
         private static void SpeakInteraction(string text)
         {
-            // Check specific texts and decide whether to speak them
-            if (!string.IsNullOrWhiteSpace(text))
-            {
-                if (text == "Use door : [E]") // Customize or ignore "Use door : [E]"
-                {
-                    // If you want to customize the message:
-                    // Utilities.SpeakText("Custom message here.");
-
-                    // Or simply do nothing if you want to ignore it.
-                }
-                else // Speak all other texts, including "Climb : [E]"
-                {
-                    Utilities.SpeakText(text);
-                }
-            }
+            if (string.IsNullOrWhiteSpace(text))
+                return;
+            // Auto pathfinding turns the camera itself and walks past doors it opens on its own,
+            // so the door prompt it sweeps across is noise. Everyone else hears it.
+            if (text.StartsWith("Use door") && Pathfinder.AutoWalkActive)
+                return;
+            Utilities.SpeakText(text);
         }
     }
 }

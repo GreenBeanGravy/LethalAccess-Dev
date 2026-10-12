@@ -73,7 +73,9 @@ namespace LethalAccess
         // Intermediate nodes count as reached at this horizontal distance. The last one uses the
         // configured stopping radius.
         private const float NODE_REACH_RADIUS = 1.25f;
-        private const float NODE_REACH_HEIGHT = 2.5f;
+        // Less than a flight of stairs: on switchback stairs the next flight down passes under
+        // the one above, and a looser limit reached nodes (and the destination) through the floor.
+        private const float NODE_REACH_HEIGHT = 1.4f;
 
         private const float NODE_AUDIO_PING_INTERVAL = 0.5f;
 
@@ -87,6 +89,10 @@ namespace LethalAccess
         // stepping around a crate never needs a full turn. It only stops to turn when the node
         // is behind.
         private const float AUTO_TURN_SPEED = 360f;
+        private const float AUTO_MIN_CROUCH_TIME = 0.5f;
+        private const float AUTO_STAND_CLEAR_TIME = 0.25f;
+        private float autoCrouchTime = -999f;
+        private float standClearSince = -1f;
         private const float AUTO_TURN_IN_PLACE_ANGLE = 120f;
         private const float AUTO_SPRINT_MAX_ANGLE = 35f;
         private const float STUCK_CHECK_INTERVAL = 1.5f;
@@ -285,9 +291,48 @@ namespace LethalAccess
             // Collided with, but never a floor to put a node on.
             mask &= ~(1 << playerLayer);
             mask &= ~LayerMask.GetMask("Ignore Raycast", "UI", "Triggers", "Enemies", "EnemiesNotRendered",
-                "PlayerRagdoll", "MapHazards", "InteractableObject", "Railing", "Props", "PhysicsObject", "ScanNode");
+                "PlayerRagdoll", "MapHazards", "InteractableObject", "Props", "PhysicsObject", "ScanNode");
             return mask;
         }
+
+        /// <summary>
+        /// A ground ray's hit is floor to stand on. The Railing layer holds railings, which are
+        /// never floor, but also some staircases' walkable ramps (the factory's stair rooms);
+        /// left out entirely, a flight of stairs reads as a hole. A railing is thin, a staircase
+        /// is not.
+        /// </summary>
+        private static bool IsFloorHit(RaycastHit hit)
+        {
+            if (hit.collider == null || hit.collider.gameObject.layer != RailingLayer)
+                return true;
+            if (hit.normal.y < 0.6f)
+                return false;
+            Vector3 local;
+            if (hit.collider is BoxCollider box)
+                local = box.size;
+            else if (hit.collider is MeshCollider meshCollider && meshCollider.sharedMesh != null)
+                local = meshCollider.sharedMesh.bounds.size;
+            else
+            {
+                Vector3 bounds = hit.collider.bounds.size;
+                return Mathf.Min(bounds.x, bounds.z) >= 0.8f;
+            }
+
+            // Floor spreads out horizontally along two of its edges; a railing (however it is
+            // rotated or mirrored) along one at most. Measured in the world, since these boxes
+            // are often turned on their side.
+            Transform t = hit.collider.transform;
+            float a = Horizontal(t.TransformVector(new Vector3(local.x, 0f, 0f)));
+            float b = Horizontal(t.TransformVector(new Vector3(0f, local.y, 0f)));
+            float c = Horizontal(t.TransformVector(new Vector3(0f, 0f, local.z)));
+            float second = Mathf.Max(Mathf.Min(a, b), Mathf.Min(Mathf.Max(a, b), c));
+            return second >= 0.8f;
+        }
+
+        private static float Horizontal(Vector3 v) => new Vector2(v.x, v.z).magnitude;
+
+        private static int railingLayer = -2;
+        private static int RailingLayer => railingLayer != -2 ? railingLayer : (railingLayer = LayerMask.NameToLayer("Railing"));
 
         private IEnumerator LoadAudioResources()
         {
@@ -539,6 +584,8 @@ namespace LethalAccess
         /// </summary>
         private bool BuildPath()
         {
+            EnsureLadderLinks();
+            EnsureJumpLinks();
             NavMeshHit startHit;
             if (!NavMesh.SamplePosition(transform.position, out startHit, 5f, NavMesh.AllAreas))
             {
@@ -1163,6 +1210,8 @@ namespace LethalAccess
             groundY = point.y;
             for (int i = 0; i < hitCount; i++)
             {
+                if (!IsFloorHit(groundHitCache[i]))
+                    continue;
                 float offset = Mathf.Abs(groundHitCache[i].point.y - point.y);
                 if (offset < best)
                 {
@@ -1239,6 +1288,19 @@ namespace LethalAccess
 
         private bool IsLastNode(PathNode node) => node.index == pathNodes.Count - 1;
 
+        private const float NODE_CLOSE_RADIUS = 0.6f;
+
+        /// <summary>Nothing at body height between the player and point, for a body a little
+        /// narrower than the player's (the capsule slides past what it only brushes).</summary>
+        private bool ClearWalkLine(Vector3 point)
+        {
+            Vector3 chest = transform.position + Vector3.up * 1.2f;
+            Vector3 to = point - Vector3.up * NODE_GROUND_OFFSET + Vector3.up * 1.2f - chest;
+            if (to.sqrMagnitude < 0.0001f)
+                return true;
+            return !Physics.SphereCast(chest, 0.3f, to.normalized, out _, to.magnitude, groundMask, QueryTriggerInteraction.Ignore);
+        }
+
         /// <summary>
         /// Marks reached nodes and moves the target forward. Shared by both modes.
         /// Returns false once the destination has been reached.
@@ -1263,6 +1325,13 @@ namespace LethalAccess
                 float radius = IsLastNode(node) ? stoppingRadius : NODE_REACH_RADIUS;
                 if (IsWithin(node, radius))
                 {
+                    // A manual player heads straight for whatever pings next. Moving the ping on
+                    // from a node still a metre away cuts the corner, into the end of a wall or
+                    // stair rail; so only once the next node is in clear view, or this one is
+                    // close.
+                    if (currentMode == PathfindingMode.Manual && !IsLastNode(node) && !IsWithin(node, NODE_CLOSE_RADIUS) &&
+                        !ClearWalkLine(pathNodes[node.index + 1].position))
+                        continue;
                     MarkReachedThrough(node, announce: currentMode == PathfindingMode.Manual);
                     break;
                 }
@@ -1390,6 +1459,10 @@ namespace LethalAccess
             bool partial = pathIsPartial && currentTargetObject != null &&
                            Vector3.Distance(transform.position, currentTargetObject.transform.position) > stoppingRadius * 2f;
             bool wasAuto = currentMode == PathfindingMode.Auto;
+            // Arrived crouched after being told to crouch: say when standing is possible, since
+            // the stand-up cue stops with pathfinding.
+            bool sayStand = !wasAuto && manualCrouchCued && playerController != null && playerController.isCrouching &&
+                            Probe != null && Probe.RoomToStand(transform.forward, 0f);
             StopPathfinding(playSound: true);
             if (wasAuto && currentTargetObject != null)
             {
@@ -1397,14 +1470,15 @@ namespace LethalAccess
             }
 
             // currentTargetObject is kept so the player can still look at it afterwards.
-            Utilities.SpeakText(partial ? $"Cannot get any closer to {name}" : $"Reached {name}");
+            Utilities.SpeakText((partial ? $"Cannot get any closer to {name}" : $"Reached {name}") + (sayStand ? ". Stand up" : ""));
+            LACore.Instance?.MarkReachedAnnounced(currentTargetObject);
         }
 
         private string GetTargetName()
         {
             if (currentTargetObject == null)
                 return "destination";
-            return LACore.Instance?.navMenu?.GetDisplayNameForObject(currentTargetObject) ?? currentTargetObject.name;
+            return LACore.Instance != null ? LACore.Instance.GetReachedName(currentTargetObject) : currentTargetObject.name;
         }
         #endregion
 
@@ -1562,8 +1636,16 @@ namespace LethalAccess
                 manualCrouchCued = false;
             }
             manualWasCrouching = crouching;
-            if (crouching && manualCrouchCued && manualProbe.kind == ObstacleProbe.Kind.Clear &&
-                     !Physics.Raycast(transform.position + Vector3.up * 0.5f, Vector3.up, 2.2f, StartOfRound.Instance.collidersAndRoomMaskAndDefault, QueryTriggerInteraction.Ignore))
+            // Crouched under something low (cued or not): say when there is room to stand again.
+            // RoomToStand checks the standing capsule itself, so a low but standable ceiling
+            // (vents, factory halls) still gets the cue.
+            Vector3 ahead = toTarget.sqrMagnitude > 0.0001f ? toTarget.normalized : transform.forward;
+            if (crouching && Probe != null && !Probe.RoomToStand(ahead, 0f))
+            {
+                manualCrouchCued = true;
+            }
+            if (crouching && manualCrouchCued && !crawl.active && manualProbe.kind != ObstacleProbe.Kind.Crouch &&
+                Probe != null && Probe.RoomToStand(ahead, 1f))
             {
                 manualCrouchCued = false;
                 Utilities.SpeakText("Stand up");
@@ -1581,11 +1663,16 @@ namespace LethalAccess
                     lastJumpCueTime = Time.time;
                     Utilities.SpeakText("Jump");
                 }
-                else if (manualProbe.kind == ObstacleProbe.Kind.Crouch && !playerController.isCrouching)
+                else if (manualProbe.kind == ObstacleProbe.Kind.Crouch && !playerController.isCrouching && !crawl.active)
                 {
                     lastJumpCueTime = Time.time;
                     manualCrouchCued = true;
-                    Utilities.SpeakText("Crouch");
+                    // Say what it is in the same breath, so the crawl cue does not follow it.
+                    Vector3 flat = new Vector3(toTarget.x, 0f, toTarget.z);
+                    bool crawlSpace = flat.sqrMagnitude > 0.0001f && FindCrawlLine(flat.normalized, out _, out _);
+                    if (crawlSpace)
+                        lastCrawlCueTime = Time.time;
+                    Utilities.SpeakText(crawlSpace ? "Crouch, crawl space" : "Crouch");
                 }
             }
 
@@ -1617,11 +1704,11 @@ namespace LethalAccess
             }
 
             if (result.kind == ObstacleProbe.Kind.Jumpable)
-                return "Blocked, jump";
+                return "Jump";
             if (result.kind == ObstacleProbe.Kind.Crouch)
             {
                 manualCrouchCued = true;
-                return "Blocked, crouch";
+                return "Crouch";
             }
 
             if (result.kind == ObstacleProbe.Kind.Wall && result.aroundDirection != Vector3.zero)
@@ -1638,8 +1725,17 @@ namespace LethalAccess
             if (result.kind == ObstacleProbe.Kind.Wall)
                 return "Blocked, back up";
 
+            // Head against an overhang the forward casts skip (they ignore what the capsule
+            // already touches): crouch under it.
+            Vector3 facing = playerController.thisPlayerBody != null ? playerController.thisPlayerBody.forward : transform.forward;
+            if (Probe != null && Probe.HeadAgainstOverhang(facing))
+            {
+                manualCrouchCued = true;
+                return "Crouch";
+            }
+
             // Nothing ahead at body height, so something low is catching the feet.
-            return "Blocked, jump";
+            return "Jump";
         }
 
         /// <summary>"ahead", "to your left", "to your right" or "behind you", from where the player faces.</summary>
@@ -1685,6 +1781,150 @@ namespace LethalAccess
             source.volume = AudioSystemBypass.CalculateVolumeBasedOnDistance(
                 Vector3.Distance(playerPos, nodePos), 1.0f, 20.0f, 0.6f);
             source.Play();
+        }
+        #endregion
+
+        #region Ladder links
+        /// <summary>NavMesh area for the ladder links added below. Not Jump or Climb, so the
+        /// planner uses them; ObstacleProbe.IsDisconnected leaves it out of its walking check, so
+        /// a step along one still counts as a climb and the ladder code takes it.</summary>
+        public const int LADDER_LINK_AREA = 20;
+        /// <summary>NavMesh area for the enemy Jump links a player can also do (see EnsureJumpLinks).</summary>
+        public const int PLAYER_JUMP_LINK_AREA = 21;
+        // A drop this deep or less is taken as a plain walk off the edge (fall damage starts
+        // at about 18 m).
+        private const float PLAYER_DROP_MAX = 8f;
+
+        private static readonly Dictionary<int, NavMeshLinkInstance> addedJumpLinks = new Dictionary<int, NavMeshLinkInstance>();
+
+        /// <summary>
+        /// The enemy NavMesh's Jump links are left out of planning, since most are leaps no player
+        /// makes. Some are not: a step up no higher than a player's jump (onto the walkway by
+        /// Experimentation's main entrance), or a drop a player just walks off. Those get a link
+        /// of their own the planner may use: both ways for a step, downward only for a drop.
+        /// </summary>
+        private void EnsureJumpLinks()
+        {
+            ObstacleProbe probeNow = Probe;
+            float maxUp = (probeNow != null ? probeNow.MaxJumpHeight : 2f) - 0.25f;
+            int settingsCount = NavMesh.GetSettingsCount();
+            foreach (var link in FindObjectsOfType<OffMeshLink>())
+            {
+                if (link == null || link.area != 2 || link.startTransform == null || link.endTransform == null)
+                    continue;
+                int id = link.GetInstanceID();
+                if (addedJumpLinks.TryGetValue(id, out var existing) && existing.valid)
+                    continue;
+
+                Vector3 a = link.startTransform.position;
+                Vector3 b = link.endTransform.position;
+                Vector3 high = a.y >= b.y ? a : b;
+                Vector3 low = a.y >= b.y ? b : a;
+                float rise = high.y - low.y;
+                float across = HorizontalDistance(a, b);
+                if (across > 4f || rise > PLAYER_DROP_MAX)
+                    continue;
+                // Any leap down can be dropped by a player, whichever way the enemy link goes.
+                bool step = rise <= maxUp;
+                if (!FloorAllAlong(high, low))
+                    continue; // a leap across a hole, not a step or a drop
+
+                for (int i = 0; i < settingsCount; i++)
+                {
+                    NavMeshLinkData data = new NavMeshLinkData
+                    {
+                        startPosition = step ? low : high,
+                        endPosition = step ? high : low,
+                        width = 0f,
+                        costModifier = -1f,
+                        bidirectional = step,
+                        area = PLAYER_JUMP_LINK_AREA,
+                        agentTypeID = NavMesh.GetSettingsByIndex(i).agentTypeID
+                    };
+                    NavMeshLinkInstance added = NavMesh.AddLink(data);
+                    if (added.valid)
+                        addedJumpLinks[id] = added;
+                }
+            }
+        }
+
+        private static readonly Dictionary<int, List<NavMeshLinkInstance>> addedLadderLinks = new Dictionary<int, List<NavMeshLinkInstance>>();
+
+        /// <summary>
+        /// Some ladders have no working off-mesh link (the ship's side ladder: its link starts and
+        /// ends at the same point), so paths take a long way round, or under the ship where the
+        /// enemy NavMesh fits and a player does not. Each ladder whose top and bottom are not
+        /// already joined by a short route gets a link of its own, both ways.
+        /// </summary>
+        private void EnsureLadderLinks()
+        {
+            int settingsCount = NavMesh.GetSettingsCount();
+            foreach (var ladder in GetLadders())
+            {
+                if (ladder == null)
+                    continue;
+                int id = ladder.GetInstanceID();
+                if (addedLadderLinks.TryGetValue(id, out var existing) && existing.Count > 0 && existing[0].valid)
+                    continue;
+
+                Vector3 top = ladder.topOfLadderPosition.position;
+                Vector3 bottom = ladder.bottomOfLadderPosition.position;
+                if (!NavMesh.SamplePosition(top, out NavMeshHit topHit, 1.5f, NavMesh.AllAreas) ||
+                    !NavMesh.SamplePosition(bottom, out NavMeshHit bottomHit, 2.5f, NavMesh.AllAreas) ||
+                    topHit.position.y - bottomHit.position.y < 1f)
+                    continue;
+
+                NavMeshPath walk = new NavMeshPath();
+                if (NavMesh.CalculatePath(bottomHit.position, topHit.position, PlayerAreaMask(), walk) &&
+                    walk.status == NavMeshPathStatus.PathComplete && PathLength(walk) < Vector3.Distance(bottomHit.position, topHit.position) * 2f + 4f)
+                {
+                    addedLadderLinks[id] = new List<NavMeshLinkInstance>();
+                    continue;
+                }
+
+                var links = new List<NavMeshLinkInstance>();
+                for (int i = 0; i < settingsCount; i++)
+                {
+                    NavMeshLinkData data = new NavMeshLinkData
+                    {
+                        startPosition = bottomHit.position,
+                        endPosition = topHit.position,
+                        width = 0f,
+                        costModifier = -1f,
+                        bidirectional = true,
+                        area = LADDER_LINK_AREA,
+                        agentTypeID = NavMesh.GetSettingsByIndex(i).agentTypeID
+                    };
+                    NavMeshLinkInstance link = NavMesh.AddLink(data);
+                    if (link.valid)
+                        links.Add(link);
+                }
+                addedLadderLinks[id] = links;
+                Debug.Log($"Pathfinder: added ladder link {bottomHit.position} -> {topHit.position} ({links.Count})");
+            }
+        }
+
+        /// <summary>Floor all the way between the two ends of a link, no lower than its low end:
+        /// walking (or stepping up) from one to the other never meets a hole.</summary>
+        private bool FloorAllAlong(Vector3 high, Vector3 low)
+        {
+            for (int i = 0; i <= 10; i++)
+            {
+                Vector3 p = Vector3.Lerp(high, low, i / 10f);
+                if (!Physics.Raycast(new Vector3(p.x, high.y + 1f, p.z), Vector3.down, out RaycastHit hit,
+                        high.y - low.y + 2.5f, groundMask, QueryTriggerInteraction.Ignore) ||
+                    hit.point.y < low.y - 0.6f)
+                    return false;
+            }
+            return true;
+        }
+
+        private static float PathLength(NavMeshPath path)
+        {
+            float length = 0f;
+            for (int i = 1; i < path.corners.Length; i++)
+                length += Vector3.Distance(path.corners[i - 1], path.corners[i]);
+            return length;
         }
         #endregion
 
@@ -1840,15 +2080,13 @@ namespace LethalAccess
                 ladderStep = ladder != null || (!down && Probe.IsClimbLink(nodeGround));
                 if (ladder == null && ladderStep)
                 {
-                    // A link only enemies can climb, on a path that had no other way: cross it the
-                    // way the old agent did instead of jumping at a wall until the stuck check
-                    // gives up.
-                    // Only from the ground: a player falling past a link is not at its foot, and
-                    // the path is replanned from wherever they land.
+                    // A link only enemies can climb, on a path that had no other way. A player
+                    // cannot get up there, so say so rather than jump at the wall until the stuck
+                    // check gives up.
                     if (toNode.magnitude < 3f && playerController.thisController.isGrounded)
                     {
-                        playerController.TeleportPlayer(nodeGround);
-                        ResetStuckTracking();
+                        StopPathfinding(playSound: false);
+                        Utilities.SpeakText("Too high to climb here. Pathfinding stopped.");
                         return;
                     }
                 }
@@ -1918,7 +2156,11 @@ namespace LethalAccess
             if (probeNow != null)
             {
                 bool dropAhead = currentTargetNode.position.y - NODE_GROUND_OFFSET < transform.position.y - 1f;
-                ObstacleProbe.Result ahead = probeNow.Assess(pathDirection, ProbeDistance(), dropAhead);
+                // No further than just past the point being steered at: when that is a corner,
+                // looking on past it finds the wall the path turns away from, and a sidestep
+                // starts for nothing.
+                float probeDistance = Mathf.Min(ProbeDistance(), Mathf.Max(toNode.magnitude + 0.4f, PROBE_BASE_DISTANCE));
+                ObstacleProbe.Result ahead = probeNow.Assess(pathDirection, probeDistance, dropAhead);
                 switch (ahead.kind)
                 {
                     case ObstacleProbe.Kind.Jumpable:
@@ -1941,10 +2183,12 @@ namespace LethalAccess
 
                     case ObstacleProbe.Kind.Crouch:
                         clear = false;
-                        if (!playerController.isCrouching)
+                        // About to take a ladder: grabbing it stands the player up anyway.
+                        if (!playerController.isCrouching && !ladderStep && !LadderJustAhead())
                         {
                             playerController.Crouch(true);
                             autoCrouched = playerController.isCrouching;
+                            autoCrouchTime = Time.time;
                         }
                         // A crawl space barely wider than the player: line up on it first,
                         // mostly sideways, slowing in as the gap closes.
@@ -1957,6 +2201,12 @@ namespace LethalAccess
                         break;
 
                     case ObstacleProbe.Kind.Wall:
+                        // The steering point was chosen as a straight line a body wider than the
+                        // player fits along; a "wall" the probe reports on that line is a railing
+                        // end or corner brushed in passing, and sidestepping it is what turned the
+                        // player back and forth at corridor mouths.
+                        if (!ladderStep && toNode.magnitude > 0.6f && BodyLineClear(transform.position + toNode + Vector3.up * NODE_GROUND_OFFSET))
+                            break;
                         clear = false;
                         if (ahead.aroundDirection != Vector3.zero)
                         {
@@ -1970,20 +2220,52 @@ namespace LethalAccess
                 // the space overhead itself and does nothing if the player would not fit.
                 // Clear well ahead too: the short probe passes the mouth of a crawl space, and
                 // standing there walks the head into its edge.
-                if (ahead.kind == ObstacleProbe.Kind.Clear && autoCrouched && playerController.isCrouching &&
+                // Only once it has stayed clear a moment, and not straight after crouching: at
+                // the edge of something low the probe can flip each frame, and standing on the
+                // first clear frame bobbed the player up and down.
+                bool roomToStand = ahead.kind == ObstacleProbe.Kind.Clear && autoCrouched && playerController.isCrouching &&
                     probeNow.Assess(pathDirection, STAND_UP_LOOKAHEAD).kind == ObstacleProbe.Kind.Clear &&
-                    probeNow.RoomToStand(pathDirection, STAND_UP_LOOKAHEAD))
+                    probeNow.RoomToStand(pathDirection, STAND_UP_LOOKAHEAD);
+                if (!roomToStand)
+                {
+                    standClearSince = -1f;
+                }
+                else if (standClearSince < 0f)
+                {
+                    standClearSince = Time.time;
+                }
+                if (roomToStand && Time.time - standClearSince >= AUTO_STAND_CLEAR_TIME &&
+                    Time.time - autoCrouchTime >= AUTO_MIN_CROUCH_TIME)
                 {
                     playerController.Crouch(false);
                     autoCrouched = playerController.isCrouching;
+                    standClearSince = -1f;
                 }
 
                 // Keep sidestepping briefly after the probe clears, or the player turns back into
                 // the corner it just got past.
                 if (Time.time < aroundUntil && aroundDirection != Vector3.zero)
                 {
-                    moveDirection = aroundDirection;
-                    clear = false;
+                    if (ahead.kind == ObstacleProbe.Kind.Clear)
+                    {
+                        // Past it already: ease back onto the path instead of a pure sidestep,
+                        // which walks sideways into whatever is beside the obstacle. Drop the
+                        // sidestep if that way is now blocked.
+                        if (probeNow.Assess(aroundDirection, 0.5f).kind != ObstacleProbe.Kind.Clear)
+                        {
+                            aroundUntil = 0f;
+                        }
+                        else
+                        {
+                            moveDirection = (aroundDirection + pathDirection).normalized;
+                            clear = false;
+                        }
+                    }
+                    else
+                    {
+                        moveDirection = aroundDirection;
+                        clear = false;
+                    }
                 }
             }
 
@@ -2093,9 +2375,7 @@ namespace LethalAccess
                 if (!NavMesh.SamplePosition(ground, out to, 1f, NavMesh.AllAreas) ||
                     NavMesh.Raycast(from.position, to.position, out edge, NavMesh.AllAreas))
                     return false;
-                Vector3 toPoint = new Vector3(point.x, chest.y, point.z) - chest;
-                if (toPoint.sqrMagnitude > 0.0001f &&
-                    Physics.SphereCast(chest, 0.35f, toPoint.normalized, out _, toPoint.magnitude, groundMask, QueryTriggerInteraction.Ignore))
+                if (!BodyLineClear(point))
                     return false;
                 if (FirstQuicksandCrossed(new[] { feet, ground }, out _))
                     return false;
@@ -2146,8 +2426,72 @@ namespace LethalAccess
                 travelled += step;
                 previous = next;
             }
+
+            // Overshot a corner at a run: the node itself is round it, behind the wall. Head
+            // for the furthest point back along the path into that node that is in clear view,
+            // which brings the player back onto the path's line instead of into the wall.
+            if (aim == currentTargetNode.position && currentTargetNode.index > 0 && !BodyLineClear(aim))
+            {
+                Vector3 back = pathNodes[currentTargetNode.index - 1].position;
+                foreach (float f in new[] { 0.75f, 0.5f, 0.25f, 0f })
+                {
+                    Vector3 candidate = Vector3.Lerp(back, aim, f);
+                    // Only back onto the line, never back the way the player came.
+                    Vector3 toCandidate = candidate - feet;
+                    Vector3 toNodeFlat = aim - feet;
+                    toCandidate.y = 0f;
+                    toNodeFlat.y = 0f;
+                    if (HorizontalDistance(feet, candidate) > 0.5f && Vector3.Dot(toCandidate, toNodeFlat) > 0f && BodyLineClear(candidate))
+                    {
+                        aim = candidate;
+                        break;
+                    }
+                }
+            }
+
+            // Sticky: on uneven ground the straight-walk test flickers frame to frame, and an
+            // aim jumping between a near and a far point turned the body back and forth. Keep
+            // the previous aim while it is still ahead, still walkable and further on than the
+            // new one; the new one wins once the old one fails or is passed.
+            if (lastAimNode == currentTargetNode && lastAimValid)
+            {
+                float newDistance = HorizontalDistance(feet, aim);
+                float oldDistance = HorizontalDistance(feet, lastAim);
+                if (oldDistance > newDistance + 0.5f && oldDistance > 1f && Walkable(lastAim))
+                    aim = lastAim;
+            }
+            lastAim = aim;
+            lastAimValid = true;
+            lastAimNode = currentTargetNode;
             return aim;
         }
+
+        /// <summary>
+        /// A body a little wider than the player's (radius 0.4) fits along the straight line from
+        /// the feet to point, at knee and chest height: a line that only just clears a corner has
+        /// the player clip it at a run.
+        /// </summary>
+        private bool BodyLineClear(Vector3 point)
+        {
+            // Parallel to the ground between the two (up a flight of stairs, over a hill), so
+            // the slope itself is never in the way.
+            Vector3 feet = transform.position;
+            Vector3 end = point - Vector3.up * NODE_GROUND_OFFSET;
+            Vector3 toPoint = end - feet;
+            if (new Vector2(toPoint.x, toPoint.z).sqrMagnitude < 0.0001f)
+                return true;
+            foreach (float h in new[] { 0.8f, 1.5f })
+            {
+                Vector3 castFrom = feet + Vector3.up * h;
+                if (Physics.SphereCast(castFrom, 0.42f, toPoint.normalized, out _, toPoint.magnitude, groundMask, QueryTriggerInteraction.Ignore))
+                    return false;
+            }
+            return true;
+        }
+
+        private Vector3 lastAim;
+        private bool lastAimValid;
+        private PathNode lastAimNode;
 
         /// <summary>The ladder the path uses for the step to target, up or down, if there is one.
         /// Down counts only for a drop of more than LADDER_DESCENT_MIN_DROP with no slope joining it.</summary>
@@ -2200,11 +2544,37 @@ namespace LethalAccess
             }
 
             bool pushing = currentMode == PathfindingMode.Auto || Mathf.Abs(playerController.moveInputVector.y) > 0.2f;
-            if (pushing && Time.time - ladderStallTime > 0.5f)
+            // Only standing on the ground at the foot of it: letting go part way up is a fall.
+            bool onGround = Physics.Raycast(transform.position + Vector3.up * 0.2f, Vector3.down, 0.7f, groundMask, QueryTriggerInteraction.Ignore);
+            if (pushing && onGround && Time.time - ladderStallTime > 0.5f)
             {
                 activeLadder.Interact(transform);
                 activeLadder = null;
             }
+        }
+
+        /// <summary>The foot of a ladder the path climbs is within a couple of metres.</summary>
+        private bool LadderJustAhead()
+        {
+            bool climbAhead = false;
+            foreach (PathNode node in pathNodes)
+            {
+                if (!node.isReached && HorizontalDistance(node.position, transform.position) < 4f &&
+                    node.position.y - NODE_GROUND_OFFSET > transform.position.y + 1.5f)
+                {
+                    climbAhead = true;
+                    break;
+                }
+            }
+            if (!climbAhead)
+                return false;
+            foreach (var ladder in GetLadders())
+            {
+                if (ladder != null && HorizontalDistance(ladder.ladderHorizontalPosition.position, transform.position) < 3f &&
+                    Mathf.Abs(ladder.bottomOfLadderPosition.position.y - transform.position.y) < 1.5f)
+                    return true;
+            }
+            return false;
         }
 
         private static Vector3 LadderMountPoint(InteractTrigger ladder, bool down)
@@ -2265,12 +2635,13 @@ namespace LethalAccess
                 lastReplanTime = -999f;
                 Replan(null);
             }
-            else if (stuckCount == 3 && currentTargetNode != null)
+            else if (stuckCount == 3)
             {
-                // Something neither the NavMesh nor the probe can get past (a ledge the mesh links
-                // over, a gap too tight for the capsule). Step past it the way the old agent warp
-                // did.
-                playerController.TeleportPlayer(currentTargetNode.position - Vector3.up * NODE_GROUND_OFFSET);
+                // Something neither the NavMesh nor the probe can get past: one more jump and
+                // the other side before giving up. Never a teleport.
+                Probe?.Jump();
+                aroundUntil = 0f;
+                Probe?.ResetSide(UnityEngine.Random.value < 0.5f ? -1 : 1);
             }
             else if (stuckCount >= 5)
             {
@@ -2456,12 +2827,62 @@ namespace LethalAccess
         }
         #endregion
 
+        #region Stance announcements
+        // "Crouched", "Standing", "Sprinting", "Walking" on each change, whoever caused it (the
+        // player or auto mode). A change has to hold this long first, so a one-frame flicker
+        // (sprint dropping for a frame at a corner) is not spoken.
+        private const float STANCE_SETTLE_TIME = 0.25f;
+        private bool stanceKnown;
+        private bool spokenCrouching;
+        private bool spokenSprinting;
+        private float stanceChangedAt;
+
+        private void UpdateStanceAnnouncements()
+        {
+            if (playerController == null || playerController.isPlayerDead || !playerController.isPlayerControlled)
+            {
+                stanceKnown = false;
+                return;
+            }
+            bool crouching = playerController.isCrouching;
+            bool sprinting = playerController.isSprinting && !crouching;
+            if (!stanceKnown)
+            {
+                stanceKnown = true;
+                spokenCrouching = crouching;
+                spokenSprinting = sprinting;
+                return;
+            }
+            if (crouching == spokenCrouching && sprinting == spokenSprinting)
+            {
+                stanceChangedAt = Time.time;
+                return;
+            }
+            if (Time.time - stanceChangedAt < STANCE_SETTLE_TIME)
+                return;
+
+            // Crouching ends a sprint by itself; say the crouch, not "Walking" as well.
+            if (crouching != spokenCrouching)
+            {
+                Utilities.SpeakText(crouching ? "Crouched" : "Standing");
+            }
+            else
+            {
+                Utilities.SpeakText(sprinting ? "Sprinting" : "Walking");
+            }
+            spokenCrouching = crouching;
+            spokenSprinting = sprinting;
+            stanceChangedAt = Time.time;
+        }
+        #endregion
+
         #region Update and Cleanup
         private void Update()
         {
             try
             {
                 UpdateCrouchStepOffset();
+                UpdateStanceAnnouncements();
 
                 if (!isPathfinding)
                     return;
@@ -2493,9 +2914,10 @@ namespace LethalAccess
                 if (currentMode == PathfindingMode.Manual)
                 {
                     UpdateManualAudio();
+                    // Crawl first: a crawl space's own cue replaces the plain crouch cue.
+                    UpdateManualCrawl();
                     UpdateManualObstacleCues();
                     UpdateManualGap();
-                    UpdateManualCrawl();
                 }
                 else
                 {
