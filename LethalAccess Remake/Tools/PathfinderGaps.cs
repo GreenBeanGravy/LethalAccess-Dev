@@ -847,8 +847,23 @@ namespace LethalAccess
             return rel - chord * Vector3.Dot(rel, chord);
         }
 
-        /// <summary>The start of the run-up: as far back from the takeoff as the plan needs.</summary>
-        private Vector3 RunUpStart() => plan.takeoff - plan.direction * plan.runUp;
+        /// <summary>
+        /// The start of the run-up: as far back from the takeoff as the plan needs, and after a
+        /// run that came in short of speed, further back, where there is floor (a 2.2 m run-up on
+        /// Experimentation's girders fell 0.5 m/s short four times running and gave up).
+        /// </summary>
+        private Vector3 RunUpStart()
+        {
+            Vector3 start = plan.takeoff - plan.direction * plan.runUp;
+            for (int extra = Mathf.Min(gapAttempts, 3); extra > 0; extra--)
+            {
+                Vector3 further = start - plan.direction * (0.7f * extra);
+                if (GroundAt(further, plan.takeoff.y, out float y) && Mathf.Abs(y - plan.takeoff.y) < 0.3f &&
+                    GroundAt(Vector3.Lerp(start, further, 0.5f), plan.takeoff.y, out float mid) && Mathf.Abs(mid - plan.takeoff.y) < 0.3f)
+                    return further;
+            }
+            return start;
+        }
 
         private void StartGapJump()
         {

@@ -41,6 +41,7 @@ namespace LethalAccess
         // a crawl space at all), so it isn't picked straight up again.
         private float crawlBestAlong;
         private float crawlProgressTime;
+        private float crawlBestLateral;
         private Vector3 crawlRejectedEntry;
         private float crawlRejectedUntil = -999f;
         private const float CRAWL_STALL_TIME = 2.5f;
@@ -84,6 +85,7 @@ namespace LethalAccess
         {
             crawl = new CrawlSpace { active = true, entry = entry, exit = exit };
             crawlBestAlong = float.MinValue;
+            crawlBestLateral = float.MaxValue;
             crawlProgressTime = Time.time;
         }
 
@@ -304,13 +306,16 @@ namespace LethalAccess
 
             // Getting nowhere along the line (something in the way under there, or no crawl
             // space at all): give it up, and the path and stuck handling take over again.
-            if (along > crawlBestAlong + 0.15f)
+            // Lining up counts as progress too, but not for ever: on Embrion a line-up pushing
+            // sideways into a wall held auto mode at the mouth for two minutes.
+            bool crouchedDown = playerController.thisController.height <= CRAWL_CROUCHED_HEIGHT;
+            if (along > crawlBestAlong + 0.15f || lateral.magnitude < crawlBestLateral - 0.1f)
             {
-                crawlBestAlong = along;
+                crawlBestAlong = Mathf.Max(crawlBestAlong, along);
+                crawlBestLateral = Mathf.Min(crawlBestLateral, lateral.magnitude);
                 crawlProgressTime = Time.time;
             }
-            else if (Time.time - crawlProgressTime > CRAWL_STALL_TIME &&
-                     playerController.thisController.height <= CRAWL_CROUCHED_HEIGHT)
+            else if (Time.time - crawlProgressTime > (crouchedDown ? CRAWL_STALL_TIME : CRAWL_STALL_TIME * 2f))
             {
                 Debug.Log($"Pathfinder: crawl given up at {along:F2} of {length:F2}");
                 crawl.active = false;

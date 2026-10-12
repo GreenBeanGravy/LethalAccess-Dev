@@ -920,7 +920,9 @@ namespace LethalAccess
         private void RememberBlockedSpot(Vector3 heading)
         {
             heading.y = 0f;
-            RememberBlockedSpot(transform.position + (heading.sqrMagnitude > 0.0001f ? heading.normalized * 0.6f : Vector3.zero), 1.2f);
+            // 1.2 m ahead: 0.6 m put the spot so close that every way round, whichever way it
+            // set off, passed within its 0.8 m and was refused (Artifice's hillside).
+            RememberBlockedSpot(transform.position + (heading.sqrMagnitude > 0.0001f ? heading.normalized * 1.2f : Vector3.zero), 1.2f);
         }
 
         private void RememberBlockedSpot(Vector3 spot, float size)
@@ -993,6 +995,16 @@ namespace LethalAccess
                     // the last floor found also counts, for a face too steep to give a floor.
                     float rise = havePrevious ? q.y - previous.y : 0f;
                     float run = havePrevious ? HorizontalDistance(q, previous) : 0f;
+                    // A jump of metres in one sample is the floor found switching surfaces, not a
+                    // slope: under a staircase (Adamance) the line between its corners finds the
+                    // ground below, then the stairs above it.
+                    if (rise > run * 3.7f + 0.5f)
+                    {
+                        previous = q;
+                        steepRise = 0f;
+                        steepLength = 0f;
+                        continue;
+                    }
                     bool steep = rise > 0.05f &&
                                  ((run > 0.01f && rise > run * steepTan) ||
                                   (Physics.Raycast(q + Vector3.up * 1.5f, Vector3.down, out RaycastHit ground, 3f, groundMask, QueryTriggerInteraction.Ignore) &&
@@ -2084,16 +2096,16 @@ namespace LethalAccess
                 }
             }
 
-            // Standing on something right over a node (a table jumped onto in the mansion): too
-            // high to count as there, and nothing to steer toward either. Count it, and the next
-            // node leads off whatever this is.
+            // Standing on something right over a node (a table jumped onto in the mansion, a rock
+            // 5 m up on Offense): too high to count as there, and nothing to steer toward either.
+            // Count it, and the next node leads off whatever this is. Up to a drop that is safe.
             for (int i = 0; i < pathNodes.Count - 1; i++)
             {
                 PathNode node = pathNodes[i];
                 if (node.isReached)
                     continue;
                 float above = transform.position.y - (node.position.y - NODE_GROUND_OFFSET);
-                if (playerController.thisController.isGrounded && above > NODE_REACH_HEIGHT && above < 3f &&
+                if (playerController.thisController.isGrounded && above > NODE_REACH_HEIGHT && above < 8f &&
                     HorizontalDistance(transform.position, node.position) < NODE_CLOSE_RADIUS)
                 {
                     MarkReachedThrough(node, announce: false);
@@ -2482,14 +2494,16 @@ namespace LethalAccess
 
             // The same cue again in the same place has not worked: say something else, and in
             // the end look for another way.
-            if (HorizontalDistance(transform.position, blockedCuePosition) > 1f)
+            // Counted from where the trouble started: stepping left and right as told moves the
+            // player a metre or two each time, and on Artifice that reset the count for ever.
+            if (blockedCueCount == 0 || HorizontalDistance(transform.position, blockedCuePosition) > 2.5f)
             {
                 blockedCueCount = 0;
                 lastBlockedCue = null;
+                blockedCuePosition = transform.position;
             }
-            blockedCuePosition = transform.position;
             blockedCueCount++;
-            if (blockedCueCount >= 4)
+            if (blockedCueCount >= 3)
             {
                 blockedCueCount = 0;
                 lastBlockedCue = null;
@@ -2501,6 +2515,10 @@ namespace LethalAccess
             string cue = DescribeBlocked(manualProbe);
             if (cue == lastBlockedCue && cue == "Jump")
                 cue = "Blocked, back up";
+            // The probe's free side can swap from one cue to the next at the same spot; "left,
+            // right, left" walks the player back and forth. Keep the side already given.
+            else if (cue != null && cue.StartsWith("Blocked, step ") && lastBlockedCue != null && lastBlockedCue.StartsWith("Blocked, step "))
+                cue = lastBlockedCue;
             lastBlockedCue = cue;
             Utilities.SpeakText(cue);
         }
@@ -3362,11 +3380,14 @@ namespace LethalAccess
             // Within a jump, but with a ladder right there (the short one up the back of the
             // ship, 2.1 m): climb it. Jumping that close under the deck's edge mostly fails.
             float rise = target.y - transform.position.y;
-            if (rise > playerController.thisController.stepOffset + 0.3f && probeNow.IsDisconnected(target))
+            // Standing at its foot counts too: on Rend the snow piles up to the ship's rim, the
+            // mesh joins the two over the railing, and "is there a walk" said yes.
+            if (rise > playerController.thisController.stepOffset + 0.3f)
             {
                 InteractTrigger ladder = FindLadderTo(target);
                 if (ladder != null && HorizontalDistance(ladder.topOfLadderPosition.position, target) < 2f &&
-                    Mathf.Abs(ladder.topOfLadderPosition.position.y - target.y) < 1.2f)
+                    Mathf.Abs(ladder.topOfLadderPosition.position.y - target.y) < 1.2f &&
+                    (HorizontalDistance(ladder.bottomOfLadderPosition.position, transform.position) < 1.5f || probeNow.IsDisconnected(target)))
                     return ladder;
             }
             return null;
@@ -3566,6 +3587,10 @@ namespace LethalAccess
                 return;
             float rise = hit.point.y - transform.position.y;
             if (rise < controller.stepOffset || rise > Probe.MaxJumpHeight)
+                return;
+            // Only where the path climbs: on Offense a downhill path met a rock beside it, and the
+            // jump put the player on top of the rock, 5 m over the path.
+            if (currentTargetNode == null || currentTargetNode.position.y - NODE_GROUND_OFFSET < transform.position.y + controller.stepOffset)
                 return;
             lastSlopeJumpTime = Time.time;
             slopeStallSince = -1f;
