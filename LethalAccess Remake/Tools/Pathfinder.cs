@@ -164,6 +164,7 @@ namespace LethalAccess
         private bool autoCrouched;
         private object stuckNode;
         private Vector3 stuckNodePosition;
+        private int stuckIdleChecks;
         private float stuckBestDistance;
         private float nextJumpTime;
         private Vector3 aroundDirection;
@@ -608,12 +609,39 @@ namespace LethalAccess
         /// Synchronous: a few hundred NavMesh samples and a raycast per node is well under a
         /// millisecond-scale cost, so there is no "generating path" wait.
         /// </summary>
+        private static readonly float[] StartSearchDistances = { 0.75f, 1.5f, 2.25f, 3f, 4f };
+
+        /// <summary>
+        /// The NavMesh point nearest the player on the floor they stand on. Nearest in 3D can be
+        /// the ground under the platform they are on: the walkway in front of Experimentation's
+        /// main entrance is off the mesh right at the door, and the ground 2.6 m below it is
+        /// nearer than the mesh 3 m along the walkway.
+        /// </summary>
+        private bool SampleStartOnOwnFloor(out NavMeshHit hit)
+        {
+            Vector3 feet = transform.position;
+            if (NavMesh.SamplePosition(feet, out hit, 0.75f, NavMesh.AllAreas) && Mathf.Abs(hit.position.y - feet.y) < 1f)
+                return true;
+            foreach (float distance in StartSearchDistances)
+            {
+                for (int k = 0; k < 12; k++)
+                {
+                    Vector3 probe = feet + Quaternion.Euler(0f, k * 30f, 0f) * Vector3.forward * distance;
+                    if (NavMesh.SamplePosition(probe, out hit, 0.6f, NavMesh.AllAreas) && Mathf.Abs(hit.position.y - feet.y) < 1f &&
+                        !Physics.Linecast(feet + Vector3.up * 0.6f, hit.position + Vector3.up * 0.6f, groundMask, QueryTriggerInteraction.Ignore))
+                        return true;
+                }
+            }
+            return false;
+        }
+
         private bool BuildPath()
         {
             EnsureLadderLinks();
             EnsureJumpLinks();
             NavMeshHit startHit;
-            if (!NavMesh.SamplePosition(transform.position, out startHit, 5f, NavMesh.AllAreas))
+            if (!SampleStartOnOwnFloor(out startHit) &&
+                !NavMesh.SamplePosition(transform.position, out startHit, 5f, NavMesh.AllAreas))
             {
                 Debug.LogWarning("Pathfinder: no NavMesh near the player");
                 return false;
@@ -1092,6 +1120,7 @@ namespace LethalAccess
                 if (Mathf.Abs(positions[i].y - positions[i - 1].y) > 1f || Mathf.Abs(positions[i + 1].y - positions[i].y) > 1f)
                     continue;
                 positions[i] = KeepBodyClear(positions[i], positions[i - 1], positions[i + 1]);
+                positions[i] = KeepHeadClear(positions[i], positions[i - 1], positions[i + 1]);
             }
             WidenClippedLegs(positions);
             SmoothJogs(positions);
@@ -1279,7 +1308,35 @@ namespace LethalAccess
             return false;
         }
 
-        private const float HEAD_SWEEP_HEIGHT = 2.1f;
+        private static readonly float[] HeadMoveRadii = { 0.35f, 0.6f, 0.85f, 1.1f };
+
+        /// <summary>
+        /// A node under something a standing player hits their head on (the flared top of a
+        /// silo) moves out from under it, when there is a spot nearby walkable at full height
+        /// from both neighbours. Under a real crawl space there is none, and the node stays.
+        /// </summary>
+        private Vector3 KeepHeadClear(Vector3 point, Vector3 previous, Vector3 next)
+        {
+            if (HeadRoomAt(point) || !HeadRoomAt(previous) || !HeadRoomAt(next))
+                return point;
+            foreach (float radius in HeadMoveRadii)
+            {
+                for (int k = 0; k < 12; k++)
+                {
+                    Vector3 offset = Quaternion.Euler(0f, k * 30f, 0f) * Vector3.forward * radius;
+                    NavMeshHit hit;
+                    if (!NavMesh.SamplePosition(point - Vector3.up * NODE_GROUND_OFFSET + offset, out hit, 0.4f, NavMesh.AllAreas))
+                        continue;
+                    Vector3 candidate = SnapToGround(hit.position);
+                    if (Mathf.Abs(candidate.y - point.y) < 0.6f && HeadRoomAt(candidate) && !BodyOverlaps(candidate) &&
+                        LegWalkable(previous, candidate) && LegWalkable(candidate, next))
+                        return candidate;
+                }
+            }
+            return point;
+        }
+
+        private const float HEAD_SWEEP_HEIGHT = 2.2f;
         private const float HEAD_SWEEP_RADIUS = 0.35f;
 
         /// <summary>Room for a standing player's head at node point.</summary>
@@ -1666,6 +1723,23 @@ namespace LethalAccess
                     MarkReachedThrough(node, announce: currentMode == PathfindingMode.Manual);
                     break;
                 }
+            }
+
+            // Standing on something right over a node (a table jumped onto in the mansion): too
+            // high to count as there, and nothing to steer toward either. Count it, and the next
+            // node leads off whatever this is.
+            for (int i = 0; i < pathNodes.Count - 1; i++)
+            {
+                PathNode node = pathNodes[i];
+                if (node.isReached)
+                    continue;
+                float above = transform.position.y - (node.position.y - NODE_GROUND_OFFSET);
+                if (playerController.thisController.isGrounded && above > NODE_REACH_HEIGHT && above < 3f &&
+                    HorizontalDistance(transform.position, node.position) < NODE_CLOSE_RADIUS)
+                {
+                    MarkReachedThrough(node, announce: false);
+                }
+                break;
             }
 
             // Auto mode steers past nodes toward one further on, so a node it went by without
@@ -2943,6 +3017,7 @@ namespace LethalAccess
             stuckCheckPosition = transform.position;
             stuckCheckTime = Time.time;
             stuckCount = 0;
+            stuckIdleChecks = 0;
             stuckNode = null;
         }
 
@@ -2977,8 +3052,18 @@ namespace LethalAccess
             stuckCheckPosition = transform.position;
             stuckCheckTime = Time.time;
 
-            if (!tryingToMove || progressed)
+            // Standing still with nothing to wait for (the waits at doors, ladders and crawl
+            // spaces reset this every frame) is stuck too, only quieter.
+            if (!tryingToMove && !progressed && !playerController.isClimbingLadder)
             {
+                stuckIdleChecks++;
+                if (stuckIdleChecks < 3)
+                    return;
+                stuckIdleChecks = 0;
+            }
+            else if (!tryingToMove || progressed)
+            {
+                stuckIdleChecks = 0;
                 stuckCount = 0;
                 return;
             }
