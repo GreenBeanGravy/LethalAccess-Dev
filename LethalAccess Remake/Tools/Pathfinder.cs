@@ -2860,7 +2860,11 @@ namespace LethalAccess
             // Overshot a corner at a run: the node itself is round it, behind the wall. Head
             // for the furthest point back along the path into that node that is in clear view,
             // which brings the player back onto the path's line instead of into the wall.
-            if (aim == currentTargetNode.position && currentTargetNode.index > 0 && !BodyLineClear(aim))
+            // Not into a node up or down a jump (the back of the ship where it sits on a slope):
+            // the line there is blocked by the ledge itself, which the probe jumps, and pulling
+            // back along it swung the player between the two for seconds.
+            if (aim == currentTargetNode.position && currentTargetNode.index > 0 && !BodyLineClear(aim) &&
+                Mathf.Abs(aim.y - pathNodes[currentTargetNode.index - 1].position.y) <= playerController.thisController.stepOffset + 0.1f)
             {
                 Vector3 back = pathNodes[currentTargetNode.index - 1].position;
                 foreach (float f in OvershootFractions)
@@ -2937,7 +2941,20 @@ namespace LethalAccess
                 down = true;
                 return probeNow.IsDisconnected(target) ? FindLadderTo(target) : null;
             }
-            return probeNow.IsClimbLink(target) ? FindLadderTo(target) : null;
+            if (probeNow.IsClimbLink(target))
+                return FindLadderTo(target);
+
+            // Within a jump, but with a ladder right there (the short one up the back of the
+            // ship, 2.1 m): climb it. Jumping that close under the deck's edge mostly fails.
+            float rise = target.y - transform.position.y;
+            if (rise > playerController.thisController.stepOffset + 0.3f && probeNow.IsDisconnected(target))
+            {
+                InteractTrigger ladder = FindLadderTo(target);
+                if (ladder != null && HorizontalDistance(ladder.topOfLadderPosition.position, target) < 2f &&
+                    Mathf.Abs(ladder.topOfLadderPosition.position.y - target.y) < 1.2f)
+                    return ladder;
+            }
+            return null;
         }
 
         private void StartedLadder(InteractTrigger ladder)

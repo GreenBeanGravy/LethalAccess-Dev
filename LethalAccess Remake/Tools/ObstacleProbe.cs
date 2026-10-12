@@ -588,8 +588,9 @@ namespace LethalAccess
             // Not NavMesh.Raycast: it is broken by any turn (a switchback staircase) and passes
             // straight up between two levels the mesh overlaps (the ship's side ladder). A short
             // walk, leaving out the Jump, Climb and ladder link areas that are the actual
-            // off-mesh steps, says whether the two are really joined.
-            int walkMask = UnityEngine.AI.NavMesh.AllAreas & ~((1 << 2) | (1 << 7) | (1 << Pathfinder.LADDER_LINK_AREA) | (1 << Pathfinder.PLAYER_JUMP_LINK_AREA));
+            // off-mesh steps, says whether the two are really joined. Area 4 is unnamed and holds
+            // the ship's own climb links (ShipLadder up the back, the side panels).
+            int walkMask = UnityEngine.AI.NavMesh.AllAreas & ~((1 << 2) | (1 << 4) | (1 << 7) | (1 << Pathfinder.LADDER_LINK_AREA) | (1 << Pathfinder.PLAYER_JUMP_LINK_AREA));
             UnityEngine.AI.NavMeshPath walk = new UnityEngine.AI.NavMeshPath();
             if (!UnityEngine.AI.NavMesh.CalculatePath(from.position, to.position, walkMask, walk) ||
                 walk.status != UnityEngine.AI.NavMeshPathStatus.PathComplete)
