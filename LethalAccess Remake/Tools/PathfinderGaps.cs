@@ -268,13 +268,28 @@ namespace LethalAccess
             int count = Physics.RaycastNonAlloc(new Vector3(point.x, refY + 2.3f, point.z), Vector3.down, groundHitCache,
                 2.3f + GAP_HOLE_DEPTH, groundMask, QueryTriggerInteraction.Ignore);
             float best = float.MaxValue;
+            float level = float.MaxValue;
+            float levelY = 0f;
             for (int i = 0; i < count; i++)
             {
-                if (!IsFloorHit(groundHitCache[i]) || groundHitCache[i].distance >= best)
+                if (!IsFloorHit(groundHitCache[i]))
                     continue;
-                best = groundHitCache[i].distance;
-                groundY = groundHitCache[i].point.y;
+                float y = groundHitCache[i].point.y;
+                // A floor at the path's own height wins over anything above it: under the edge
+                // of a raised platform (Vow's pipe rooms) its top, 2.3 m up, is the first hit.
+                if (Mathf.Abs(y - refY) < 0.6f && Mathf.Abs(y - refY) < level)
+                {
+                    level = Mathf.Abs(y - refY);
+                    levelY = y;
+                }
+                if (groundHitCache[i].distance < best)
+                {
+                    best = groundHitCache[i].distance;
+                    groundY = y;
+                }
             }
+            if (level < float.MaxValue)
+                groundY = levelY;
             return best < float.MaxValue;
         }
 
@@ -1407,6 +1422,8 @@ namespace LethalAccess
         }
 
         private float lastLedgeCueTime = -999f;
+        private Vector3 lastLedgeCuePosition;
+        private int ledgeCueCount;
 
         /// <summary>
         /// Manual ledge guard: removes the part of the move that walks off a drop deeper than a
@@ -1456,7 +1473,23 @@ namespace LethalAccess
             if (straightAhead && Time.time - lastLedgeCueTime > 3f)
             {
                 lastLedgeCueTime = Time.time;
-                Utilities.SpeakText("Ledge");
+                // Held at the same edge while the path leads over it: the path is wrong, not the
+                // player. Cut the edge out and plan again rather than say "Ledge" for ever.
+                if (HorizontalDistance(transform.position, lastLedgeCuePosition) < 1f)
+                    ledgeCueCount++;
+                else
+                    ledgeCueCount = 1;
+                lastLedgeCuePosition = transform.position;
+                if (ledgeCueCount >= 3)
+                {
+                    ledgeCueCount = 0;
+                    RememberBlockedSpot(dir);
+                    Replan("Ledge. Finding another way.");
+                }
+                else
+                {
+                    Utilities.SpeakText("Ledge");
+                }
             }
             return changed;
         }

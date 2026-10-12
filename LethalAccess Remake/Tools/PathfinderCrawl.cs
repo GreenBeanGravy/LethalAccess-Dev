@@ -37,6 +37,13 @@ namespace LethalAccess
         private const float CRAWL_LINE_TOLERANCE = 0.06f;
 
         private CrawlSpace crawl;
+        // Progress along the crawl line, and a crawl space given up on (blocked inside, or not
+        // a crawl space at all), so it isn't picked straight up again.
+        private float crawlBestAlong;
+        private float crawlProgressTime;
+        private Vector3 crawlRejectedEntry;
+        private float crawlRejectedUntil = -999f;
+        private const float CRAWL_STALL_TIME = 2.5f;
         private OffMeshLink[] crawlLinks;
         private float crawlLinksTime = -999f;
         // Manual crawl aim assist (world space), set each frame by UpdateManualCrawl.
@@ -70,6 +77,16 @@ namespace LethalAccess
         /// NavMesh is baked for enemies, and passes under racks without a link). Keeps the
         /// current one otherwise.
         /// </summary>
+        private bool CrawlRejected(Vector3 entry) =>
+            Time.time < crawlRejectedUntil && HorizontalDistance(entry, crawlRejectedEntry) < 1.5f;
+
+        private void StartCrawl(Vector3 entry, Vector3 exit)
+        {
+            crawl = new CrawlSpace { active = true, entry = entry, exit = exit };
+            crawlBestAlong = float.MinValue;
+            crawlProgressTime = Time.time;
+        }
+
         private void UpdateCrawlDetection()
         {
             // A gap ahead is the gap code's to handle; the floor of the far side overhead is not
@@ -100,8 +117,10 @@ namespace LethalAccess
                     rel.y = 0f;
                     if (Vector3.Dot(rel, along.normalized) > along.magnitude)
                         continue;
+                    if (CrawlRejected(entry))
+                        continue;
 
-                    crawl = new CrawlSpace { active = true, entry = entry, exit = exit };
+                    StartCrawl(entry, exit);
                     return;
                 }
             }
@@ -109,9 +128,9 @@ namespace LethalAccess
             Vector3 toNode = currentTargetNode.position - transform.position;
             toNode.y = 0f;
             if (toNode.sqrMagnitude > 0.01f && FindCrawlLine(toNode.normalized, out Vector3 lineEntry, out Vector3 lineExit) &&
-                PathReaches(lineExit))
+                PathReaches(lineExit) && !CrawlRejected(lineEntry))
             {
-                crawl = new CrawlSpace { active = true, entry = lineEntry, exit = lineExit };
+                StartCrawl(lineEntry, lineExit);
             }
         }
 
@@ -190,7 +209,9 @@ namespace LethalAccess
         {
             CharacterController cc = playerController.thisController;
             float radius = cc.radius + cc.skinWidth * 0.5f;
-            int mask = StartOfRound.Instance.collidersAndRoomMaskAndDefault;
+            // Everything the player collides with: the room mask leaves out the Railing layer and
+            // layer 11, where Vow's pipe-room shelves are, and a line under one "fitted".
+            int mask = groundMask;
             for (float d = -length * 0.5f; d <= length * 0.5f + 0.001f; d += 0.15f)
             {
                 Vector3 p = centre + dir * d;
@@ -228,9 +249,9 @@ namespace LethalAccess
                    ceiling.collider.GetComponentInParent<AnimatedObjectTrigger>() == null;
         }
 
-        // A crawl space's ceiling: over the crouched player's 1.5 m, and clearly under the
+        // A crawl space's ceiling: over the crouched controller's 1.59 m, and clearly under the
         // standing 2.5 m.
-        private const float CRAWL_MIN_CEILING = 1.55f;
+        private const float CRAWL_MIN_CEILING = 1.62f;
         private const float CRAWL_MAX_CEILING = 2.2f;
 
         /// <summary>An unreached path node within a metre and a half of point.</summary>
@@ -278,6 +299,23 @@ namespace LethalAccess
             if (along < -CRAWL_ENGAGE_DISTANCE - 1f || lateral.magnitude > 1.5f)
             {
                 crawl.active = false;
+                return false;
+            }
+
+            // Getting nowhere along the line (something in the way under there, or no crawl
+            // space at all): give it up, and the path and stuck handling take over again.
+            if (along > crawlBestAlong + 0.15f)
+            {
+                crawlBestAlong = along;
+                crawlProgressTime = Time.time;
+            }
+            else if (Time.time - crawlProgressTime > CRAWL_STALL_TIME &&
+                     playerController.thisController.height <= CRAWL_CROUCHED_HEIGHT)
+            {
+                Debug.Log($"Pathfinder: crawl given up at {along:F2} of {length:F2}");
+                crawl.active = false;
+                crawlRejectedEntry = crawl.entry;
+                crawlRejectedUntil = Time.time + 15f;
                 return false;
             }
 
@@ -335,6 +373,22 @@ namespace LethalAccess
             if (along > length + 0.6f || along < -CRAWL_ENGAGE_DISTANCE - 1f || lateral.magnitude > 1.5f)
             {
                 crawl.active = false;
+                return;
+            }
+
+            // Crouched, pushing on, and getting nowhere along it: not a way through after all.
+            bool pushing = playerController.moveInputVector.sqrMagnitude > 0.04f;
+            if (along > crawlBestAlong + 0.15f || !pushing || !playerController.isCrouching)
+            {
+                crawlBestAlong = Mathf.Max(crawlBestAlong, along);
+                crawlProgressTime = Time.time;
+            }
+            else if (Time.time - crawlProgressTime > CRAWL_STALL_TIME)
+            {
+                Debug.Log($"Pathfinder: manual crawl given up at {along:F2} of {length:F2}");
+                crawl.active = false;
+                crawlRejectedEntry = crawl.entry;
+                crawlRejectedUntil = Time.time + 15f;
                 return;
             }
 

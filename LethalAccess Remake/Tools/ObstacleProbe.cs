@@ -234,7 +234,9 @@ namespace LethalAccess
             if (Mathf.Abs(hit.normal.y) < 0.3f && face.sqrMagnitude > 0.0001f && Vector3.Dot(face.normalized, direction) < 0.5f)
                 return result;
 
-            if (IsJumpable(direction, hit, lookahead, dropAhead))
+            // The underside of something overhead (the round belly of Experimentation's train car
+            // tank, met by the top of the capsule) is never jumped: jumping only hits it harder.
+            if (hit.normal.y > -0.3f && IsJumpable(direction, hit, lookahead, dropAhead))
             {
                 result.kind = Kind.Jumpable;
                 return result;
@@ -566,8 +568,9 @@ namespace LethalAccess
             if (player == null || Controller == null)
                 return false;
 
+            // The same reach IsJumpable allows: a jump plus the controller's step at the top.
             GetCapsule(0f, out _, out _, out _, out float feetY);
-            if (target.y - feetY <= MaxJumpHeight)
+            if (target.y - feetY <= MaxJumpHeight + Controller.stepOffset * 0.75f)
                 return false;
 
             return IsDisconnected(target);
@@ -587,12 +590,11 @@ namespace LethalAccess
 
             // Not NavMesh.Raycast: it is broken by any turn (a switchback staircase) and passes
             // straight up between two levels the mesh overlaps (the ship's side ladder). A short
-            // walk, leaving out the Jump, Climb and ladder link areas that are the actual
-            // off-mesh steps, says whether the two are really joined. Area 4 is unnamed and holds
-            // the ship's own climb links (ShipLadder up the back, the side panels).
-            int walkMask = UnityEngine.AI.NavMesh.AllAreas & ~((1 << 2) | (1 << 4) | (1 << 7) | (1 << Pathfinder.LADDER_LINK_AREA) | (1 << Pathfinder.PLAYER_JUMP_LINK_AREA));
+            // walk, leaving out the Jump, Climb, ship climb and ladder link areas that are the
+            // actual off-mesh steps, says whether the two are really joined.
+            int walkMask = UnityEngine.AI.NavMesh.AllAreas & ~((1 << 2) | (1 << 7) | (1 << Pathfinder.LADDER_LINK_AREA) | (1 << Pathfinder.PLAYER_JUMP_LINK_AREA));
             UnityEngine.AI.NavMeshPath walk = new UnityEngine.AI.NavMeshPath();
-            if (!UnityEngine.AI.NavMesh.CalculatePath(from.position, to.position, walkMask, walk) ||
+            if (!Pathfinder.CalculatePlayerPath(from.position, to.position, walkMask, walk) ||
                 walk.status != UnityEngine.AI.NavMeshPathStatus.PathComplete)
                 return true;
             float length = 0f;

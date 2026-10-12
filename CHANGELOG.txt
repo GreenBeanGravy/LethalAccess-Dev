@@ -2,13 +2,14 @@
 This is a big pathfinding update for Lethal Access! Pathfinding now moves you like a real player would, gets past obstacles, jumps gaps, crawls under server racks, and helps you do all of that yourself in manual mode. Read below:
 
 * Automatic pathfinding now walks and runs you the way the game does, with normal animations, footsteps, stamina and gravity. No more floating, and no more double speed when you also hold a movement key. Turn running off with Auto Pathfinding Sprint in the F10 menu.
-* Automatic pathfinding gets past obstacles on its own. It jumps over low walls and railings, crouches under low beams, steps around crates and corners, opens doors, and climbs ladders up and down.
+* Automatic pathfinding gets past obstacles on its own. It jumps over low walls and railings and up short steep rocks, crouches under low beams, steps around crates and corners, opens doors, and climbs ladders up and down.
 * Automatic pathfinding steers smoothly, cutting across open ground instead of turning at every point, and keeps the camera level while it walks.
 * Gaps, like the girder rooms in the factory, are now jumped for real instead of skipped over. Automatic pathfinding works out a jump that will land, takes a run-up, and jumps at the edge. If the run-up goes wrong, it stops and tries again instead of jumping short.
 * Manual pathfinding helps you jump gaps yourself. It tells you how wide the gap is and whether to walk or sprint, guides you to your run-up and onto the right line, and ticks faster as you near the edge, with a high tone when it's time to jump. A slightly early jump is held until the right moment, a jump that wouldn't make it is held back with the reason why, and holding forward in the air steers you to the landing.
 * Manual pathfinding tells you what's coming up, in a word or two: "Jump", "Crouch", "Stand up" once there's room again, which side a ladder is on, and which way to step when you're walking into something. It also stops you walking off the edge of a high drop and says "Ledge".
 * Stairs no longer set off false "Jump", "Crouch", "Ledge" or gap warnings, and pathfinding no longer says you've arrived from the floor above the target.
-* Getting on and off the ship works in both modes, using the ladder by the ship's door.
+* Getting on and off the ship works in both modes, using the ship's ladders. Pathfinding no longer tries to climb the side of the ship.
+* Pathfinding goes round places a player can't get through, like slopes too steep to walk up and gaps too low to crawl under, and if you get stuck somewhere it remembers the spot and finds another way.
 * Pathfinding crawls under server racks. Automatic mode lines up, crouches, crawls through and stands up on the other side. Manual mode says "Crouch, crawl space", keeps you lined up, and tells you when to stand up.
 * The game now says "Crouched", "Standing", "Sprinting" and "Walking" whenever that changes, including while automatic pathfinding moves you.
 * Looking at a door now reads its "Use door" prompt.
