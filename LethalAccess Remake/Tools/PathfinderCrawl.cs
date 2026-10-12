@@ -17,6 +17,7 @@ namespace LethalAccess
     /// </summary>
     internal partial class Pathfinder
     {
+        private static readonly float[] CrawlSearchAngles = { 0f, -10f, 10f, -20f, 20f };
         private struct CrawlSpace
         {
             public bool active;
@@ -116,6 +117,7 @@ namespace LethalAccess
 
         private float nextCrawlScan;
         private float lastCrawlCueTime = -999f;
+        private Vector3 lastCrawlCuePosition;
 
         /// <summary>
         /// A crawl line along the way ahead: where a ceiling too low to stand under begins and
@@ -145,7 +147,7 @@ namespace LethalAccess
                 return false;
 
             float bestCost = float.MaxValue;
-            foreach (float angle in new[] { 0f, -10f, 10f, -20f, 20f })
+            foreach (float angle in CrawlSearchAngles)
             {
                 Vector3 dir = Quaternion.AngleAxis(angle, Vector3.up) * pathDir;
                 Vector3 perp = Vector3.Cross(Vector3.up, dir);
@@ -340,9 +342,12 @@ namespace LethalAccess
             {
                 crawl.cued = true;
                 manualCrouchCued = true;
-                if (Time.time - lastCrawlCueTime > 4f)
+                // Once per crawl space: the crouch cue may have named this one already. The next
+                // rack along is a new one, however soon it comes.
+                if (Time.time - lastCrawlCueTime > 4f || HorizontalDistance(transform.position, lastCrawlCuePosition) > 2f)
                 {
                     lastCrawlCueTime = Time.time;
+                    lastCrawlCuePosition = transform.position;
                     Utilities.SpeakText(playerController.isCrouching ? "Crawl space" : "Crouch, crawl space");
                 }
             }

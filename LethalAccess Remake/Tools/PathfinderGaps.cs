@@ -23,6 +23,10 @@ namespace LethalAccess
     /// </summary>
     internal partial class Pathfinder
     {
+        private static readonly float[] GapSearchAngles = { 0f, -10f, 10f, -20f, 20f, -30f, 30f, -40f, 40f };
+        private static readonly float[] EdgeProbeAngles = { 0f, -45f, 45f };
+        private static readonly float[] GapFineAngles = { 0f, -6f, 6f, -12f, 12f };
+        private static readonly float[] GapTurnAngles = { 10f, -10f, 20f, -20f, 30f, -30f, 45f, -45f, 60f, -60f };
         private struct Gap
         {
             public Vector3 edge;       // last floor before the gap along the path, at floor height
@@ -379,7 +383,7 @@ namespace LethalAccess
             Vector3 perpAcross = Vector3.Cross(Vector3.up, across);
 
             var directions = new List<Vector3>();
-            foreach (float angle in new[] { 0f, -10f, 10f, -20f, 20f, -30f, 30f, -40f, 40f })
+            foreach (float angle in GapSearchAngles)
             {
                 directions.Add(Quaternion.AngleAxis(angle, Vector3.up) * across);
             }
@@ -398,7 +402,7 @@ namespace LethalAccess
             if (floorAxis != Vector3.zero && Vector3.Dot(floorAxis, across) > -0.1f)
             {
                 // And a little either way: the measured axis is only as fine as its 10° steps.
-                foreach (float angle in new[] { 0f, -6f, 6f, -12f, 12f })
+                foreach (float angle in GapFineAngles)
                     directions.Add(Quaternion.AngleAxis(angle, Vector3.up) * floorAxis);
             }
 
@@ -435,7 +439,7 @@ namespace LethalAccess
                 steers.Clear();
                 if (steering)
                 {
-                    foreach (float turn in new[] { 10f, -10f, 20f, -20f, 30f, -30f, 45f, -45f, 60f, -60f })
+                    foreach (float turn in GapTurnAngles)
                     {
                         Vector3 s = Quaternion.AngleAxis(turn, Vector3.up) * dir;
                         if (Vector3.Dot(s, across) > 0.5f)
@@ -1431,7 +1435,7 @@ namespace LethalAccess
             Vector3 dir = move.normalized;
             bool changed = false;
             bool straightAhead = false;
-            foreach (float angle in new[] { 0f, -45f, 45f })
+            foreach (float angle in EdgeProbeAngles)
             {
                 Vector3 probe = Quaternion.AngleAxis(angle, Vector3.up) * dir;
                 if (GroundAt(transform.position + probe * 0.5f, transform.position.y, out _))

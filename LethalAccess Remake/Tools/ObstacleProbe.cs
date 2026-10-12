@@ -13,6 +13,8 @@ namespace LethalAccess
     /// </summary>
     internal class ObstacleProbe
     {
+        private static readonly float[] LedgeInsets = { 0.05f, 0.3f };
+        private static readonly float[] StandingRoomShifts = { 0.3f, 0.5f };
         internal enum Kind
         {
             Clear,
@@ -371,7 +373,7 @@ namespace LethalAccess
         private bool StandingRoomBeside(Vector3 direction, float lookahead, out Vector3 side)
         {
             Vector3 perp = Vector3.Cross(Vector3.up, direction).normalized;
-            foreach (float shift in new[] { 0.3f, 0.5f })
+            foreach (float shift in StandingRoomShifts)
             {
                 foreach (int s in new[] { 1, -1 })
                 {
@@ -426,7 +428,7 @@ namespace LethalAccess
 
             // Top of the obstacle where the capsule touched it, then a little past it.
             float rise = float.MaxValue;
-            foreach (float inset in new[] { 0.05f, 0.3f })
+            foreach (float inset in LedgeInsets)
             {
                 Vector3 probe = hit.point + direction * inset;
                 probe.y = feetY + maxJump + 0.3f;

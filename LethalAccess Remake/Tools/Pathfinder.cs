@@ -29,6 +29,14 @@ namespace LethalAccess
     /// </summary>
     internal partial class Pathfinder : MonoBehaviour
     {
+        private static readonly float[] LegWidenOffsets = { 0f, 0.3f, -0.3f, 0.5f, -0.5f, 0.7f, -0.7f, 0.9f, -0.9f, 1.2f, -1.2f };
+        private static readonly float[] NodeMoveRadii = { 0.2f, 0.35f, 0.5f, 0.65f, 0.8f };
+        private static readonly float[] NodeBodyHeights = { 0.6f, 1.05f };
+        private static readonly float[] WalkLineHeights = { 0.6f, 1.2f };
+        private static readonly float[] SideOffsets = { 0.6f, -0.6f };
+        private static readonly float[] OvershootFractions = { 0.75f, 0.5f, 0.25f, 0f };
+        private static readonly float[] BodyLineHeights = { 0.8f, 1.5f };
+        private static readonly float[] SmoothFractions = { 1f, 0.66f, 0.33f };
         #region Types
         private enum PathfindingMode
         {
@@ -170,6 +178,7 @@ namespace LethalAccess
         private InteractTrigger manualLadder;
         private bool manualCrouchCued;
         private bool manualWasCrouching;
+        private float manualCrouchedAt;
         private bool pathIsPartial;
 
         // Ladders. The NavMesh crosses them with off-mesh links; a player crosses them by using
@@ -1113,14 +1122,14 @@ namespace LethalAccess
                     bool meshLegs = !NavMesh.Raycast(a - down, node - down, out _, NavMesh.AllAreas) &&
                                     !NavMesh.Raycast(node - down, b - down, out _, NavMesh.AllAreas);
                     float edgeBefore = NavMesh.FindClosestEdge(node - down, out NavMeshHit edgeHit, NavMesh.AllAreas) ? edgeHit.distance : 0f;
-                    foreach (float t in new[] { 1f, 0.66f, 0.33f })
+                    foreach (float t in SmoothFractions)
                     {
                         Vector3 guess = Vector3.Lerp(node, chord, t);
                         NavMeshHit hit;
                         if (!NavMesh.SamplePosition(guess - Vector3.up * NODE_GROUND_OFFSET, out hit, 0.3f, NavMesh.AllAreas))
                             continue;
                         Vector3 moved = SnapToGround(hit.position);
-                        if (Mathf.Abs(moved.y - node.y) > 0.3f || BodyOverlaps(moved) || !LegClear(a, moved) || !LegClear(moved, b))
+                        if (Mathf.Abs(moved.y - node.y) > 0.3f || BodyOverlaps(moved) || !LegWalkable(a, moved) || !LegWalkable(moved, b))
                             continue;
                         // Not off the edge of a catwalk: legs that stayed on the mesh still do,
                         // and the node keeps its distance from the mesh's edge.
@@ -1145,7 +1154,7 @@ namespace LethalAccess
         private bool BodyOverlaps(Vector3 point, float radius = LEG_BODY_RADIUS + 0.03f)
         {
             Vector3 feet = point - Vector3.up * NODE_GROUND_OFFSET;
-            foreach (float h in new[] { 0.6f, 1.05f })
+            foreach (float h in NodeBodyHeights)
             {
                 int count = Physics.OverlapSphereNonAlloc(feet + Vector3.up * h, radius, bodyOverlaps, bodyMask, QueryTriggerInteraction.Ignore);
                 for (int i = 0; i < count; i++)
@@ -1173,7 +1182,7 @@ namespace LethalAccess
             // doorway and the path zigzags. Inside something (an open door's panel): any spot.
             bool inside = BodyOverlaps(point, 0.3f);
             List<Vector3> candidates = new List<Vector3>();
-            foreach (float radius in new[] { 0.2f, 0.35f, 0.5f, 0.65f, 0.8f })
+            foreach (float radius in NodeMoveRadii)
             {
                 for (int k = 0; k < 12; k++)
                 {
@@ -1228,7 +1237,7 @@ namespace LethalAccess
             Vector3 to = b - Vector3.up * NODE_GROUND_OFFSET - from;
             if (new Vector2(to.x, to.z).sqrMagnitude < 0.0001f)
                 return true;
-            foreach (float h in new[] { 0.8f, 1.5f })
+            foreach (float h in BodyLineHeights)
             {
                 int count = Physics.SphereCastNonAlloc(from + Vector3.up * h, LEG_BODY_RADIUS, to.normalized, legHits, to.magnitude, bodyMask, QueryTriggerInteraction.Ignore);
                 for (int i = 0; i < count; i++)
@@ -1246,6 +1255,59 @@ namespace LethalAccess
             return true;
         }
 
+        /// <summary>The path within maxDistance of the player passes somewhere without room to
+        /// stand: the next server rack, a couple of metres round the corner from the last. Sampled
+        /// along the legs, since nodes sit either side of a rack, never under it.</summary>
+        private bool LowCeilingAhead(float maxDistance)
+        {
+            if (currentTargetNode == null)
+                return false;
+            Vector3 from = transform.position + Vector3.up * NODE_GROUND_OFFSET;
+            float distance = 0f;
+            for (int i = currentTargetNode.index; i < pathNodes.Count && distance < maxDistance; i++)
+            {
+                Vector3 node = pathNodes[i].position;
+                float leg = HorizontalDistance(from, node);
+                for (float along = 0.5f; along <= leg && distance + along <= maxDistance; along += 0.5f)
+                {
+                    if (!HeadRoomAt(Vector3.Lerp(from, node, along / leg)))
+                        return true;
+                }
+                distance += leg;
+                from = node;
+            }
+            return false;
+        }
+
+        private const float HEAD_SWEEP_HEIGHT = 2.1f;
+        private const float HEAD_SWEEP_RADIUS = 0.35f;
+
+        /// <summary>Room for a standing player's head at node point.</summary>
+        private bool HeadRoomAt(Vector3 point)
+        {
+            Vector3 head = point - Vector3.up * NODE_GROUND_OFFSET + Vector3.up * HEAD_SWEEP_HEIGHT;
+            return !Physics.CheckSphere(head, HEAD_SWEEP_RADIUS, groundMask, QueryTriggerInteraction.Ignore);
+        }
+
+        /// <summary>
+        /// A leg a standing player can walk: clear at knee and chest, and, between two nodes with
+        /// room to stand, at head height too. The flared top of a silo, 2.4 m up, stops a
+        /// standing player dead. A leg into a crawl space starts or ends without head room, and
+        /// is left to the crawl handling.
+        /// </summary>
+        private bool LegWalkable(Vector3 a, Vector3 b)
+        {
+            if (!LegClear(a, b))
+                return false;
+            if (!HeadRoomAt(a) || !HeadRoomAt(b))
+                return true;
+            Vector3 from = a - Vector3.up * NODE_GROUND_OFFSET + Vector3.up * HEAD_SWEEP_HEIGHT;
+            Vector3 to = b - a;
+            if (new Vector2(to.x, to.z).sqrMagnitude < 0.0001f)
+                return true;
+            return !Physics.SphereCast(from, HEAD_SWEEP_RADIUS, to.normalized, out _, to.magnitude, groundMask, QueryTriggerInteraction.Ignore);
+        }
+
         /// <summary>
         /// The NavMesh is baked for enemies and leaves out wall pipes and trim, so a leg out of a
         /// doorway corner can run through the edge of the frame for a player's wider body. Such
@@ -1261,7 +1323,7 @@ namespace LethalAccess
                 Vector3 b = positions[i + 1];
                 Vector3 flat = new Vector3(b.x - a.x, 0f, b.z - a.z);
                 // Ladders, drops and jumps are not walked.
-                if (flat.magnitude < 0.8f || Mathf.Abs(b.y - a.y) > 1f || LegClear(a, b))
+                if (flat.magnitude < 0.8f || Mathf.Abs(b.y - a.y) > 1f || LegWalkable(a, b))
                 {
                     chain = 0;
                     continue;
@@ -1271,15 +1333,15 @@ namespace LethalAccess
                 Vector3 mid = (a + b) * 0.5f;
                 Vector3? firstHalf = null;
                 bool done = false;
-                foreach (float offset in new[] { 0f, 0.3f, -0.3f, 0.5f, -0.5f, 0.7f, -0.7f, 0.9f, -0.9f, 1.2f, -1.2f })
+                foreach (float offset in LegWidenOffsets)
                 {
                     NavMeshHit hit;
                     if (!NavMesh.SamplePosition(mid - Vector3.up * NODE_GROUND_OFFSET + side * offset, out hit, 0.5f, NavMesh.AllAreas))
                         continue;
                     Vector3 candidate = SnapToGround(hit.position);
-                    if (Mathf.Abs(candidate.y - mid.y) > 0.6f || BodyOverlaps(candidate) || !LegClear(a, candidate))
+                    if (Mathf.Abs(candidate.y - mid.y) > 0.6f || BodyOverlaps(candidate) || !LegWalkable(a, candidate))
                         continue;
-                    if (LegClear(candidate, b))
+                    if (LegWalkable(candidate, b))
                     {
                         positions.Insert(i + 1, candidate);
                         added++;
@@ -1536,6 +1598,7 @@ namespace LethalAccess
         private bool IsLastNode(PathNode node) => node.index == pathNodes.Count - 1;
 
         private const float NODE_CLOSE_RADIUS = 0.6f;
+        private const float MANUAL_MIN_CROUCH_TIME = 0.8f;
 
         /// <summary>Nothing at body height between the player and point, for a body a little
         /// narrower than the player's (the capsule slides past what it only brushes).</summary>
@@ -1557,7 +1620,7 @@ namespace LethalAccess
                 return true;
             // Knee and chest, parallel to the ground between the two: a chest-high line alone
             // passes over the low wall between two flights of a switchback stair.
-            foreach (float h in new[] { 0.6f, 1.2f })
+            foreach (float h in WalkLineHeights)
             {
                 if (Physics.SphereCast(feet + Vector3.up * h, 0.3f, to.normalized, out _, to.magnitude, groundMask, QueryTriggerInteraction.Ignore))
                     return false;
@@ -1906,6 +1969,10 @@ namespace LethalAccess
             {
                 manualCrouchCued = false;
             }
+            if (crouching && !manualWasCrouching)
+            {
+                manualCrouchedAt = Time.time;
+            }
             manualWasCrouching = crouching;
             // Crouched under something low (cued or not): say when there is room to stand again.
             // RoomToStand checks the standing capsule itself, so a low but standable ceiling
@@ -1915,7 +1982,10 @@ namespace LethalAccess
             {
                 manualCrouchCued = true;
             }
+            // Not straight after crouching: under the edge of the ship's catwalk the ground drops
+            // away within a step, and "Crouch" then "Stand up" a moment later is a bob.
             if (crouching && manualCrouchCued && !crawl.active && manualProbe.kind != ObstacleProbe.Kind.Crouch &&
+                Time.time - manualCrouchedAt >= MANUAL_MIN_CROUCH_TIME && !LowCeilingAhead(4.5f) &&
                 Probe != null && Probe.RoomToStand(ahead, 1f))
             {
                 manualCrouchCued = false;
@@ -1934,7 +2004,10 @@ namespace LethalAccess
                     lastJumpCueTime = Time.time;
                     Utilities.SpeakText("Jump");
                 }
-                else if (manualProbe.kind == ObstacleProbe.Kind.Crouch && !playerController.isCrouching && !crawl.active)
+                // Not at the foot of a ladder: climbing stands the player straight back up.
+                else if (manualProbe.kind == ObstacleProbe.Kind.Crouch && !playerController.isCrouching && !crawl.active &&
+                         !LadderJustAhead() &&
+                         !(manualLadder != null && HorizontalDistance(transform.position, LadderMountPoint(manualLadder, manualLadderDown)) < 2f))
                 {
                     lastJumpCueTime = Time.time;
                     manualCrouchCued = true;
@@ -1942,7 +2015,10 @@ namespace LethalAccess
                     Vector3 flat = new Vector3(toTarget.x, 0f, toTarget.z);
                     bool crawlSpace = flat.sqrMagnitude > 0.0001f && FindCrawlLine(flat.normalized, out _, out _);
                     if (crawlSpace)
+                    {
                         lastCrawlCueTime = Time.time;
+                        lastCrawlCuePosition = transform.position;
+                    }
                     Utilities.SpeakText(crawlSpace ? "Crouch, crawl space" : "Crouch");
                 }
             }
@@ -2574,7 +2650,7 @@ namespace LethalAccess
         {
             Vector3 side = Vector3.Cross(Vector3.up, direction).normalized;
             Vector3 feet = transform.position;
-            foreach (float s in new[] { 0.6f, -0.6f })
+            foreach (float s in SideOffsets)
             {
                 if (NearestGroundY(feet + side * s, out float y) > 0.5f || Mathf.Abs(y - feet.y) > 0.5f)
                     return true;
@@ -2713,7 +2789,7 @@ namespace LethalAccess
             if (aim == currentTargetNode.position && currentTargetNode.index > 0 && !BodyLineClear(aim))
             {
                 Vector3 back = pathNodes[currentTargetNode.index - 1].position;
-                foreach (float f in new[] { 0.75f, 0.5f, 0.25f, 0f })
+                foreach (float f in OvershootFractions)
                 {
                     Vector3 candidate = Vector3.Lerp(back, aim, f);
                     // Only back onto the line, never back the way the player came.
@@ -2760,7 +2836,7 @@ namespace LethalAccess
             Vector3 toPoint = end - feet;
             if (new Vector2(toPoint.x, toPoint.z).sqrMagnitude < 0.0001f)
                 return true;
-            foreach (float h in new[] { 0.8f, 1.5f })
+            foreach (float h in BodyLineHeights)
             {
                 Vector3 castFrom = feet + Vector3.up * h;
                 if (Physics.SphereCast(castFrom, 0.42f, toPoint.normalized, out _, toPoint.magnitude, bodyMask, QueryTriggerInteraction.Ignore))
