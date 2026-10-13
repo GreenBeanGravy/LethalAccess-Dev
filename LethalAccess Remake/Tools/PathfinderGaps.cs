@@ -1507,30 +1507,55 @@ namespace LethalAccess
         private float manualStallSince = -1f;
         private float manualWiggleUntil = -1f;
         private int manualWiggleSide = 1;
+        private float manualWiggleRestUntil = -1f;
+        private int manualWiggleCount;
+        private Vector3 manualWiggleArea;
 
         /// <summary>
         /// Crouched, pushing forward and stopped dead: the crouched capsule has snagged on rock
         /// (Adamance's flooded tunnel held a player there until the run timed out, "Blocked, back
-        /// up" and straight back into the same spot). Angle the move 35 degrees to one side for a
+        /// up" and straight back into the same spot). After 0.9 s (at 1.2 s an Offense rock face's cue
+        /// cycle moved the player on first, for three minutes) angle the move 35 degrees to one side for a
         /// moment, the other side next time, as automatic mode does. 0 = no change, else the side.
         /// </summary>
         private float ManualCrouchWiggle(Vector2 input)
         {
             if (Time.time < manualWiggleUntil)
                 return manualWiggleSide;
-            if (!playerController.isCrouching || !playerController.thisController.isGrounded || input.y < 0.5f ||
+            if (Time.time < manualWiggleRestUntil)
+                return 0f;
+            // Also on ground the game slides the player off (a rock face past the slope limit, on
+            // Artifice's hillside below the ship): it pushes them back down against the input,
+            // and walking up it at an angle is what gets automatic mode up.
+            // Or stopped dead on a path that climbs: on that hillside the game's own ground normal
+            // read under the slope limit while the controller still refused the face.
+            bool climbing = currentTargetNode != null && currentTargetNode.position.y - NODE_GROUND_OFFSET > transform.position.y + 0.4f;
+            if (!(playerController.isCrouching || IsPlayerSliding() || climbing) || !playerController.thisController.isGrounded || input.y < 0.5f ||
                 crawl.active || HorizontalDistance(transform.position, manualStallPosition) > 0.15f)
             {
                 manualStallPosition = transform.position;
                 manualStallSince = Time.time;
                 return 0f;
             }
-            if (Time.time - manualStallSince < 1.2f)
+            if (Time.time - manualStallSince < 0.9f)
                 return 0f;
+            // Four tries in the same few metres and no further on: rest, so the blocked cues and
+            // their replanning get their turn. On Artifice the two sides took the player back and
+            // forth between two stall points 1.5 m apart, never still long enough for a cue.
+            manualWiggleCount = HorizontalDistance(transform.position, manualWiggleArea) < 3f ? manualWiggleCount + 1 : 1;
+            if (manualWiggleCount == 1)
+                manualWiggleArea = transform.position;
+            if (manualWiggleCount > 4)
+            {
+                manualWiggleCount = 0;
+                manualWiggleRestUntil = Time.time + 8f;
+                Debug.Log($"Pathfinder: manual stall assist resting at {transform.position}");
+                return 0f;
+            }
             manualWiggleSide = -manualWiggleSide;
             manualWiggleUntil = Time.time + 0.7f;
             manualStallSince = Time.time + 0.7f;
-            Debug.Log($"Pathfinder: manual crouched stall at {transform.position}, angling {(manualWiggleSide > 0 ? "right" : "left")}");
+            Debug.Log($"Pathfinder: manual {(playerController.isCrouching ? "crouched" : IsPlayerSliding() ? "sliding" : "climbing")} stall at {transform.position}, angling {(manualWiggleSide > 0 ? "right" : "left")}");
             return manualWiggleSide;
         }
 

@@ -1172,6 +1172,30 @@ namespace LethalAccess
         /// doors out, so the next plan goes round it. The cut takes effect over the next frame or
         /// two, hence the replan is scheduled, not done here. Undone when pathfinding stops.
         /// </summary>
+        /// <summary>Removes the cuts and remembered blocked spots within radius of a point.</summary>
+        private void UncutNear(Vector3 point, float radius)
+        {
+            for (int i = carvedSpots.Count - 1; i >= 0; i--)
+            {
+                GameObject block = carvedSpots[i];
+                if (block == null || HorizontalDistance(block.transform.position, point) < radius)
+                {
+                    carvedSpots.RemoveAt(i);
+                    if (block != null)
+                        Destroy(block);
+                }
+            }
+            for (int i = blockedSpots.Count - 1; i >= 0; i--)
+            {
+                if (HorizontalDistance(blockedSpots[i], point) < radius)
+                {
+                    blockedSpots.RemoveAt(i);
+                    blockedSpotRadii.RemoveAt(i);
+                }
+            }
+            Debug.Log($"Pathfinder: undid the cuts within {radius} m of {point}");
+        }
+
         private void CarveImpassable(Vector3 spot, float size)
         {
             // Not where the player stands: that only takes the floor from under them.
@@ -2952,6 +2976,19 @@ namespace LethalAccess
                 // brought the next plan back to the same rock face a metre over, five times.
                 blockedReplans = HorizontalDistance(transform.position, blockedReplanPosition) < 4f ? blockedReplans + 1 : 0;
                 blockedReplanPosition = transform.position;
+                // Cut as wide as it goes and still stuck in the same place: the cuts took away the
+                // way on rather than the trouble (on Offense the third one cut out the ledge the
+                // player gets up by jumping, and the same full-size cut repeated for two minutes).
+                // Put them back and start again.
+                if (blockedReplans > 3)
+                {
+                    UncutNear(transform.position, 6f);
+                    blockedReplans = 0;
+                    // Plan once the removed cuts are out of the NavMesh, a frame or two on.
+                    carveReplanFrame = Time.frameCount + 2;
+                    Utilities.SpeakText("Blocked. Trying the first way again.");
+                    return;
+                }
                 Vector3 heading = new Vector3(toTarget.x, 0f, toTarget.z);
                 float size = 1.2f + 1.3f * Mathf.Min(blockedReplans, 3);
                 RememberBlockedSpot(transform.position + (heading.sqrMagnitude > 0.0001f ? heading.normalized * (1.2f + size * 0.5f) : Vector3.zero), size);
@@ -2960,7 +2997,12 @@ namespace LethalAccess
                 return;
             }
             string cue = DescribeBlocked(manualProbe);
-            if (cue == lastBlockedCue && (cue == "Jump" || cue == "Stand up and jump"))
+            // Standing on a path that climbs, "Jump" again: the move assist angles each try
+            // across the face, and backing off a hillside only brought the player back to the
+            // same spot (Offense, three minutes).
+            bool climbingPath = currentTargetNode != null && currentTargetNode.position.y - NODE_GROUND_OFFSET > transform.position.y + 0.4f;
+            bool jumpAgain = cue == "Jump" && climbingPath && !playerController.isCrouching;
+            if (cue == lastBlockedCue && (cue == "Jump" || cue == "Stand up and jump") && !jumpAgain)
                 cue = "Blocked, back up";
             // The probe's free side can swap from one cue to the next at the same spot; "left,
             // right, left" walks the player back and forth. Keep the side already given.
