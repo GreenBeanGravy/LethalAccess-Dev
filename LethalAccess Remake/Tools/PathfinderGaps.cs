@@ -84,6 +84,7 @@ namespace LethalAccess
         // A plan has to land at these takeoff speeds either side of its own.
         private const float SPEED_TOLERANCE_LOW = 0.45f;
         private const float SPEED_TOLERANCE_HIGH = 0.55f;
+        private const float WALK_TOLERANCE_LOW = 0.45f;
         // The run-up keeps the feet this close to the jump line.
         private const float LINE_TOLERANCE = 0.2f;
         // Manual run-up assist: the most sideways input added to draw the feet onto the line.
@@ -98,6 +99,10 @@ namespace LethalAccess
         private int gapAttempts;
         // Gaps given up on this trip (cut out and routed round); reset only when pathfinding stops.
         private int gapGiveUps;
+        // Jumps taken at one edge in a row: a jump that lands back where it started leaves the
+        // gap ahead, and without a count it is jumped again forever.
+        private Vector3 lastJumpedEdge = Vector3.positiveInfinity;
+        private int jumpsAtEdge;
         private float gapScanTime = -999f;
         private bool gapJumpInProgress;
         private float gapJumpStart;
@@ -145,9 +150,20 @@ namespace LethalAccess
 
             hasGap = true;
             bool manual = currentMode == PathfindingMode.Manual;
-            if (!plan.valid || plan.forManual != manual || (plan.forEdge - gap.edge).sqrMagnitude > 0.75f * 0.75f)
+            bool sameEdge = (plan.forEdge - gap.edge).sqrMagnitude <= 0.75f * 0.75f && plan.forManual == manual;
+            // A gap with no plan was searched in full (thousands of simulated jumps, 10 ms and
+            // more) on every scan while it stayed in sight. Once a second is enough: the
+            // player's approach changes slowly.
+            if (!plan.valid && sameEdge && Time.time - lastFailedPlanTime < 1f)
+                return;
+            if (!plan.valid || !sameEdge)
             {
+                var timer = System.Diagnostics.Stopwatch.StartNew();
                 plan = PlanJump(gap);
+                if (!plan.valid)
+                    lastFailedPlanTime = Time.time;
+                if (timer.ElapsedMilliseconds > 8)
+                    Debug.Log($"Pathfinder: jump plan took {timer.ElapsedMilliseconds} ms ({lastPlanStats})");
                 gapPhase = GapPhase.Approach;
                 gapAttempts = 0;
             }
@@ -159,6 +175,8 @@ namespace LethalAccess
         /// side. Nodes sit on the centre of the floor; a line from the player's own feet, off
         /// centre on a narrow girder, runs off its side and reads as a gap that is not there.
         /// </summary>
+        private float lastFailedPlanTime = -999f;
+
         private bool FindGap(out Gap found)
         {
             found = default;
@@ -438,6 +456,7 @@ namespace LethalAccess
 
             planTakeoffs = 0;
             planSimulations = 0;
+            planTimer.Restart();
             PlanPass(g, across, perpAcross, directions, speeds, walk, steering: false, ref best, ref bestCost);
             // None straight: run up one line and steer in the air. A girder angled to the gap
             // gives a long run-up only along itself, and its own line can end in a railing.
@@ -447,12 +466,20 @@ namespace LethalAccess
             return best;
         }
 
+        private readonly System.Diagnostics.Stopwatch planTimer = new System.Diagnostics.Stopwatch();
+        private const long PLAN_BUDGET_MS = 15;
+        private const long PLAN_BUDGET_MAX_MS = 60;
+
         private void PlanPass(Gap g, Vector3 across, Vector3 perpAcross, List<Vector3> directions, List<float> speeds, float walk,
             bool steering, ref JumpPlan best, ref float bestCost)
         {
             var steers = new List<Vector3>();
             foreach (Vector3 dir in directions)
             {
+                // A frame's worth: a girder end took 855 simulated jumps and 55 ms. Directions
+                // come straight across first, so a plan found by then is seldom beaten later.
+                if (planTimer.ElapsedMilliseconds > (best.valid ? PLAN_BUDGET_MS : PLAN_BUDGET_MAX_MS))
+                    return;
                 steers.Clear();
                 if (steering)
                 {
@@ -517,13 +544,19 @@ namespace LethalAccess
             {
                 bool sprint = speed > walk + 0.05f;
                 // A walk holds its speed exactly; a sprint only roughly.
-                float low = sprint ? SPEED_TOLERANCE_LOW : 0.25f;
+                // Auto mode's walk up a slope runs slower than on the flat (a March girder: 4.4 m/s
+                // against 4.6), so its walking jump needs the same slack below as a sprint. Not
+                // manual: a keyboard walk is the steady walk, and without a walking plan a 3 m gap
+                // on Artifice got a 5.6 m/s sprint no player holding sprint can keep to.
+                float low = sprint ? SPEED_TOLERANCE_LOW : currentMode == PathfindingMode.Manual ? 0.25f : WALK_TOLERANCE_LOW;
                 float high = sprint ? SPEED_TOLERANCE_HIGH : 0.25f;
                 float runUp = sprint ? RunUpDistance(speed) : WALK_RUN_UP;
                 if (runUpAvailable < runUp)
                     break; // Faster ones need even more.
 
                 float magnitude = sprint ? 1f : Mathf.Clamp01(speed / walk);
+                if (!sprint && speed - low < 0.5f)
+                    continue;
                 foreach (Vector3 steer in steers)
                 {
                     float cost = baseCost + (sprint ? 1f + (speed - walk) * 0.4f : (walk - speed) * 0.3f) +
@@ -535,6 +568,9 @@ namespace LethalAccess
                         !SimulateJump(takeoff, dir, steer, speed - low, sprint, sprint ? 1f : magnitude * (speed - low) / speed, g, out _) ||
                         !SimulateJump(takeoff, dir, steer, speed + high, sprint, sprint ? 1f : magnitude * (speed + high) / speed, g, out _))
                         continue;
+                    // A keyboard player holding sprint would arrive at whatever speed the run-up gave
+                    // them (on Artifice 8 m/s against a 5.6 m/s plan); FilterManualSprint holds them
+                    // to the plan's speed instead, as automatic mode holds itself.
                     // And from a little to either side: nobody runs a line exactly.
                     Vector3 side = Vector3.Cross(Vector3.up, dir) * LATERAL_TOLERANCE;
                     if (!SimulateJump(takeoff + side, dir, steer, speed, sprint, magnitude, g, out _) ||
@@ -752,6 +788,13 @@ namespace LethalAccess
                         lastSimulation = $"came down short at {down} step {step}";
                         return false;
                     }
+                    // Floor all the way from the takeoff: a jump along the near side (a landing
+                    // that runs on beside the gap), not across it.
+                    if (!CrossesHole(takeoff, down))
+                    {
+                        lastSimulation = $"came down on the near floor at {down} step {step}";
+                        return false;
+                    }
                     landing = down;
                     Vector3 heading = horizontal.sqrMagnitude > 0.01f ? horizontal.normalized : dir;
                     bool room = RoomToLand(down, heading);
@@ -780,6 +823,26 @@ namespace LethalAccess
                     return false;
                 }
                 pos = next;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Whether the straight line from takeoff to touchdown leaves the takeoff's floor: a hole,
+        /// or a step up or down, somewhere along it. A sloped girder rises a few centimetres a
+        /// step and is still one floor.
+        /// </summary>
+        private bool CrossesHole(Vector3 takeoff, Vector3 down)
+        {
+            float length = HorizontalDistance(takeoff, down);
+            int steps = Mathf.Max(1, Mathf.CeilToInt(length / 0.25f));
+            float previousY = takeoff.y;
+            for (int i = 1; i <= steps; i++)
+            {
+                Vector3 q = Vector3.Lerp(takeoff, down, (float)i / steps);
+                if (!GroundAt(q, previousY, out float y) || Mathf.Abs(y - previousY) > 0.3f)
+                    return true;
+                previousY = y;
             }
             return false;
         }
@@ -869,8 +932,10 @@ namespace LethalAccess
 
         private void StartGapJump()
         {
-            if (Probe != null && Probe.Jump())
+            if (Probe != null && Probe.Jump($"gap att={gapAttempts} phase={gapPhase}"))
             {
+                jumpsAtEdge = (plan.forEdge - lastJumpedEdge).sqrMagnitude < 0.75f * 0.75f ? jumpsAtEdge + 1 : 1;
+                lastJumpedEdge = plan.forEdge;
                 gapJumpInProgress = true;
                 gapJumpStart = Time.time;
                 jumpingPlan = plan;
@@ -1014,7 +1079,11 @@ namespace LethalAccess
                 toStart.y = 0f;
                 // Start from a standstill: reversing from walking back to the start costs most of
                 // a short run-up.
-                if (toStart.magnitude < 0.3f && lateral < LINE_TOLERANCE && speed < 0.6f)
+                // A sprint run-up pressed under 0.3 stamina exhausts the player on the spot, and an
+                // exhausted player can't jump: get some breath back first (standing still, where
+                // it comes back; never in water, where it doesn't).
+                bool breath = !plan.sprint || playerController.sprintMeter > 0.45f || playerController.isMovementHindered > 0;
+                if (toStart.magnitude < 0.3f && lateral < LINE_TOLERANCE && speed < 0.6f && breath)
                 {
                     gapPhase = GapPhase.RunUp;
                 }
@@ -1047,6 +1116,15 @@ namespace LethalAccess
             float lead = speed * JUMP_WINDUP;
             if (toTakeoff <= lead + 0.03f)
             {
+                // Jumped from here three times and still short of it: the jumps don't cross.
+                if (jumpsAtEdge >= 3 && (plan.forEdge - lastJumpedEdge).sqrMagnitude < 0.75f * 0.75f)
+                {
+                    if (GiveUpOnGap())
+                        return true;
+                    StopPathfinding(playSound: false);
+                    Utilities.SpeakText("Could not make the jump. Pathfinding stopped.");
+                    return true;
+                }
                 // Whether this run makes it: the jump flown from where the player is now, at the
                 // speed and heading they actually have (a slope or a late turn moves both).
                 if (LiveJumpLands(plan) && Probe != null && Probe.CanJumpNow)
@@ -1090,6 +1168,24 @@ namespace LethalAccess
         #endregion
 
         #region Manual
+        /// <summary>
+        /// Sprint held by a manual player on the run-up at a sprint jump: let go of while faster
+        /// than the plan, as automatic mode does. Holding sprint builds speed for as long as it is
+        /// held, and a landing on an Experimentation girder took 5 to 6 m/s and nothing faster;
+        /// nobody can hold a key for the right fraction of a second by ear. Never in the air:
+        /// letting go of sprint mid-jump kills the jump.
+        /// </summary>
+        public float FilterManualSprint(float keyboard)
+        {
+            if (keyboard <= 0f || !hasGap || !plan.valid || !plan.sprint || gapJumpInProgress ||
+                !playerController.thisController.isGrounded)
+                return keyboard;
+            float toTakeoff = DistanceToTakeoff();
+            if (toTakeoff < -0.5f || toTakeoff > plan.runUp + 3f)
+                return keyboard;
+            return HorizontalSpeed() < plan.speed + 0.1f ? keyboard : 0f;
+        }
+
         private void UpdateManualGap()
         {
             manualEdgeGuard = false;
@@ -1129,6 +1225,10 @@ namespace LethalAccess
                 jumpBuffered = false;
                 if (!plan.valid && (gapCuedEdge - gap.edge).sqrMagnitude > 1f)
                 {
+                    // Cut it out and look for another way, as automatic mode does. Planned from
+                    // far off a gap can be judged before its run-up is in sight, so only close.
+                    if (HorizontalDistance(transform.position, gap.edge) < 4f && GiveUpOnGap())
+                        return;
                     gapCuedEdge = gap.edge;
                     Utilities.SpeakText("Gap ahead, no safe jump found.");
                 }
@@ -1253,7 +1353,13 @@ namespace LethalAccess
             if (gapPhase == GapPhase.Approach && (onLineFarBack || atStart))
             {
                 gapPhase = GapPhase.RunUp;
-                Utilities.SpeakText("Run-up here. Face the tone, then go.");
+                // Once: at the start the phase can flip back and forth frame to frame, and the
+                // cue went out six times in 0.04 s.
+                if (Time.time - lastRunUpCueTime > 3f)
+                {
+                    lastRunUpCueTime = Time.time;
+                    Utilities.SpeakText("Run-up here. Face the tone, then go.");
+                }
             }
             // Stopped at the edge, or wandered off: back to the start of the run-up.
             else if (gapPhase == GapPhase.RunUp && (manualEdgeGuard || lateral > 0.8f || toTakeoff > plan.runUp + 1.5f || toTakeoff < -0.5f))
@@ -1306,12 +1412,12 @@ namespace LethalAccess
             if (PlanLineOffset(plan).magnitude > LINE_TOLERANCE + LATERAL_TOLERANCE)
                 return "Off the line. Back up and try again.";
             float speed = HorizontalSpeed();
-            float low = plan.sprint ? SPEED_TOLERANCE_LOW : 0.25f;
+            float low = plan.sprint ? SPEED_TOLERANCE_LOW : plan.forManual ? 0.25f : WALK_TOLERANCE_LOW;
             float high = plan.sprint ? SPEED_TOLERANCE_HIGH : 0.25f;
             if (speed < plan.speed - low - 0.1f)
                 return plan.sprint ? "Too slow. Back up and sprint at it." : "Too slow. Back up and walk at it.";
             if (speed > plan.speed + high + 0.1f)
-                return "Too fast. Back up and walk at it.";
+                return plan.sprint ? "Too fast. Start the run-up closer to the edge." : "Too fast. Back up and walk at it.";
             return "Off the line. Back up and try again.";
         }
 
@@ -1397,6 +1503,37 @@ namespace LethalAccess
         }
 
         /// <summary>Removes the part of a manual move input that points over the edge while the edge guard is on.</summary>
+        private Vector3 manualStallPosition;
+        private float manualStallSince = -1f;
+        private float manualWiggleUntil = -1f;
+        private int manualWiggleSide = 1;
+
+        /// <summary>
+        /// Crouched, pushing forward and stopped dead: the crouched capsule has snagged on rock
+        /// (Adamance's flooded tunnel held a player there until the run timed out, "Blocked, back
+        /// up" and straight back into the same spot). Angle the move 35 degrees to one side for a
+        /// moment, the other side next time, as automatic mode does. 0 = no change, else the side.
+        /// </summary>
+        private float ManualCrouchWiggle(Vector2 input)
+        {
+            if (Time.time < manualWiggleUntil)
+                return manualWiggleSide;
+            if (!playerController.isCrouching || !playerController.thisController.isGrounded || input.y < 0.5f ||
+                crawl.active || HorizontalDistance(transform.position, manualStallPosition) > 0.15f)
+            {
+                manualStallPosition = transform.position;
+                manualStallSince = Time.time;
+                return 0f;
+            }
+            if (Time.time - manualStallSince < 1.2f)
+                return 0f;
+            manualWiggleSide = -manualWiggleSide;
+            manualWiggleUntil = Time.time + 0.7f;
+            manualStallSince = Time.time + 0.7f;
+            Debug.Log($"Pathfinder: manual crouched stall at {transform.position}, angling {(manualWiggleSide > 0 ? "right" : "left")}");
+            return manualWiggleSide;
+        }
+
         public Vector2 FilterManualMove(Vector2 input)
         {
             if (currentMode != PathfindingMode.Manual || !isPathfinding || input.sqrMagnitude < 0.0001f)
@@ -1405,7 +1542,13 @@ namespace LethalAccess
             Transform body = playerController.thisPlayerBody != null ? playerController.thisPlayerBody : transform;
             Vector3 world = body.right * input.x + body.forward * input.y;
             bool changed = false;
-            if (manualSteer.sqrMagnitude > 0.0001f && Vector3.Dot(world, manualSteer) > 0f)
+            float wiggle = ManualCrouchWiggle(input);
+            if (wiggle != 0f)
+            {
+                world = Quaternion.Euler(0f, 35f * wiggle, 0f) * world;
+                changed = true;
+            }
+            else if (manualSteer.sqrMagnitude > 0.0001f && Vector3.Dot(world, manualSteer) > 0f)
             {
                 world = manualSteer * world.magnitude;
                 changed = true;
@@ -1470,8 +1613,13 @@ namespace LethalAccess
         }
 
         private float lastLedgeCueTime = -999f;
+        private float lastRunUpCueTime = -999f;
         private Vector3 lastLedgeCuePosition;
         private int ledgeCueCount;
+        // "Finding another way" at the same edge again: the cut changed nothing (out of cuts, or
+        // no other way exists), and on Artifice it repeated for minutes.
+        private int ledgeReplans;
+        private Vector3 ledgeReplanPosition;
 
         /// <summary>
         /// Manual ledge guard: removes the part of the move that walks off a drop deeper than a
@@ -1490,7 +1638,19 @@ namespace LethalAccess
             // Stepping into or out of the Mineshaft's elevator crosses the gap at its door.
             if (elevatorOnPath != null && !elevatorRideDone && currentTargetNode.index >= elevatorCrossIndex - 1)
                 return false;
-            if (hasGap && plan.valid && LinedUp(body) && DistanceToTakeoff() > -0.3f)
+            // Lined up and running at it: through to the jump. Not creeping: on Artifice a plan
+            // swapped at the edge, the player was still lined up at 0.5 m/s, and walked off into
+            // a 22 m pit.
+            // Only near the takeoff: the drop ahead is then the plan's gap. On Experimentation a
+            // girder room had two gaps in a row; the first had no manual plan, the second did,
+            // and a player lined up for the second walked off the first, 4 m down.
+            float toTakeoffHere = hasGap && plan.valid ? DistanceToTakeoff() : 99f;
+            // And only a move along the jump: "lined up" is where the player stands, and a player
+            // backing off a narrow beam sideways at the takeoff was let walk off its side.
+            Vector3 flatMove = new Vector3(world.x, 0f, world.z);
+            bool alongJump = flatMove.sqrMagnitude > 0.0001f && Vector3.Dot(flatMove.normalized, plan.direction) > 0.8f;
+            if (hasGap && plan.valid && LinedUp(body) && toTakeoffHere > -0.3f && toTakeoffHere < 1.2f &&
+                alongJump && HorizontalSpeed() >= plan.speed * 0.5f)
                 return false;
             // A ledge to jump up onto: the jump cue handles it.
             if (manualProbe.kind == ObstacleProbe.Kind.Jumpable)
@@ -1537,6 +1697,14 @@ namespace LethalAccess
                     // 1.7 m ahead, past the 1.5 m around the player that is never cut out: at
                     // 1.2 m (the stuck spot's distance) nothing was cut, the plan came back the
                     // same, and "Ledge. Finding another way." repeated for minutes.
+                    ledgeReplans = HorizontalDistance(transform.position, ledgeReplanPosition) < 3f ? ledgeReplans + 1 : 1;
+                    ledgeReplanPosition = transform.position;
+                    if (ledgeReplans >= 3)
+                    {
+                        StopPathfinding(playSound: false);
+                        Utilities.SpeakText("Ledge. No way on from here. Pathfinding stopped.");
+                        return false;
+                    }
                     RememberBlockedSpot(transform.position + dir * 1.7f, 1.2f);
                     Replan("Ledge. Finding another way.");
                 }
@@ -1578,6 +1746,9 @@ namespace LethalAccess
             manualAssist = Vector3.zero;
             manualSteer = Vector3.zero;
             gapCuedEdge = Vector3.positiveInfinity;
+            lastJumpedEdge = Vector3.positiveInfinity;
+            jumpsAtEdge = 0;
+            lastFailedPlanTime = -999f;
             if (gapGuideObject != null)
                 gapGuideObject.SetActive(false);
         }

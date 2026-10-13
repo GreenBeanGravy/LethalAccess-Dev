@@ -134,10 +134,23 @@ namespace LethalAccess
         /// cost and network message all happen as for a key press. The handler does not read its
         /// context argument.
         /// </summary>
-        public bool Jump()
+        private float lastRefusalLog = -999f;
+
+        public bool Jump(string why = "jump")
         {
             if (JumpMethod == null || !CanJumpNow)
+            {
+                if (player != null && Time.time - lastRefusalLog > 0.5f)
+                {
+                    lastRefusalLog = Time.time;
+                    Debug.Log($"Pathfinder: jump ({why}) refused at {player.transform.position}: grounded={IsGrounded} exhausted={player.isExhausted} " +
+                              $"stamina={player.sprintMeter:F2} crouched={player.isCrouching} interacting={player.inSpecialInteractAnimation}");
+                }
                 return false;
+            }
+
+            Vector3 v = Controller.velocity;
+            Debug.Log($"Pathfinder: jump ({why}) at {player.transform.position} facing {player.thisPlayerBody.forward} moving ({v.x:F1}, {v.z:F1})");
 
             ModJumping = true;
             try

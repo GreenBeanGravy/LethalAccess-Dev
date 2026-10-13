@@ -188,6 +188,11 @@ namespace LethalAccess
         private float cachedLaddersTime = -999f;
         private float ladderDirection = 1f;
         private float nextLadderTry;
+        // Presses on one ladder that didn't start a climb. Each press resets the stuck check, so
+        // a ladder that never takes the player (the ship's side ladder, once) stood them at its
+        // top in silence for minutes.
+        private InteractTrigger ladderTriedOn;
+        private int ladderTries;
         private const float LADDER_SEARCH_RADIUS = 6f;
         private const float LADDER_USE_DISTANCE = 1.2f;
 
@@ -469,6 +474,8 @@ namespace LethalAccess
                 currentTargetObject = targetObject;
                 currentMode = PathfindingMode.Manual;
                 blockedSpots.Clear();
+                blockedSpotRadii.Clear();
+                autoStuckCuts = 0;
 
                 if (!ResolveDestination(targetObject, out currentDestination))
                 {
@@ -555,6 +562,12 @@ namespace LethalAccess
             ResetElevatorRoute();
             ForgetElevatorPress();
             gapGiveUps = 0;
+            ledgeReplans = 0;
+            narrowLandingReplans = 0;
+            blockedReplans = 0;
+            ladderTriedOn = null;
+            ladderTries = 0;
+            RestoreRefusedLadders();
             plansThisTrip = 0;
             keptLowSpots.Clear();
             trialCut = null;
@@ -692,9 +705,9 @@ namespace LethalAccess
             {
                 // Two halves laid separately: the straight line through the doorway crosses
                 // carved NavMesh, which the surface walk would snap off to one side.
-                positions = BuildNodePositions(AvoidTooLow(startHit.position, AvoidQuicksand(startHit.position, toDoor)), finalLeg: false);
+                positions = BuildNodePositions(AvoidLow(startHit.position, AvoidQuicksand(startHit.position, toDoor)), finalLeg: false);
                 lockedDoorCrossIndex = positions.Count;
-                positions.AddRange(BuildNodePositions(AvoidTooLow(fromDoor[0], AvoidQuicksand(fromDoor[0], fromDoor))));
+                positions.AddRange(BuildNodePositions(AvoidLow(fromDoor[0], AvoidQuicksand(fromDoor[0], fromDoor))));
                 lockedDoorOnPath = door;
                 pathIsPartial = false;
             }
@@ -703,9 +716,9 @@ namespace LethalAccess
             {
                 // The Mineshaft's elevator joins two levels the NavMesh does not: plan to its stop
                 // here and on from its stop there.
-                positions = BuildNodePositions(AvoidTooLow(startHit.position, AvoidQuicksand(startHit.position, toStop)), finalLeg: false);
+                positions = BuildNodePositions(AvoidLow(startHit.position, AvoidQuicksand(startHit.position, toStop)), finalLeg: false);
                 elevatorCrossIndex = positions.Count;
-                positions.AddRange(BuildNodePositions(AvoidTooLow(fromStop[0], AvoidQuicksand(fromStop[0], fromStop))));
+                positions.AddRange(BuildNodePositions(AvoidLow(fromStop[0], AvoidQuicksand(fromStop[0], fromStop))));
                 elevatorOnPath = elevator;
                 elevatorGoingDown = goingDown;
                 pathIsPartial = false;
@@ -713,7 +726,7 @@ namespace LethalAccess
             }
             else
             {
-                Vector3[] corners = AvoidTooLow(startHit.position, AvoidQuicksand(startHit.position, navPath.corners));
+                Vector3[] corners = AvoidLow(startHit.position, AvoidQuicksand(startHit.position, navPath.corners));
                 // Still through somewhere a player cannot go: cut it out of the NavMesh and plan
                 // again once the cut is in (a frame or two). A whole hillside takes several, and
                 // the NavMesh finds ways round the detour search misses (Vow's rock faces).
@@ -722,6 +735,7 @@ namespace LethalAccess
                 // 1.62 m high, that a crouched player does get through).
                 if (FirstTooLow(corners, out Vector3 impassable) && !NearKeptLowSpot(impassable))
                 {
+                    Debug.Log($"Pathfinder: still impassable after detours at {impassable} [{tooLowWhy}]");
                     int before = carvedSpots.Count;
                     CarveImpassable(impassable, 2.5f);
                     if (carvedSpots.Count > before)
@@ -926,10 +940,14 @@ namespace LethalAccess
         /// </summary>
         private bool TooLowAt(Vector3 feet)
         {
-            foreach (Vector3 spot in blockedSpots)
+            for (int b = 0; b < blockedSpots.Count; b++)
             {
-                if (HorizontalDistance(spot, feet) < 0.8f && Mathf.Abs(spot.y - feet.y) < 1.5f)
+                Vector3 spot = blockedSpots[b];
+                if (HorizontalDistance(spot, feet) < blockedSpotRadii[b] && Mathf.Abs(spot.y - feet.y) < 1.5f)
+                {
+                    tooLowWhy = "blocked spot " + spot;
                     return true;
+                }
             }
             // Overhead only: straight up from the floor, in the middle and a little to each side.
             // A sphere at head height also caught the railing beside a catwalk.
@@ -955,6 +973,11 @@ namespace LethalAccess
         // Where the player got stuck on this trip, whatever the geometry checks say: replanning
         // goes round them (AvoidTooLow) instead of back into the same spot.
         private readonly List<Vector3> blockedSpots = new List<Vector3>();
+        private readonly List<float> blockedSpotRadii = new List<float>();
+        // Stuck again near the last stuck spot: each cut wider than the last. On Artifice's
+        // hillside 1.2 m cuts sent four detours in a row back onto the same rock face.
+        private int autoStuckCuts;
+        private Vector3 autoStuckCutPosition;
 
         private void RememberBlockedSpot(Vector3 heading)
         {
@@ -967,8 +990,12 @@ namespace LethalAccess
         private void RememberBlockedSpot(Vector3 spot, float size)
         {
             if (blockedSpots.Count >= 8)
+            {
                 blockedSpots.RemoveAt(0);
+                blockedSpotRadii.RemoveAt(0);
+            }
             blockedSpots.Add(spot);
+            blockedSpotRadii.Add(Mathf.Max(0.8f, size * 0.5f));
             CarveImpassable(spot, size);
             Debug.Log($"Pathfinder: remembering blocked spot {spot}");
         }
@@ -987,9 +1014,12 @@ namespace LethalAccess
         /// jumps, drops) are not walked and are skipped, and so is where the player already is.
         /// With near, only legs within within metres of it are looked at.
         /// </summary>
+        private string tooLowWhy = "";
+
         private bool FirstTooLow(Vector3[] corners, out Vector3 point, Vector3 near = default, float within = float.MaxValue)
         {
             point = Vector3.zero;
+            tooLowWhy = "";
             float walked = 0f;
             float slopeLimit = playerController.thisController.slopeLimit;
             float steepTan = Mathf.Tan((slopeLimit + 1f) * Mathf.Deg2Rad);
@@ -998,6 +1028,7 @@ namespace LethalAccess
             // every lip over a step made the detours on Vow's hills run out of time.
             float steepRise = 0f;
             float steepLength = 0f;
+            float slidingLength = 0f;
             bool havePrevious = false;
             Vector3 previous = Vector3.zero;
             for (int i = 0; i < corners.Length - 1; i++)
@@ -1012,6 +1043,7 @@ namespace LethalAccess
                     steepRise = 0f;
                     steepLength = 0f;
                     havePrevious = false;
+                    slidingLength = 0f;
                     continue;
                 }
                 int steps = Mathf.Max(1, Mathf.CeilToInt(flat / 0.4f));
@@ -1025,6 +1057,8 @@ namespace LethalAccess
                     if (TooLowAt(q))
                     {
                         point = q;
+                        if (!tooLowWhy.StartsWith("blocked"))
+                            tooLowWhy = onFloor ? "too low" : "too low, no floor near the line";
                         return true;
                     }
                     if (!onFloor)
@@ -1042,23 +1076,40 @@ namespace LethalAccess
                         previous = q;
                         steepRise = 0f;
                         steepLength = 0f;
+                        slidingLength = 0f;
                         continue;
                     }
-                    bool steep = rise > 0.05f &&
-                                 ((run > 0.01f && rise > run * steepTan) ||
-                                  (Physics.Raycast(q + Vector3.up * 1.5f, Vector3.down, out RaycastHit ground, 3f, groundMask, QueryTriggerInteraction.Ignore) &&
-                                   Vector3.Angle(ground.normal, Vector3.up) > slopeLimit + 1f));
+                    bool slidingGround = rise > 0.05f &&
+                                         Physics.Raycast(q + Vector3.up * 1.5f, Vector3.down, out RaycastHit ground, 3f, groundMask, QueryTriggerInteraction.Ignore) &&
+                                         Vector3.Angle(ground.normal, Vector3.up) > slopeLimit + 1f;
+                    bool steep = rise > 0.05f && ((run > 0.01f && rise > run * steepTan) || slidingGround);
                     previous = q;
                     havePrevious = true;
-                    if (!steep)
+                    // Judged over the whole climb, not sample by sample: Artifice's hillside by the
+                    // ship alternates 45 and 55 degrees every 0.4 m, and resetting on each gentler
+                    // sample never counted the 4 m face as too steep.
+                    // Ground the game slides a player off counts whichever way the path crosses it: a
+                    // diagonal up the same face rises gently along the path and still slides.
+                    bool climbing = steep || (rise > 0.05f && run > 0.01f && rise > run * 0.7f);
+                    if (!climbing)
                     {
                         steepRise = 0f;
                         steepLength = 0f;
+                        slidingLength = 0f;
                     }
-                    else if ((steepLength += run) >= 1.2f || (steepRise += rise) > 1.5f)
+                    else
                     {
-                        point = q;
-                        return true;
+                        steepLength += run;
+                        steepRise += rise;
+                        if (slidingGround)
+                            slidingLength += run;
+                        if (slidingLength >= 1.2f ||
+                            (steepRise > steepLength * steepTan && (steepLength >= 1.2f || steepRise > 1.5f)))
+                        {
+                            point = q;
+                            tooLowWhy = $"steep: rise {steepRise:F2} over {steepLength:F2}, sliding {slidingLength:F2}";
+                            return true;
+                        }
                     }
                 }
                 walked += flat;
@@ -1179,6 +1230,7 @@ namespace LethalAccess
             {
                 if (!FirstTooLow(corners, out Vector3 low))
                     return corners;
+                string lowWhy = tooLowWhy;
 
                 Vector3 destination = corners[corners.Length - 1];
                 Vector3[] best = null;
@@ -1219,13 +1271,303 @@ namespace LethalAccess
                 }
                 if (best == null)
                 {
-                    Debug.Log($"Pathfinder: no way round the impassable spot at {low}{(outOfTime ? " found in time" : "")} ({timer.ElapsedMilliseconds} ms)");
+                    Debug.Log($"Pathfinder: no way round the impassable spot at {low} [{lowWhy}]{(outOfTime ? " found in time" : "")} ({timer.ElapsedMilliseconds} ms)");
                     return corners;
                 }
-                Debug.Log($"Pathfinder: routed round the impassable spot at {low}, {PathLength(corners):F0} m -> {bestLength:F0} m ({timer.ElapsedMilliseconds} ms)");
+                Debug.Log($"Pathfinder: routed round the impassable spot at {low} [{lowWhy}], {PathLength(corners):F0} m -> {bestLength:F0} m ({timer.ElapsedMilliseconds} ms)");
                 corners = best;
             }
             return corners;
+        }
+
+        private Vector3[] AvoidLow(Vector3 start, Vector3[] corners) => AvoidCrouch(AvoidTooLow(start, corners));
+
+        private const long AVOID_CROUCH_BUDGET_MS = 6;
+        private const long AVOID_CROUCH_FIRST_BUDGET_MS = 12;
+        private static readonly float[] CrouchDetourRadii = { 1.5f, 2.5f, 3.5f };
+
+        /// <summary>
+        /// Somewhere only a crouched player fits, with standing room a few metres to the side: the
+        /// NavMesh hugs whatever it passes, and on Offense the path back to the ship ran under the
+        /// edge of its hull, between the skids, with open ground 1.5 m away. Crawling there took
+        /// 18 s of sidestepping. A way round costing a few metres more is taken instead; a crawl
+        /// space with none (a server rack) is left as it is. Planned locally, from just before
+        /// the crouch to just past it, and spliced in: whole-route plans per try ran a 240 m
+        /// route out of time on the first crawl.
+        /// </summary>
+        private Vector3[] AvoidCrouch(Vector3[] corners)
+        {
+            if (corners == null || corners.Length < 2)
+                return corners;
+            var timer = System.Diagnostics.Stopwatch.StartNew();
+            long budget = plansThisTrip == 0 ? AVOID_CROUCH_FIRST_BUDGET_MS : AVOID_CROUCH_BUDGET_MS;
+            // Past a crawl space with no way round, on to the next one.
+            float after = 0f;
+            for (int pass = 0; pass < 6 && timer.ElapsedMilliseconds <= budget; pass++)
+            {
+                if (!FirstCrouchSpot(corners, out Vector3 low, out float lowAt, after))
+                    return corners;
+                float clearAt = CrouchStretchEnd(corners, lowAt);
+                after = clearAt + 0.5f;
+                float inAt = Mathf.Max(0f, lowAt - 3f);
+                float outAt = Mathf.Min(FlatLength(corners), clearAt + 3f);
+                if (!PointAlong(corners, inAt, out Vector3 pin, out int inSeg) || !PointAlong(corners, outAt, out Vector3 pout, out int outSeg) ||
+                    SpansLink(corners, inSeg, outSeg) || !OntoFloor(ref pin) || !OntoFloor(ref pout) ||
+                    !NavMesh.SamplePosition(pin, out NavMeshHit inHit, 1.5f, NavMesh.AllAreas) ||
+                    !NavMesh.SamplePosition(pout, out NavMeshHit outHit, 1.5f, NavMesh.AllAreas))
+                {
+                    Debug.Log($"Pathfinder: crouch at {low} left as it is: no ends to plan between");
+                    continue;
+                }
+                PointAlong(corners, (lowAt + clearAt) * 0.5f, out Vector3 middle, out _);
+                float bestLength = outAt - inAt + Mathf.Max(4f, (outAt - inAt) * 0.25f);
+                Vector3[] best = null;
+                // A stretch along the edge of something (a hull, a pipe's lip): waypoints every 2 m
+                // along it, all shifted the same way, so the way round can't cut back under it.
+                foreach (float offset in CrouchDetourRadii)
+                {
+                    foreach (float side in new[] { 1f, -1f })
+                    {
+                        if (timer.ElapsedMilliseconds > budget)
+                            break;
+                        Vector3[] chain = ShiftedChain(corners, lowAt, clearAt, side * offset, inHit.position, outHit.position, bestLength);
+                        if (chain == null)
+                            continue;
+                        float length = FlatLength(chain);
+                        if (length >= bestLength || FirstCrouchSpot(chain, out _, out _, strict: true) || FirstTooLow(chain, out _))
+                            continue;
+                        bestLength = length;
+                        best = chain;
+                    }
+                }
+                // One waypoint to the side: only for a short crouch (under a beam's end); a long
+                // stretch pulls the way round back under it, and the search is the costly part.
+                foreach (Vector3 centre in best != null || clearAt - lowAt > 3f ? new Vector3[0] : new[] { low, middle })
+                {
+                    foreach (float radius in CrouchDetourRadii)
+                    {
+                        for (int k = 0; k < 12 && timer.ElapsedMilliseconds <= budget; k++)
+                        {
+                            Vector3 around = centre + Quaternion.Euler(0f, k * 30f, 0f) * Vector3.forward * radius;
+                            if (!NavMesh.SamplePosition(around, out NavMeshHit hit, 0.6f, NavMesh.AllAreas) ||
+                                Mathf.Abs(hit.position.y - centre.y) > 1.5f ||
+                                HorizontalDistance(inHit.position, hit.position) + HorizontalDistance(hit.position, outHit.position) >= bestLength ||
+                                NeedsCrouchAt(hit.position, strict: true))
+                                continue;
+                            Vector3[] first = PlanPlayerCorners(inHit.position, hit.position);
+                            Vector3[] second = first == null ? null : PlanPlayerCorners(hit.position, outHit.position);
+                            if (second == null)
+                                continue;
+                            Vector3[] local = new Vector3[first.Length + second.Length - 1];
+                            first.CopyTo(local, 0);
+                            Array.Copy(second, 1, local, first.Length, second.Length - 1);
+                            float length = FlatLength(local);
+                            if (length >= bestLength || FirstCrouchSpot(local, out _, out _, strict: true) || FirstTooLow(local, out _))
+                                continue;
+                            bestLength = length;
+                            best = local;
+                        }
+                    }
+                }
+                if (best == null)
+                {
+                    Debug.Log($"Pathfinder: no standing way round the crouch at {low} ({clearAt - lowAt:F0} m, {timer.ElapsedMilliseconds} ms)");
+                    continue;
+                }
+                var spliced = new List<Vector3>();
+                for (int i = 0; i <= inSeg; i++)
+                    spliced.Add(corners[i]);
+                spliced.AddRange(best);
+                for (int i = outSeg + 1; i < corners.Length; i++)
+                    spliced.Add(corners[i]);
+                Debug.Log($"Pathfinder: stood up round a crouch at {low}, {outAt - inAt:F0} m -> {bestLength:F0} m ({timer.ElapsedMilliseconds} ms)");
+                corners = spliced.ToArray();
+                // On from the end of the way round: the crouches before it were already tried.
+                after = inAt + bestLength + 0.5f;
+            }
+            return corners;
+        }
+
+        /// <summary>
+        /// A route from start to end through points every 2 m along corners between from and to
+        /// metres, each moved shift metres to the right of the path there (left when negative).
+        /// Null if any of them is off the NavMesh, still needs a crouch, or the route is too long.
+        /// </summary>
+        private Vector3[] ShiftedChain(Vector3[] corners, float from, float to, float shift, Vector3 start, Vector3 end, float maxLength)
+        {
+            var points = new List<Vector3> { start };
+            int count = Mathf.Max(1, Mathf.CeilToInt((to - from) / 2f));
+            for (int i = 0; i <= count; i++)
+            {
+                float d = Mathf.Lerp(from, to, count == 0 ? 0f : (float)i / count);
+                if (!PointAlong(corners, d, out Vector3 p, out int seg) || !OntoFloor(ref p))
+                    return null;
+                Vector3 dir = corners[seg + 1] - corners[seg];
+                dir.y = 0f;
+                if (dir.sqrMagnitude < 0.0001f)
+                    continue;
+                Vector3 right = Vector3.Cross(Vector3.up, dir.normalized);
+                if (!NavMesh.SamplePosition(p + right * shift, out NavMeshHit hit, 0.6f, NavMesh.AllAreas) ||
+                    Mathf.Abs(hit.position.y - p.y) > 1.5f || NeedsCrouchAt(hit.position, strict: true))
+                    return null;
+                points.Add(hit.position);
+            }
+            points.Add(end);
+            var route = new List<Vector3> { start };
+            float length = 0f;
+            for (int i = 0; i < points.Count - 1; i++)
+            {
+                Vector3[] leg = PlanPlayerCorners(points[i], points[i + 1]);
+                if (leg == null)
+                    return null;
+                for (int j = 1; j < leg.Length; j++)
+                {
+                    length += HorizontalDistance(route[route.Count - 1], leg[j]);
+                    route.Add(leg[j]);
+                }
+                if (length >= maxLength)
+                    return null;
+            }
+            return route.ToArray();
+        }
+
+        /// <summary>Where the crouch starting at from ends: standing room again, and for the next
+        /// 2.5 m (Offense's pipe reads as two crouches a metre apart; going round one only leads
+        /// under the other).</summary>
+        private float CrouchStretchEnd(Vector3[] corners, float from)
+        {
+            float end = FlatLength(corners);
+            for (int i = 0; i < 20; i++)
+            {
+                if (!FirstCrouchSpot(corners, out _, out float clear, from, crouch: false))
+                    return end;
+                if (!FirstCrouchSpot(corners, out _, out float next, clear) || next > clear + 2.5f)
+                    return clear;
+                from = next;
+            }
+            return end;
+        }
+
+        /// <summary>A point on a straight leg between corners, moved down (or up) onto the floor
+        /// there: a long leg over a hill runs metres off the ground.</summary>
+        private bool OntoFloor(ref Vector3 point)
+        {
+            if (!FloorNearLine(point, out float y))
+                return false;
+            point.y = y;
+            return true;
+        }
+
+        private static float FlatLength(Vector3[] corners)
+        {
+            float length = 0f;
+            for (int i = 0; i < corners.Length - 1; i++)
+                length += HorizontalDistance(corners[i], corners[i + 1]);
+            return length;
+        }
+
+        /// <summary>The point distance metres along corners (measured flat), and the corner it
+        /// follows.</summary>
+        private static bool PointAlong(Vector3[] corners, float distance, out Vector3 point, out int segment)
+        {
+            point = corners.Length > 0 ? corners[0] : Vector3.zero;
+            segment = 0;
+            float walked = 0f;
+            for (int i = 0; i < corners.Length - 1; i++)
+            {
+                float flat = HorizontalDistance(corners[i], corners[i + 1]);
+                if (walked + flat >= distance)
+                {
+                    point = Vector3.Lerp(corners[i], corners[i + 1], flat > 0.0001f ? (distance - walked) / flat : 0f);
+                    segment = i;
+                    return true;
+                }
+                walked += flat;
+            }
+            return false;
+        }
+
+        private bool SpansLink(Vector3[] corners, int fromSeg, int toSeg)
+        {
+            for (int i = fromSeg; i <= toSeg && i < corners.Length - 1; i++)
+            {
+                if (IsLinkLeg(corners[i], corners[i + 1]))
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>A standing player's head would hit something overhead here. Strict: anything
+        /// over the whole width of the body, for a way round that must not brush the edge of the
+        /// overhang it avoids (Offense: a standing player pushed into a pipe's lip and stuck).</summary>
+        private bool NeedsCrouchAt(Vector3 feet, bool strict = false)
+        {
+            if (strict)
+            {
+                foreach (Vector3 offset in StrictOverheadOffsets)
+                {
+                    if (Physics.Raycast(feet + offset + Vector3.up * 0.2f, Vector3.up, STANDING_CLEARANCE - 0.2f, groundMask, QueryTriggerInteraction.Ignore))
+                        return true;
+                }
+                return false;
+            }
+            int hits = 0;
+            for (int i = 0; i < OverheadProbeOffsets.Length; i++)
+            {
+                if (Physics.Raycast(feet + OverheadProbeOffsets[i] + Vector3.up * 0.2f, Vector3.up, STANDING_CLEARANCE - 0.2f, groundMask, QueryTriggerInteraction.Ignore))
+                    hits++;
+            }
+            return hits >= 3;
+        }
+
+        private static readonly Vector3[] StrictOverheadOffsets =
+        {
+            Vector3.zero, new Vector3(0.4f, 0f, 0f), new Vector3(-0.4f, 0f, 0f), new Vector3(0f, 0f, 0.4f), new Vector3(0f, 0f, -0.4f),
+            new Vector3(0.28f, 0f, 0.28f), new Vector3(-0.28f, 0f, 0.28f), new Vector3(0.28f, 0f, -0.28f), new Vector3(-0.28f, 0f, -0.28f)
+        };
+
+        // The standing controller is 2.5 m tall, plus its skin.
+        private const float STANDING_CLEARANCE = 2.55f;
+
+        /// <summary>The first point along corners, every 0.4 m and from after metres in, where only a
+        /// crouched player fits (or, with crouch false, where a standing one does again). Legs off
+        /// the mesh and where the player already is are skipped, as in FirstTooLow.</summary>
+        private bool FirstCrouchSpot(Vector3[] corners, out Vector3 point, out float at, float after = 0f, Vector3 near = default, float within = float.MaxValue, bool crouch = true, bool strict = false)
+        {
+            point = Vector3.zero;
+            at = 0f;
+            float walked = 0f;
+            for (int i = 0; i < corners.Length - 1; i++)
+            {
+                Vector3 a = corners[i];
+                Vector3 b = corners[i + 1];
+                float flat = HorizontalDistance(a, b);
+                bool outOfReach = within < float.MaxValue && HorizontalDistance(a, near) > within && HorizontalDistance(b, near) > within;
+                if (outOfReach || IsLinkLeg(a, b))
+                {
+                    walked += flat;
+                    continue;
+                }
+                int steps = Mathf.Max(1, Mathf.CeilToInt(flat / 0.4f));
+                for (int s = 1; s <= steps; s++)
+                {
+                    float along = walked + flat * s / steps;
+                    if (along <= 0.3f || along < after)
+                        continue;
+                    Vector3 q = Vector3.Lerp(a, b, (float)s / steps);
+                    if (!FloorNearLine(q, out float floorY))
+                        continue;
+                    q.y = floorY;
+                    if (NeedsCrouchAt(q, strict) == crouch)
+                    {
+                        point = q;
+                        at = along;
+                        return true;
+                    }
+                }
+                walked += flat;
+            }
+            return false;
         }
 
         /// <summary>"Quicksand ahead" or "Water ahead" when the next node is in one, once per node.</summary>
@@ -1421,6 +1763,14 @@ namespace LethalAccess
             foreach (OffMeshLink link in shipClimbLinks)
             {
                 if (link.activated && !link.occupied)
+                {
+                    link.activated = false;
+                    switchedOff.Add(link);
+                }
+            }
+            foreach (OffMeshLink link in refusedLadderLinks)
+            {
+                if (link != null && link.activated && !link.occupied)
                 {
                     link.activated = false;
                     switchedOff.Add(link);
@@ -2528,6 +2878,24 @@ namespace LethalAccess
                     !(playerController.isCrouching && Probe != null && !Probe.RoomToStand(toTarget.normalized, 0f)))
                 {
                     lastJumpCueTime = Time.time;
+                    Vector3 flatTo = new Vector3(toTarget.x, 0f, toTarget.z);
+                    if (flatTo.sqrMagnitude > 0.0001f && NarrowLandingOverDrop(flatTo.normalized))
+                    {
+                        // Over a railing onto a beam with a pit either side (March's girder room):
+                        // a hop a few degrees off line falls 22 m. Not a way to send anyone.
+                        narrowLandingReplans = HorizontalDistance(transform.position, narrowLandingPosition) < 4f ? narrowLandingReplans + 1 : 1;
+                        narrowLandingPosition = transform.position;
+                        if (narrowLandingReplans >= 3)
+                        {
+                            StopPathfinding(playSound: false);
+                            Utilities.SpeakText("Narrow landing over a drop. No safe way on from here. Pathfinding stopped.");
+                            return;
+                        }
+                        RememberBlockedSpot(flatTo);
+                        lastReplanTime = -999f;
+                        Replan("Narrow landing over a drop. Finding another way.");
+                        return;
+                    }
                     // The game ignores jump while crouched.
                     Utilities.SpeakText(playerController.isCrouching ? "Stand up and jump" : "Jump");
                 }
@@ -2580,13 +2948,19 @@ namespace LethalAccess
             {
                 blockedCueCount = 0;
                 lastBlockedCue = null;
-                RememberBlockedSpot(toTarget);
+                // Blocked again near the last cut: cut wider. On Artifice's hillside each 1.2 m cut
+                // brought the next plan back to the same rock face a metre over, five times.
+                blockedReplans = HorizontalDistance(transform.position, blockedReplanPosition) < 4f ? blockedReplans + 1 : 0;
+                blockedReplanPosition = transform.position;
+                Vector3 heading = new Vector3(toTarget.x, 0f, toTarget.z);
+                float size = 1.2f + 1.3f * Mathf.Min(blockedReplans, 3);
+                RememberBlockedSpot(transform.position + (heading.sqrMagnitude > 0.0001f ? heading.normalized * (1.2f + size * 0.5f) : Vector3.zero), size);
                 lastReplanTime = -999f;
                 Replan("Blocked. Finding another way.");
                 return;
             }
             string cue = DescribeBlocked(manualProbe);
-            if (cue == lastBlockedCue && cue == "Jump")
+            if (cue == lastBlockedCue && (cue == "Jump" || cue == "Stand up and jump"))
                 cue = "Blocked, back up";
             // The probe's free side can swap from one cue to the next at the same spot; "left,
             // right, left" walks the player back and forth. Keep the side already given.
@@ -2597,6 +2971,8 @@ namespace LethalAccess
         }
 
         private Vector3 blockedCuePosition;
+        private int blockedReplans;
+        private Vector3 blockedReplanPosition = Vector3.positiveInfinity;
         private int blockedCueCount;
         private string lastBlockedCue;
 
@@ -2610,8 +2986,18 @@ namespace LethalAccess
                 return $"Ladder {DescribeDirection(ladder)}, {meters} {(meters == 1 ? "meter" : "meters")}";
             }
 
+            Vector3 facing = playerController.thisPlayerBody != null ? playerController.thisPlayerBody.forward : transform.forward;
+            // Pushing into a rock face too steep to walk and low enough to jump, on a path that
+            // climbs: jump it, as auto mode does. The probe calls it a wall, and stepping aside
+            // stood a player 5 s on Artifice's hillside.
+            Vector3 flatFacing = new Vector3(facing.x, 0f, facing.z);
+            if (flatFacing.sqrMagnitude > 0.0001f && currentTargetNode != null &&
+                currentTargetNode.position.y - NODE_GROUND_OFFSET > transform.position.y + 0.1f &&
+                SteepLipAhead(flatFacing.normalized, out _))
+                return playerController.isCrouching ? CrouchedLipCue(facing) : "Jump";
+            // The game never jumps a crouched player.
             if (result.kind == ObstacleProbe.Kind.Jumpable)
-                return "Jump";
+                return playerController.isCrouching ? CrouchedLipCue(facing) : "Jump";
             if (result.kind == ObstacleProbe.Kind.Crouch && !playerController.isCrouching)
             {
                 manualCrouchCued = true;
@@ -2634,7 +3020,6 @@ namespace LethalAccess
 
             // Head against an overhang the forward casts skip (they ignore what the capsule
             // already touches): crouch under it.
-            Vector3 facing = playerController.thisPlayerBody != null ? playerController.thisPlayerBody.forward : transform.forward;
             // The controller's own Above flag catches a curved underside (the belly of
             // Experimentation's train car tank) that the head probe passes beside.
             if ((Probe != null && Probe.HeadAgainstOverhang(facing)) ||
@@ -2646,11 +3031,40 @@ namespace LethalAccess
                 return "Crouch";
             }
 
-            // Nothing ahead at body height, so something low is catching the feet. Crouched under
-            // something there is no jumping.
-            if (playerController.isCrouching && Probe != null && !Probe.RoomToStand(facing, 0f))
-                return "Blocked, back up";
-            return "Jump";
+            // Nothing ahead at body height, so something low is catching the feet.
+            return playerController.isCrouching ? CrouchedLipCue(facing) : "Jump";
+        }
+
+        /// <summary>
+        /// Crouched against a lip: stand and jump where there is room, as auto mode does. Under
+        /// low rock with none, back up and come at it again (in Adamance's flooded tunnel a step
+        /// to the side moved the player a few centimetres; backing up freed them).
+        /// </summary>
+        private int narrowLandingReplans;
+        private Vector3 narrowLandingPosition = Vector3.positiveInfinity;
+
+        /// <summary>
+        /// The far side of whatever is jumped here drops away more than 6 m straight ahead or
+        /// half a metre to either side: a narrow beam over a pit, not a landing.
+        /// </summary>
+        private bool NarrowLandingOverDrop(Vector3 dir)
+        {
+            Vector3 side = Vector3.Cross(Vector3.up, dir) * 0.5f;
+            Vector3 beyond = transform.position + dir * 1.3f;
+            foreach (Vector3 q in new[] { beyond, beyond + side, beyond - side })
+            {
+                if (!Physics.Raycast(q + Vector3.up * 2.5f, Vector3.down, out RaycastHit hit, 40f, groundMask, QueryTriggerInteraction.Ignore) ||
+                    hit.point.y < transform.position.y - 6f)
+                    return true;
+            }
+            return false;
+        }
+
+        private string CrouchedLipCue(Vector3 facing)
+        {
+            if (Probe != null && Probe.RoomToStand(facing, 0f))
+                return "Stand up and jump";
+            return "Blocked, back up";
         }
 
         /// <summary>"ahead", "to your left", "to your right" or "behind you", from where the player faces.</summary>
@@ -2781,6 +3195,8 @@ namespace LethalAccess
                 int id = ladder.GetInstanceID();
                 if (addedLadderLinks.TryGetValue(id, out var existing) && existing.Count > 0 && existing[0].valid)
                     continue;
+                if (refusedLadders.Contains(id))
+                    continue;
 
                 Vector3 top = ladder.topOfLadderPosition.position;
                 Vector3 bottom = ladder.bottomOfLadderPosition.position;
@@ -2817,6 +3233,55 @@ namespace LethalAccess
                 addedLadderLinks[id] = links;
                 Debug.Log($"Pathfinder: added ladder link {bottomHit.position} -> {topHit.position} ({links.Count})");
             }
+        }
+
+        // Ladders that would not take the player this trip, and the game's own links up them that
+        // were switched off with them.
+        private readonly HashSet<int> refusedLadders = new HashSet<int>();
+        // Switched off only around the player's own path queries (CalculatePlayerPath), like the
+        // ship's climb links, so enemies keep them.
+        private static readonly List<OffMeshLink> refusedLadderLinks = new List<OffMeshLink>();
+
+        /// <summary>
+        /// Takes a ladder that won't take the player out of planning for the rest of the trip:
+        /// its added link, and any link of the game's between the same top and bottom. A cut in
+        /// the NavMesh leaves links alone, so cutting it out replanned straight back up it. False
+        /// if it was already out.
+        /// </summary>
+        private bool RefuseLadder(InteractTrigger ladder)
+        {
+            int id = ladder.GetInstanceID();
+            if (!refusedLadders.Add(id))
+                return false;
+            if (addedLadderLinks.TryGetValue(id, out var links))
+            {
+                foreach (var link in links)
+                {
+                    if (link.valid)
+                        NavMesh.RemoveLink(link);
+                }
+                addedLadderLinks.Remove(id);
+            }
+            Vector3 top = ladder.topOfLadderPosition.position;
+            Vector3 bottom = ladder.bottomOfLadderPosition.position;
+            foreach (var link in FindObjectsOfType<OffMeshLink>())
+            {
+                if (!link.activated || link.startTransform == null || link.endTransform == null)
+                    continue;
+                Vector3 a = link.startTransform.position;
+                Vector3 b = link.endTransform.position;
+                if ((Vector3.Distance(a, top) < 2.5f && Vector3.Distance(b, bottom) < 2.5f) ||
+                    (Vector3.Distance(a, bottom) < 2.5f && Vector3.Distance(b, top) < 2.5f))
+                    refusedLadderLinks.Add(link);
+            }
+            Debug.Log($"Pathfinder: ladder at {bottom} refused the player, out of planning for this trip");
+            return true;
+        }
+
+        private void RestoreRefusedLadders()
+        {
+            refusedLadderLinks.Clear();
+            refusedLadders.Clear();
         }
 
         /// <summary>Floor all the way between the two ends of a link, no lower than its low end:
@@ -2931,6 +3396,8 @@ namespace LethalAccess
             // bottom by itself.
             if (playerController != null && playerController.isClimbingLadder)
             {
+                ladderTriedOn = null;
+                ladderTries = 0;
                 AutoMoveInput = new Vector2(0f, ladderDirection);
                 AutoSprintInput = false;
                 return;
@@ -3046,6 +3513,22 @@ namespace LethalAccess
                         }
                         if (Time.time >= nextLadderTry)
                         {
+                            ladderTries = ladder == ladderTriedOn ? ladderTries + 1 : 1;
+                            ladderTriedOn = ladder;
+                            if (ladderTries > 3)
+                            {
+                                ladderTriedOn = null;
+                                ladderTries = 0;
+                                if (RefuseLadder(ladder))
+                                {
+                                    lastReplanTime = -999f;
+                                    Replan("Can't get on this ladder. Finding another way.");
+                                    return;
+                                }
+                                StopPathfinding(playSound: false);
+                                Utilities.SpeakText("Can't get on this ladder. Pathfinding stopped.");
+                                return;
+                            }
                             // Same call as pressing interact on the ladder.
                             nextLadderTry = Time.time + 2f;
                             ladderDirection = down ? -1f : 1f;
@@ -3078,8 +3561,17 @@ namespace LethalAccess
             }
             Vector3 pathDirection = toNode.normalized;
 
-            // Face along the path.
+            // Face along the path. Not in the air: off a 7 m ledge on Offense the node was all but
+            // straight below, and the body swung 35 degrees toward it and back on landing.
             CenterCamera(body);
+            if (!playerController.thisController.isGrounded)
+            {
+                Vector3 facing = body.forward;
+                facing.y = 0f;
+                if (Vector3.Angle(facing, pathDirection) > AUTO_TURN_IN_PLACE_ANGLE)
+                    ClearAutoInput();
+                return;
+            }
             if (TurnBodyToward(body, pathDirection) > AUTO_TURN_IN_PLACE_ANGLE)
             {
                 ClearAutoInput();
@@ -3103,6 +3595,11 @@ namespace LethalAccess
                 {
                     case ObstacleProbe.Kind.Jumpable:
                         clear = false;
+                        // Jump toward the path, not along a sidestep begun while it still read as
+                        // a wall: a March railing hopped sideways put the player down beside the
+                        // narrow beam behind it, over a 22 m pit.
+                        if (!aroundForced)
+                            aroundUntil = 0f;
                         // Jumping needs stamina; wait for it rather than walking into the ledge.
                         // Never in water or quicksand, where stamina does not come back and
                         // standing still means drowning or sinking.
@@ -3113,7 +3610,7 @@ namespace LethalAccess
                             ClearAutoInput();
                             return;
                         }
-                        if (Time.time >= nextJumpTime && probeNow.Jump())
+                        if (Time.time >= nextJumpTime && probeNow.Jump("obstacle " + ahead.kind))
                         {
                             nextJumpTime = Time.time + JUMP_COOLDOWN;
                         }
@@ -3215,6 +3712,13 @@ namespace LethalAccess
                 }
             }
 
+            // Never walk off a drop far bigger than the path's own.
+            if (playerController.thisController.isGrounded && !SafeStep(ref moveDirection, toNode))
+            {
+                ClearAutoInput();
+                return;
+            }
+
             Vector3 local = body.InverseTransformDirection(moveDirection);
             AutoMoveInput = new Vector2(local.x, local.z).normalized * laneMagnitude;
 
@@ -3226,13 +3730,26 @@ namespace LethalAccess
             // Never crouched: the game stands a sprinting player up (PlayerControllerB.Update), in
             // the mouth of the crawl space they crouched for.
             AutoSprintInput = ConfigManager.AutoPathfindingSprint.Value && clear && !narrow && !playerController.isCrouching &&
-                              moveAngle < AUTO_SPRINT_MAX_ANGLE;
+                              moveAngle < AUTO_SPRINT_MAX_ANGLE && StaminaToSprint();
 
             // On a girder or plank: a steadier walk, where a sideways drift of half a metre is a fall.
             if (narrow)
             {
                 AutoMoveInput *= 0.75f;
             }
+        }
+
+        /// <summary>
+        /// Sprint only with stamina to spare. An exhausted player can't jump, and the game makes
+        /// them exhausted the moment sprint is pressed under 0.3 stamina (or held to under 0.1),
+        /// until stamina is back over 0.2, which never happens in water. In Adamance's flooded
+        /// mine a sprint across the level left nothing, and every jump at a rock lip was refused
+        /// for seconds. Start over 0.5, stop at 0.3: a jump costs 0.08.
+        /// </summary>
+        private bool StaminaToSprint()
+        {
+            float meter = playerController.sprintMeter;
+            return !playerController.isExhausted && (playerController.isSprinting ? meter > 0.3f : meter > 0.5f);
         }
 
         /// <summary>A drop of a metre or more 0.6 m to one side or the other: a girder, a plank.
@@ -3425,6 +3942,52 @@ namespace LethalAccess
         /// the feet to point, at knee and chest height: a line that only just clears a corner has
         /// the player clip it at a run.
         /// </summary>
+        private static readonly float[] SafeStepAngles = { 15f, -15f, 30f, -30f, 45f, -45f, 60f, -60f, 90f, -90f };
+
+        /// <summary>
+        /// Whether a step along dir lands on floor the path allows: not far below both the feet
+        /// and the node being walked to. A narrow beam reached by stepping off a railing (March's
+        /// girder room) has a pit beside it; a step a little off line went down 22 m. When the
+        /// step falls, turns dir to the nearest way that doesn't, toward the node; false when
+        /// there is none.
+        /// </summary>
+        private bool SafeStep(ref Vector3 dir, Vector3 toNode)
+        {
+            if (currentTargetNode == null || dir.sqrMagnitude < 0.0001f)
+                return true;
+            float nodeFloor = currentTargetNode.position.y - NODE_GROUND_OFFSET;
+            if (!StepFalls(dir, nodeFloor))
+                return true;
+            Vector3 toward = toNode;
+            toward.y = 0f;
+            Vector3 basis = toward.sqrMagnitude > 0.01f ? toward.normalized : dir;
+            if (!StepFalls(basis, nodeFloor))
+            {
+                dir = basis;
+                return true;
+            }
+            foreach (float angle in SafeStepAngles)
+            {
+                Vector3 d = Quaternion.AngleAxis(angle, Vector3.up) * basis;
+                if (!StepFalls(d, nodeFloor))
+                {
+                    dir = d;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private bool StepFalls(Vector3 dir, float nodeFloor)
+        {
+            Vector3 feet = transform.position;
+            Vector3 ahead = feet + dir.normalized * 0.6f;
+            float floorY = float.NegativeInfinity;
+            if (Physics.Raycast(ahead + Vector3.up * 0.5f, Vector3.down, out RaycastHit hit, 40f, groundMask, QueryTriggerInteraction.Ignore))
+                floorY = hit.point.y;
+            return floorY < feet.y - 3f && floorY < nodeFloor - 2f;
+        }
+
         private bool BodyLineClear(Vector3 point)
         {
             // Parallel to the ground between the two (up a flight of stairs, over a hill), so
@@ -3669,7 +4232,7 @@ namespace LethalAccess
             if (stuckCount == 1)
             {
                 // Whatever the probe missed: try a jump and the other side.
-                Probe?.Jump();
+                Probe?.Jump("stuck 1");
                 aroundUntil = 0f;
                 Probe?.ResetSide(UnityEngine.Random.value < 0.5f ? -1 : 1);
                 StuckCrouchedBackOut();
@@ -3677,7 +4240,15 @@ namespace LethalAccess
             else if (stuckCount == 2)
             {
                 if (currentTargetNode != null)
-                    RememberBlockedSpot(currentTargetNode.position - transform.position);
+                {
+                    autoStuckCuts = HorizontalDistance(transform.position, autoStuckCutPosition) < 4f ? autoStuckCuts + 1 : 0;
+                    autoStuckCutPosition = transform.position;
+                    Vector3 heading = currentTargetNode.position - transform.position;
+                    heading.y = 0f;
+                    float size = 1.2f + 1.3f * Mathf.Min(autoStuckCuts, 3);
+                    // Centred further ahead as it grows, so it never covers where the player stands.
+                    RememberBlockedSpot(transform.position + (heading.sqrMagnitude > 0.0001f ? heading.normalized : Vector3.zero) * (0.6f + size * 0.5f), size);
+                }
                 lastReplanTime = -999f;
                 Replan(null);
             }
@@ -3685,7 +4256,7 @@ namespace LethalAccess
             {
                 // Something neither the NavMesh nor the probe can get past: one more jump and
                 // the other side before giving up. Never a teleport.
-                Probe?.Jump();
+                Probe?.Jump("stuck 3");
                 aroundUntil = 0f;
                 Probe?.ResetSide(UnityEngine.Random.value < 0.5f ? -1 : 1);
                 StuckCrouchedSidestep(-1f);
@@ -3725,9 +4296,46 @@ namespace LethalAccess
             Debug.Log($"Pathfinder: {why} on a {rise:F1} m lip at {transform.position}, angling {(slopeWiggleSide > 0 ? "right" : "left")}");
         }
 
+        private static readonly float[] SlopeSampleDistances = { 0.3f, 0.45f, 0.6f };
+
+        /// <summary>Rising ground just ahead that stops the controller and a jump clears: a face
+        /// steeper than the slope limit from 0.12 m, anything from 0.2 m.</summary>
+        private bool SteepLipAhead(Vector3 ahead, out float rise)
+        {
+            rise = float.NegativeInfinity;
+            bool steepFace = false;
+            float steepNormalY = Mathf.Cos((playerController.thisController.slopeLimit + 1f) * Mathf.Deg2Rad);
+            foreach (float d in SlopeSampleDistances)
+            {
+                if (Physics.Raycast(transform.position + ahead * d + Vector3.up * 2.5f, Vector3.down, out RaycastHit hit, 3.5f, groundMask, QueryTriggerInteraction.Ignore))
+                {
+                    rise = Mathf.Max(rise, hit.point.y - transform.position.y);
+                    if (hit.normal.y < steepNormalY && hit.point.y > transform.position.y + 0.05f)
+                        steepFace = true;
+                }
+            }
+            return rise >= (steepFace ? 0.12f : 0.2f) && Probe != null && rise <= Probe.MaxJumpHeight;
+        }
+
+        private Vector3 slopeDebugPosition;
+        private float slopeDebugSince;
+        private float slopeDebugLogTime;
+
         private void UpdateSlopeJump()
         {
             CharacterController controller = playerController.thisController;
+            // Why a stall isn't jumped, once a second while standing still with input held.
+            bool stillHere = AutoMoveInput.sqrMagnitude >= 0.01f && HorizontalDistance(transform.position, slopeDebugPosition) < 0.15f;
+            if (!stillHere)
+            {
+                slopeDebugPosition = transform.position;
+                slopeDebugSince = Time.time;
+            }
+            bool explain = stillHere && Time.time - slopeDebugSince > 1.5f && Time.time - slopeDebugLogTime > 1f;
+            if (explain)
+                slopeDebugLogTime = Time.time;
+            if (explain && (!controller.isGrounded || gapJumpInProgress || playerController.isClimbingLadder))
+                Debug.Log($"Pathfinder: stalled at {transform.position}, no lip jump: grounded={controller.isGrounded} gapJump={gapJumpInProgress} ladder={playerController.isClimbingLadder}");
             // Stalled = not getting anywhere. Not the controller's velocity: pressed into rock it
             // flickers between 0.2 and 0.6 m/s standing still, and kept restarting the count.
             if (AutoMoveInput.sqrMagnitude < 0.01f || !controller.isGrounded ||
@@ -3745,7 +4353,11 @@ namespace LethalAccess
                 slopeStallPosition = transform.position;
             }
             if (Time.time - slopeStallSince < 0.4f || Time.time - lastSlopeJumpTime < 1.5f)
+            {
+                if (explain)
+                    Debug.Log($"Pathfinder: stalled at {transform.position}, lip jump waiting: stallFor={Time.time - slopeStallSince:F2} sinceLast={Time.time - lastSlopeJumpTime:F1}");
                 return;
+            }
 
             Transform body = playerController.thisPlayerBody;
             Vector3 ahead = body.TransformDirection(new Vector3(AutoMoveInput.x, 0f, AutoMoveInput.y));
@@ -3753,20 +4365,47 @@ namespace LethalAccess
             if (ahead.sqrMagnitude < 0.0001f || Probe == null)
                 return;
             ahead.Normalize();
-            if (!Physics.Raycast(transform.position + ahead * 0.6f + Vector3.up * 2.5f, Vector3.down, out RaycastHit hit, 3.5f, groundMask, QueryTriggerInteraction.Ignore))
+            // The highest ground a short step ahead: a rock bump in Adamance's flooded tunnel rose
+            // 0.21 m at 0.4 m and 0.19 m at 0.6 m, and one sample read it as nothing to jump.
+            float rise = float.NegativeInfinity;
+            bool steepFace = false;
+            float steepNormalY = Mathf.Cos((playerController.thisController.slopeLimit + 1f) * Mathf.Deg2Rad);
+            foreach (float d in SlopeSampleDistances)
+            {
+                if (Physics.Raycast(transform.position + ahead * d + Vector3.up * 2.5f, Vector3.down, out RaycastHit hit, 3.5f, groundMask, QueryTriggerInteraction.Ignore))
+                {
+                    rise = Mathf.Max(rise, hit.point.y - transform.position.y);
+                    if (hit.normal.y < steepNormalY && hit.point.y > transform.position.y + 0.05f)
+                        steepFace = true;
+                }
+            }
+            if (explain)
+                Debug.Log($"Pathfinder: stalled at {transform.position}, lip ahead rise={rise:F2} steepFace={steepFace} sliding={IsPlayerSliding()} crouched={playerController.isCrouching} " +
+                          $"target={(currentTargetNode != null ? currentTargetNode.position.ToString() : "none")} sinceLast={Time.time - lastSlopeJumpTime:F1} stallFor={(slopeStallSince < 0f ? -1f : Time.time - slopeStallSince):F1}");
+            if (float.IsNegativeInfinity(rise))
                 return;
-            float rise = hit.point.y - transform.position.y;
             // From 0.2 m, not the step height: a 0.35 m rock lip with a 67 degree face stopped the
             // controller dead in Adamance's mine, though it is under stepOffset. A stall here
             // already shows the step didn't take.
             bool sliding = IsPlayerSliding();
-            if (rise < (sliding ? 0.1f : 0.2f) || rise > Probe.MaxJumpHeight)
+            // A face steeper than the slope limit stops the controller from 0.12 m: that bump read
+            // 0.19-0.21 m depending on where the player stood, either side of 0.2.
+            if (rise < (sliding ? 0.1f : steepFace ? 0.12f : 0.2f) || rise > Probe.MaxJumpHeight)
+            {
+                // Crouched and stopped dead with nothing to jump: the crouched capsule snagged on
+                // rock (Adamance's flooded tunnel stood a player 5.5 s on flat ground until the
+                // stuck handling backed them out). Angle off as on a lip, sooner.
+                if (playerController.isCrouching && Time.time - slopeStallSince >= 1.2f)
+                    AngleOffSlope(ahead, Mathf.Max(rise, 0f), "crouched and stopped");
                 return;
+            }
             // Only where the path climbs: on Offense a downhill path met a rock beside it, and the
             // jump put the player on top of the rock, 5 m over the path.
             // (Above the feet at all, not by a whole step: past a 0.35 m lip the next node was
             // only 0.25 m up.)
-            if (currentTargetNode == null || currentTargetNode.position.y - NODE_GROUND_OFFSET < transform.position.y + 0.1f)
+            // A bump under half a metre is jumped wherever the path goes: on top of it is still
+            // on the path. (That flooded-tunnel bump sat on a flat path and stood the player 4 s.)
+            if (currentTargetNode == null || (currentTargetNode.position.y - NODE_GROUND_OFFSET < transform.position.y + 0.1f && rise > 0.5f))
                 return;
             // Crouched under low rock (Adamance's mine tunnels): the game won't jump a crouched
             // player, and the crouched controller stalled 7 s on a 60 degree bump. Stand where
@@ -3805,7 +4444,7 @@ namespace LethalAccess
             }
             lastSlopeJumpTime = Time.time;
             slopeStallSince = -1f;
-            if (Probe.Jump())
+            if (Probe.Jump("lip"))
                 Debug.Log($"Pathfinder: jumping a {rise:F1} m lip at {transform.position}");
         }
 
@@ -4280,7 +4919,11 @@ namespace LethalAccess
 
         public static float FilterSprint(float keyboard, PlayerControllerB player)
         {
-            return Pathfinder.AutoWalkActive && IsPathfinderPlayer(player) ? (Pathfinder.AutoSprintInput ? 1f : 0f) : keyboard;
+            if (!IsPathfinderPlayer(player))
+                return keyboard;
+            if (!Pathfinder.AutoWalkActive)
+                return Pathfinder.Instance.FilterManualSprint(keyboard);
+            return Pathfinder.AutoSprintInput ? 1f : 0f;
         }
 
         private static bool IsPathfinderPlayer(PlayerControllerB player)
