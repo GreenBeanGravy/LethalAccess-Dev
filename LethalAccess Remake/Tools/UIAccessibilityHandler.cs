@@ -336,14 +336,12 @@ namespace LethalAccess
         /// the later sources (lobby-row counting, the legacy group map, the sibling heuristic)
         /// can supply one behind your back.
         ///
-        /// The one thing that still outranks it is an authored
-        /// <see cref="UIScreenRegistry"/> position, which GetElementIndex consults first. That is
-        /// the opposite of the precedence GetElementText and GetElementType use, where an instance
-        /// registration is the most specific source. Left as-is rather than reordered because
-        /// changing it would silently renumber every control that both a descriptor and a driver
-        /// claim, and there is no way to check that from here.
-        /// TODO: reorder GetElementIndex to match once the screens that register by instance can
-        /// be walked in-game and their announced positions compared before and after.
+        /// GetElementIndex consults the instance registration BEFORE an authored
+        /// <see cref="UIScreenRegistry"/> position, the same precedence GetElementText and
+        /// GetElementType use. It used to be the other way round. Checked in a running game
+        /// 2026-10-14 before reordering: the server list (19 instance registrations) and the belt
+        /// bag (16) overlap the registry on no control, and all 57 keybinds-screen registrations
+        /// that do overlap had the same index and count either way.
         /// </summary>
         public void RegisterObject(GameObject go, Func<string> text, string type, string screenId, int index, int count)
         {
@@ -1762,17 +1760,7 @@ namespace LethalAccess
         /// </summary>
         private string GetElementIndex(GameObject element, string path)
         {
-            // 1. The authored screen model. Index is 1-based and scoped to the entry's section,
-            //    counting only entries that are currently visible.
-            int index;
-            int count;
-            string sectionName;
-            if (UIScreenRegistry.TryGetPosition(element, out index, out count, out sectionName))
-            {
-                return $", {index} of {count}";
-            }
-
-            // 2. Instance registration, and it is TERMINAL (8.2). RegisterObject documents
+            // 1. Instance registration, and it is TERMINAL (8.2). RegisterObject documents
             //    count <= 0 as "announce no position at all", and a driver relies on that. It only
             //    holds if this returns here: every later step, and the sibling heuristic in
             //    particular, will happily invent a position, so falling through turned a
@@ -1786,6 +1774,16 @@ namespace LethalAccess
                     return $", {instanceInfo.Index} of {instanceInfo.Count}";
                 }
                 return "";
+            }
+
+            // 2. The authored screen model. Index is 1-based and scoped to the entry's section,
+            //    counting only entries that are currently visible.
+            int index;
+            int count;
+            string sectionName;
+            if (UIScreenRegistry.TryGetPosition(element, out index, out count, out sectionName))
+            {
+                return $", {index} of {count}";
             }
 
             // 3. The meaningful ordinal for a lobby row is its position under Content, one

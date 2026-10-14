@@ -11,7 +11,7 @@ namespace LethalAccess
     ///
     ///   Canvas/MenuContainer/NewsPanel        - heading NotificationText, body DemoText, ResponseButton
     ///   Canvas/MenuContainer/MenuNotification - heading NotificationText, ResponseButton (no body)
-    ///   Canvas/MenuContainer/LANWarning       - Confirm (content child names not established, see below)
+    ///   Canvas/MenuContainer/LANWarning       - heading NotificationText, Confirm
     ///
     /// All three are broken in the same two ways:
     ///
@@ -79,13 +79,13 @@ namespace LethalAccess
         /// <summary>
         /// The LAN-mode warning. Its Confirm button is another Mode.None dead end.
         ///
-        /// Content is passed as null because the child names under LANWarning/Panel have not been
-        /// established for this build. See DiscoverContent for what that costs and how to settle
-        /// it.
+        /// Panel children, dumped from a LAN-mode launch on 2026-10-14: NotificationText (TMP, the
+        /// warning copy), Image (decor), Confirm. Only NotificationText is read.
         /// </summary>
         public static void ApplyLanWarning(GameObject lanWarning)
         {
-            Apply(lanWarning, LanWarningScreenId, "LAN warning", null, "Confirm", true);
+            Apply(lanWarning, LanWarningScreenId, "LAN warning",
+                  new string[] { "NotificationText" }, "Confirm", true);
         }
 
         /// <summary>
@@ -93,8 +93,7 @@ namespace LethalAccess
         /// chain, and register the authored reading order with UIScreenRegistry.
         /// </summary>
         /// <param name="contentNames">
-        /// Child names under Panel, in reading order. Null means "discover them" (see
-        /// DiscoverContent).
+        /// Child names under Panel, in reading order.
         /// </param>
         /// <param name="focusContent">
         /// True: the screen opens on the first piece of copy. False: it opens on the dismiss
@@ -152,26 +151,19 @@ namespace LethalAccess
             }
 
             List<Transform> content = new List<Transform>();
-            if (contentNames != null)
+            for (int i = 0; i < contentNames.Length; i++)
             {
-                for (int i = 0; i < contentNames.Length; i++)
+                Transform t = panel.Find(contentNames[i]);
+                if (t == null)
                 {
-                    Transform t = panel.Find(contentNames[i]);
-                    if (t == null)
-                    {
-                        // Bail rather than skip: the order is authored, and a hole in it silently
-                        // drops a paragraph the user is expected to read before dismissing.
-                        Debug.LogError("[LethalAccess] Screen '" + screenId + "': '" + panelRoot.name +
-                                       "/Panel/" + contentNames[i] + "' does not exist. The panel has been " +
-                                       "renamed or restructured; its text is not being announced.");
-                        return;
-                    }
-                    content.Add(t);
+                    // Bail rather than skip: the order is authored, and a hole in it silently
+                    // drops a paragraph the user is expected to read before dismissing.
+                    Debug.LogError("[LethalAccess] Screen '" + screenId + "': '" + panelRoot.name +
+                                   "/Panel/" + contentNames[i] + "' does not exist. The panel has been " +
+                                   "renamed or restructured; its text is not being announced.");
+                    return;
                 }
-            }
-            else
-            {
-                DiscoverContent(panel, action, content);
+                content.Add(t);
             }
 
             // Explicit chain with null left/right. This is belt-and-braces against
@@ -270,56 +262,6 @@ namespace LethalAccess
             {
                 UIScreenRegistry.ScreenShown(screenId);
             }
-        }
-
-        /// <summary>
-        /// Content discovery for a panel whose child names have not been established for this
-        /// build. Only LANWarning uses it; every named panel goes through the explicit list,
-        /// because a rename there produces a loud error instead of a silently reordered screen.
-        ///
-        /// Order is top-to-bottom on screen, NOT sibling order. See the class comment for why
-        /// sibling order is actively wrong on these panels. Only direct children of Panel that
-        /// carry their own TextMeshProUGUI with non-blank text qualify, which excludes the decor
-        /// Images and the dismiss button's own label (a grandchild).
-        ///
-        /// TODO: replace with an explicit name list once Canvas/MenuContainer/LANWarning/Panel has
-        /// been dumped from a LAN-mode launch (disableSteam == true is the only path that activates
-        /// it, so it is absent from a normal Steam session's hierarchy). Until then a renamed or
-        /// added text child changes this panel's reading order silently.
-        /// </summary>
-        private static void DiscoverContent(Transform panel, Transform action, List<Transform> into)
-        {
-            for (int i = 0; i < panel.childCount; i++)
-            {
-                Transform child = panel.GetChild(i);
-                if (child == action)
-                {
-                    continue;
-                }
-
-                TextMeshProUGUI tmp = child.GetComponent<TextMeshProUGUI>();
-                if (tmp == null || tmp.text == null || tmp.text.Trim().Length == 0)
-                {
-                    continue;
-                }
-
-                into.Add(child);
-            }
-
-            into.Sort(CompareTopToBottom);
-
-            if (into.Count == 0)
-            {
-                Debug.Log("[LethalAccess] '" + panel.parent.name + "' has no readable text child under Panel; " +
-                          "only its dismiss button will be announced.");
-            }
-        }
-
-        // World-space Y rather than anchoredPosition: these are siblings of one Panel but they do
-        // not all share an anchor, and anchoredPosition is measured from each control's own anchor.
-        private static int CompareTopToBottom(Transform a, Transform b)
-        {
-            return b.position.y.CompareTo(a.position.y);
         }
     }
 }

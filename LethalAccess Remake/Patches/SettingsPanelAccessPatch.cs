@@ -167,10 +167,12 @@ namespace LethalAccess
                 // Actions is deliberately NOT sorted: Back and Reset measure one pixel apart on
                 // different columns, and "reset all to default" must stay last on purpose rather
                 // than by whichever happens to be lower this build.
+                // The on/off settings are plain Buttons whose state is a swapped sprite, not Toggles,
+                // so they are declared "button"; GetSettingsOptionState supplies the on/off word.
                 Sections = new List<UISection>
                 {
                     new UISection("Audio",
-                        new UIEntry("MicSettings/SpeakerButton", "Microphone", "checkbox"),
+                        new UIEntry("MicSettings/SpeakerButton", "Microphone", "button"),
                         new UIEntry("MicSettings/TalkMode", "Microphone mode", "button")
                         {
                             // Two named modes, and which one is active was announced nowhere:
@@ -192,9 +194,9 @@ namespace LethalAccess
 
                     new UISection("Controls",
                         new UIEntry("ControlsOptions/LookSensitivity/Slider", "Look sensitivity", "slider"),
-                        new UIEntry("ControlsOptions/InvertYAxis", "Invert Y-Axis", "checkbox"),
-                        new UIEntry("ToggleSprint", "Toggle Sprint", "checkbox"),
-                        new UIEntry("HeadBobbing", "Head Bobbing", "checkbox"))
+                        new UIEntry("ControlsOptions/InvertYAxis", "Invert Y-Axis", "button"),
+                        new UIEntry("ToggleSprint", "Toggle Sprint", "button"),
+                        new UIEntry("HeadBobbing", "Head Bobbing", "button"))
                     { OrderByScreenPosition = true },
 
                     new UISection("Display",
@@ -207,12 +209,12 @@ namespace LethalAccess
                     new UISection("Graphics",
                         new UIEntry("TerrainDetail", "Terrain / Grass Detail", "dropdown"),
                         new UIEntry("MotionBlur", "Motion Blur", "dropdown"),
-                        new UIEntry("AdvancedLighting", "Indirect lighting", "checkbox"))
+                        new UIEntry("AdvancedLighting", "Indirect lighting", "button"))
                     { OrderByScreenPosition = true },
 
                     new UISection("Accessibility",
-                        new UIEntry("ArachniphobiaMode", "Arachnophobia Mode", "checkbox"),
-                        new UIEntry("InvertScreenOption", "Flip Screen Horizontally", "checkbox")
+                        new UIEntry("ArachniphobiaMode", "Arachnophobia Mode", "button"),
+                        new UIEntry("InvertScreenOption", "Flip Screen Horizontally", "button")
                         {
                             // QuickMenuManager.specialOption: activated only when
                             // IngamePlayerSettings.flipCamera is set, which Awake does on April 1
