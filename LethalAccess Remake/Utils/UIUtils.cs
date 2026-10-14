@@ -353,8 +353,10 @@ namespace LethalAccess
             // and nothing ever disables one, so "both off" and "both on" are equally
             // uninformative. Only speak a mod state when exactly one icon is showing, rather than
             // reporting a lobby as modded on the strength of a prefab default.
-            // TODO(verify): open the server list and read the authored Image.enabled values on
-            // LobbySlotPrefab; if Vanilla is provably "both off", this can also say "no mods".
+            // Checked 2026-10-14: the LobbyListItem prefab has both icons disabled, and so did all
+            // 13 live rows in the server list (none was modded, so "true only" was not seen). A
+            // vanilla lobby is therefore "both off", but so is a row not yet filled in, which is
+            // why "no mods" is still not spoken.
             bool modded = slot.modStateTrueIcon != null && slot.modStateTrueIcon.enabled;
             bool unknown = slot.modStateUnknownIcon != null && slot.modStateUnknownIcon.enabled;
             if (modded && !unknown)

@@ -216,12 +216,12 @@ namespace LethalAccess
 
         private static void AnnounceLoading(MenuManager menu)
         {
-            // TODO(verify): MenuManager.loadingText is never written by Assembly-CSharp; it is
-            // authored in the scene, while logText IS updated with connection progress
-            // ("Connecting to host...", "Connection failed."). Which of the two the loading screen
-            // actually displays could not be confirmed against the running game, because the
-            // process was sitting in the launch-options scene where the main menu is not loaded.
-            // Preferring loadingText and falling back to logText reads whichever is populated.
+            // MenuManager.loadingText is never written by Assembly-CSharp; it is authored in the
+            // scene, while logText IS updated with connection progress ("Connecting to host...",
+            // "Connection failed."). Checked in the running main menu 2026-10-14: loadingText is
+            // Canvas/MenuContainer/LoadingScreen/LoadingTextContainer/LoadingText ("Loading...",
+            // the only text under the loading screen), and logText is Canvas/LogText, outside it.
+            // So loadingText is what the screen shows; logText is the fallback for progress text.
             string text = menu.loadingText != null ? menu.loadingText.text : null;
 
             if (string.IsNullOrEmpty(text) && menu.logText != null)

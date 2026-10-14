@@ -508,10 +508,11 @@ namespace LethalAccess
         /// one frame behind the device state the take was driven from; suppressing a mouse click
         /// that happens to land in that window is a far smaller harm than removing a second item.
         ///
-        /// TODO (unverified): whether Submit can ever be dispatched a frame late here has not been
-        /// observed. It needs an in-game round with a belt bag, Enter actually bound to the UI
-        /// Submit action, and a log of Time.frameCount from both this component's Update and the
-        /// ClickInventorySlot prefix. The game is on the main menu, so it could not be checked.
+        /// Checked in a hosted ship 2026-10-14 with a real Enter through the Input System (keyboard
+        /// device enabled and fed in-process, window unfocused), three presses with three items in
+        /// the bag: each press took exactly one item, recorded lastTakeFrame as the frame after the
+        /// press was queued, and left grabbingItemSlot at -1, so no vanilla mouse-drag was started.
+        /// A late Submit was not seen; the one-frame tolerance stays as cheap insurance.
         /// </summary>
         private bool ServicedConfirmRecently()
         {

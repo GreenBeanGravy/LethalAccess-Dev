@@ -769,12 +769,13 @@ namespace LethalAccess
                 AnnouncementPolicy.Speak("Enter a lobby name.");
 
                 // Seed re-announces the field, so the user hears where they have been put.
-                // TODO(LAN, unverified): in LAN mode the visible field is LANOptions/ServerNameField,
-                // which the scene does NOT bind to MenuManager.lobbyNameInputField (the serialized
-                // reference is the OptionsNormal one). If the LAN field does not write through,
-                // Confirm can be unsatisfiable in LAN mode: a vanilla defect this patch must not
-                // paper over by copying text between fields. Settled by watching
-                // lobbyNameInputField.text while typing into the LAN field with -lan.
+                // In LAN mode the visible field is LANOptions/ServerNameField, which the scene does
+                // NOT bind to MenuManager.lobbyNameInputField (the serialized reference is the
+                // OptionsNormal one). Checked in a LAN launch 2026-10-14: text set on the LAN field
+                // does not reach lobbyNameInputField, a vanilla quirk this patch must not paper over
+                // by copying text between fields. It does not make Confirm unsatisfiable: the bound
+                // field is pre-filled from the save or "<Steam name>'s Crew", and ConfirmHostButton
+                // never saves an empty name, so the bound field is never empty.
                 Transform target = UIScreenRegistry.ResolveFocusTarget(HostMenuAccess.HostScreenId);
                 if (target != null)
                 {

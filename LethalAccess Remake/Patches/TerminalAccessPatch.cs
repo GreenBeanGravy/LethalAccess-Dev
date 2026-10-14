@@ -355,14 +355,14 @@ namespace LethalAccess.Patches
         /// open sequence, because selectTextFieldDelayed yields for a full second before calling
         /// screenText.Select(), leaving a window in which the field does not hold focus.
         ///
-        /// TODO(unverified): whether anything actually reaches the scrollbar in a real session has
-        /// not been OBSERVED, only derived from the Unity source above. Testing it needs a loaded
-        /// ship: no Terminal instance exists in the main menu scenes.
-        ///
-        /// What would settle it: in the ship, open the terminal, click the vertical scrollbar to
-        /// select it, then check whether arrows announce anything and whether focus can get back to
-        /// the command line. If nothing can reach it, both NavigationEnforcer.Isolate calls and
-        /// this whole stash/restore pair can go.
+        /// Observed in a hosted ship 2026-10-14 (LAN, fresh save): before the terminal had ever
+        /// been opened, the input field and the vertical scrollbar both already had
+        /// navigation.mode == None, so the scene ships them that way and this isolation changes
+        /// nothing in this build. With the terminal open and 80 lines of text, the scrollbar goes
+        /// active (AutoHideAndExpandViewport), joins the Selectable list, and none of the field's
+        /// four FindSelectableOn* calls returned it or anything else; focus stayed on the field.
+        /// Only a mouse click can select the scrollbar. The pair is kept because it costs nothing
+        /// and protects against a game update that authors Automatic navigation there.
         ///
         /// The authored Navigation is stashed and put back on quit, because these are scene
         /// objects that outlive the terminal session.
