@@ -7,22 +7,10 @@ This is a big pathfinding update for Lethal Access! Pathfinding now moves you li
 * Gaps, like the girder rooms in the factory, are now jumped for real instead of skipped over. Automatic pathfinding works out a jump that will land, takes a run-up, and jumps at the edge. If the run-up goes wrong, it stops and tries again instead of jumping short.
 * Manual pathfinding helps you jump gaps yourself. It tells you how wide the gap is and whether to walk or sprint, guides you to your run-up and onto the right line, and ticks faster as you near the edge, with a high tone when it's time to jump. A slightly early jump is held until the right moment, a jump that wouldn't make it is held back with the reason why, and holding forward in the air steers you to the landing.
 * Manual pathfinding tells you what's coming up, in a word or two: "Jump", "Crouch", "Stand up" once there's room again, which side a ladder is on, and which way to step when you're walking into something. It also stops you walking off the edge of a high drop and says "Ledge".
-* Stairs no longer set off false "Jump", "Crouch", "Ledge" or gap warnings, and pathfinding no longer says you've arrived from the floor above the target.
-* Getting on and off the ship works in both modes, using the ship's ladders. Pathfinding no longer tries to climb the side of the ship.
 * Pathfinding goes round places a player can't get through, like slopes too steep to walk up and gaps too low to crawl under, and if you get stuck somewhere it remembers the spot and finds another way.
 * Pathfinding takes the elevator in the Mineshaft. Automatic mode calls it, steps in, presses the button and steps out at the other end. Manual mode tells you each step and turns you to face each button, so pressing interact uses it.
-* When a gap is too far to jump, pathfinding says "Can't make that jump. Finding another way." and goes round instead of giving up.
-* Automatic pathfinding sprints at a gap when a walking jump would only just make it, and stops trying a jump that keeps landing back where it started.
-* Automatic pathfinding hops railings straight on instead of sideways, and won't walk off a big drop the path doesn't take, like the pit beside a narrow beam.
-* If a ladder won't take you, automatic pathfinding says "Can't get on this ladder. Finding another way." instead of waiting at it.
-* Pathfinding walks round the edge of low things, like the ship's hull, when there's room to stand a few steps away, instead of crawling under them.
-* Pathfinding goes round rock faces too steep to walk up, even where the slope is uneven, instead of sending you up them.
-* Manual mode no longer tells you to jump onto a narrow beam over a big drop. It finds another way, or tells you there's no safe way on.
-* Manual mode only lets you run off the edge of a gap when you're moving at it and right at the jump, so stopping at the edge, or lining up for the next gap, no longer drops you in. On a sprint jump it eases off your sprint during the run-up, so you reach the edge at the speed the jump needs. When there's no safe jump, it finds another way.
-* When you're stuck at a rock lip in manual mode, it says "Jump" instead of telling you to step aside. "Ledge" and "Blocked" no longer repeat endlessly in the same place.
 * Automatic mode gets through low, rocky tunnels: it angles across rock too steep to walk straight up, stands up to jump a lip where there's room, and angles off or backs out of a tight spot to try again. Manual mode says "Stand up and jump" when you're crouched at a lip. When you're stopped dead walking into steep rock or a low rocky tunnel in manual mode, your steps are angled a little to one side and then the other until you get past.
 * Pathfinding crawls under server racks. Automatic mode lines up, crouches, crawls through and stands up on the other side. Manual mode says "Crouch, crawl space", keeps you lined up, and tells you when to stand up.
-* Automatic pathfinding keeps some stamina in reserve instead of sprinting until you're exhausted, so it can still jump when it reaches a ledge or gap. Before a running jump it waits a moment to get its breath back if it needs to.
 * The game now says "Crouched", "Standing", "Sprinting" and "Walking" whenever that changes, including while automatic pathfinding moves you.
 * Looking at a door now reads its "Use door" prompt.
 * Arriving somewhere you were pathfinding to says "Reached" once, instead of twice with two different names.
