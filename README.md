@@ -17,7 +17,7 @@ In a match, LethalAccess:
 - reads the terminal, the clipboard, control tips, what you're looking at and what you can interact with
 - announces what you pick up and its value, items you sell, the ship landing and leaving, entering and leaving the facility, the moon you route to, and the end-of-round stats
 - speaks your health, the time and the profit quota on request
-- gives you a list of nearby objects in categories (items, the factory, the elevator, the Company building) and walks you to the one you pick, with sounds that tell you when you're on target
+- gives you a list of nearby objects in categories (items, the factory, the elevator, the Company building) and walks you to the one you pick, with sounds that tell you when you're on target. Press P again and it walks you there itself, jumping gaps, climbing ladders, crouching under low beams, crawling under server racks, opening doors and riding the Mineshaft elevator. In guided mode it calls out "Jump", "Crouch" and "Ledge" and helps you time gap jumps
 - has quick keys that walk you to the main entrance, its exit, the ship or the nearest item
 - marks facility rooms as you explore them, so you can find rooms you haven't been to or retrace your steps
 - plays an optional sound from the north and speaks the direction you face
