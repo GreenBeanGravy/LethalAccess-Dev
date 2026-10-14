@@ -1,25 +1,22 @@
 10/14/2026 #3 (1.2.0):
 This is a big pathfinding update for Lethal Access! Pathfinding now moves you like a real player would, gets past obstacles, jumps gaps, crawls under server racks, and helps you do all of that yourself in manual mode. Read below:
 
-* Automatic pathfinding now walks and runs you the way the game does, with normal animations, footsteps, stamina and gravity. No more floating, and no more double speed when you also hold a movement key. Turn running off with Auto Pathfinding Sprint in the F10 menu.
-* Automatic pathfinding gets past obstacles on its own. It jumps over low walls and railings and up short steep rocks, crouches under low beams, steps around crates and corners, opens doors, and climbs ladders up and down.
-* Automatic pathfinding steers smoothly, cutting across open ground instead of turning at every point, and keeps the camera level while it walks.
-* Gaps, like the girder rooms in the factory, are now jumped for real instead of skipped over. Automatic pathfinding works out a jump that will land, takes a run-up, and jumps at the edge. If the run-up goes wrong, it stops and tries again instead of jumping short.
-* Manual pathfinding helps you jump gaps yourself. It tells you how wide the gap is and whether to walk or sprint, guides you to your run-up and onto the right line, and ticks faster as you near the edge, with a high tone when it's time to jump. A slightly early jump is held until the right moment, a jump that wouldn't make it is held back with the reason why, and holding forward in the air steers you to the landing.
-* Manual pathfinding tells you what's coming up, in a word or two: "Jump", "Crouch", "Stand up" once there's room again, which side a ladder is on, and which way to step when you're walking into something. It also stops you walking off the edge of a high drop and says "Ledge".
-* Pathfinding goes round places a player can't get through, like slopes too steep to walk up and gaps too low to crawl under, and if you get stuck somewhere it remembers the spot and finds another way.
-* Pathfinding takes the elevator in the Mineshaft. Automatic mode calls it, steps in, presses the button and steps out at the other end. Manual mode tells you each step and turns you to face each button, so pressing interact uses it.
-* Automatic mode gets through low, rocky tunnels: it angles across rock too steep to walk straight up, stands up to jump a lip where there's room, and angles off or backs out of a tight spot to try again. Manual mode says "Stand up and jump" when you're crouched at a lip. When you're stopped dead walking into steep rock or a low rocky tunnel in manual mode, your steps are angled a little to one side and then the other until you get past.
-* Pathfinding crawls under server racks. Automatic mode lines up, crouches, crawls through and stands up on the other side. Manual mode says "Crouch, crawl space", keeps you lined up, and tells you when to stand up.
-* The game now says "Crouched", "Standing", "Sprinting" and "Walking" whenever that changes, including while automatic pathfinding moves you.
-* Looking at a door now reads its "Use door" prompt.
-* Arriving somewhere you were pathfinding to says "Reached" once, instead of twice with two different names.
-* With a key in your inventory, pathfinding can route through a locked door. It stops at the door and tells you to use your key, then carries on.
-* Pathfinding now avoids quicksand, warns you about deep water, finds the way up to raised places like the main entrance on Experimentation, recalculates if you wander off, and no longer teleports you anywhere. If a target can't be reached, it says "Cannot get any closer".
-* Fall damage is now only turned off while automatic pathfinding is walking you, instead of for the rest of the session.
+* Automatic pathfinding now walks and runs you the way the game does, with normal animations, footsteps, stamina and gravity. No more floating or double speed when you also hold a movement key. Turn running off with Auto Pathfinding Sprint in the F10 menu. It steers smoothly across open ground and keeps the camera level.
+* Automatic pathfinding gets past obstacles on its own: it jumps low walls, railings and short steep rocks, crouches under low beams, steps around crates and corners, opens doors, and climbs ladders up and down.
+* Gaps, like the girder rooms in the factory, are now jumped for real instead of skipped. Automatic pathfinding works out a jump that will land, takes a run-up and jumps at the edge. If the run-up goes wrong, it stops and tries again.
+* Manual pathfinding helps you jump gaps yourself. It tells you how wide the gap is and whether to walk or sprint, guides you onto the run-up line, and ticks faster toward the edge with a high tone when it's time to jump. A jump that's too early is held until the right moment, one that wouldn't make it is held back with the reason, and holding forward in the air steers you to the landing.
+* Manual pathfinding also calls out what's coming up in a word or two: "Jump", "Crouch", "Stand up", which side a ladder is on, and which way to step when you're walking into something. It stops you walking off a high drop and says "Ledge".
+* Pathfinding goes round places a player can't get through, like slopes too steep to walk up and gaps too low to crawl under. If you get stuck, it remembers the spot and finds another way. If a target can't be reached, it says "Cannot get any closer".
+* Pathfinding takes the Mineshaft elevator. Automatic mode calls it, steps in, presses the button and steps out. Manual mode tells you each step and turns you to face each button.
+* Automatic mode gets through low, rocky tunnels: it angles across rock too steep to walk straight up, stands up to jump a lip where there's room, and backs out of tight spots to try again. Manual mode says "Stand up and jump" at a lip, and angles your steps side to side when steep rock stops you dead.
+* Pathfinding crawls under server racks. Automatic mode lines up, crouches, crawls through and stands up. Manual mode says "Crouch, crawl space", keeps you lined up, and tells you when to stand up.
+* With a key in your inventory, pathfinding routes through a locked door, stops at it and tells you to use your key.
+* Pathfinding avoids quicksand, warns you about deep water, finds the way up to raised places like the main entrance on Experimentation, recalculates if you wander off, and no longer teleports you.
+* The game now says "Crouched", "Standing", "Sprinting" and "Walking" when that changes, including during automatic pathfinding. Looking at a door reads its "Use door" prompt. Arriving says "Reached" once instead of twice.
+* Fall damage is only turned off while automatic pathfinding is walking you, not for the rest of the session.
 * The game now goes straight to the main menu, skipping the boot-up screen, cold open scenes and menu animation. Turn these off with Skip Intro Screens and Disable Cold Open Events in the F10 menu.
-* When you host, the ship lands and takes off three times faster. Change this with Ship Landing Speed, or turn it off with Fast Ship Landing.
-* Picking up a flashlight, belt bag or any other one-handed tool is announced again. These go to the utility slot, which the announcement skipped with an error.
+* When you host, the ship lands and takes off three times faster. Change it with Ship Landing Speed, or turn it off with Fast Ship Landing.
+* Picking up a flashlight, belt bag or other one-handed tool is announced again (it goes to the utility slot, which the announcement skipped with an error).
 
 10/11/2026 #2 (1.1.1):
 - Fixed the game closing about 20 seconds after starting on a fresh install. BepInEx's default settings let Lethal Company unload every mod at the launch screen, and LethalAccess then crashed the game while speaking. LethalAccess now keeps itself loaded whatever that setting says.
