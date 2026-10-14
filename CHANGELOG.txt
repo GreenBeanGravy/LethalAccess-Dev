@@ -1,4 +1,4 @@
-10/11/2026 #3 (1.2.0):
+10/14/2026 #3 (1.2.0):
 This is a big pathfinding update for Lethal Access! Pathfinding now moves you like a real player would, gets past obstacles, jumps gaps, crawls under server racks, and helps you do all of that yourself in manual mode. Read below:
 
 * Automatic pathfinding now walks and runs you the way the game does, with normal animations, footsteps, stamina and gravity. No more floating, and no more double speed when you also hold a movement key. Turn running off with Auto Pathfinding Sprint in the F10 menu.
