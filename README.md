@@ -125,6 +125,8 @@ Without InputUtils, change keys in the F10 menu or in `BepInEx/config/Green.Leth
 
 You need Visual Studio 2022 (or its Build Tools) with .NET Framework 4.x targeting, the .NET SDK, and Go 1.26 or newer for the updater.
 
+UnityA11y lives in its own repository, [GreenBeanGravy/UnityA11y](https://github.com/GreenBeanGravy/UnityA11y), and is included here as a git submodule. Clone with `git clone --recurse-submodules`, or run `git submodule update --init` in a clone you already have.
+
 The projects reference the game's DLLs from `_work/gameref`, a folder next to this repository. Copy into it:
 
 - `Lethal Company_Data/Managed` from the game, as `_work/gameref/Managed`.
