@@ -140,10 +140,10 @@ namespace LethalAccess
         /// that as the name is why every dropdown on the settings panel said its value twice and
         /// never its own name. The caption is the sibling child named "Label2".
         ///
-        /// TODO(unverified): the "Label2" name has not been confirmed against a loaded settings
+        /// The "Label2" name comes from the game's scene assets (UI audit, 2026-07-28: all five
+        /// settings dropdowns have children [Label, Arrow, Template, Label2]), not from a loaded
         /// panel. If it is wrong, the sibling fallback below still supplies the row's label and
-        /// nothing announces a value as a name, so this fails quietly rather than audibly. Confirm
-        /// by inspecting the children of Canvas/MenuContainer/SettingsPanel/FullscreenMode.
+        /// nothing announces a value as a name, so this fails quietly rather than audibly.
         /// </summary>
         public static string GetDropdownCaption(Transform dropdown)
         {

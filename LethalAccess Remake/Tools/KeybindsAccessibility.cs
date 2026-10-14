@@ -3178,8 +3178,9 @@ namespace LethalAccess
         /// A local copy of RemappableKeyExtensions.GetRebindingIndex. Reimplemented rather than
         /// invoked reflectively because it is a static extension on a vanilla type and calling it
         /// by reflection every announcement costs more than the fifteen lines it contains.
-        /// TODO: if InputUtils changes this rule, gamepad rows will read the wrong binding; the
-        /// only way to settle that is to diff against the installed version's decompilation.
+        /// Checked 2026-10-14 against the decompilation of the installed LethalCompanyInputUtils
+        /// 0.7.10: identical apart from the null-key early return. Re-diff after an InputUtils
+        /// update, or gamepad rows will read the wrong binding.
         /// </summary>
         private static int RebindingIndexOf(RemappableKey key, InputAction action)
         {
