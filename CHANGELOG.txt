@@ -31,6 +31,7 @@ This is a big pathfinding update for Lethal Access! Pathfinding now moves you li
 * Fall damage is now only turned off while automatic pathfinding is walking you, instead of for the rest of the session.
 * The game now goes straight to the main menu, skipping the boot-up screen, cold open scenes and menu animation. Turn these off with Skip Intro Screens and Disable Cold Open Events in the F10 menu.
 * When you host, the ship lands and takes off three times faster. Change this with Ship Landing Speed, or turn it off with Fast Ship Landing.
+* Picking up a flashlight, belt bag or any other one-handed tool is announced again. These go to the utility slot, which the announcement skipped with an error.
 
 10/11/2026 #2 (1.1.1):
 - Fixed the game closing about 20 seconds after starting on a fresh install. BepInEx's default settings let Lethal Company unload every mod at the launch screen, and LethalAccess then crashed the game while speaking. LethalAccess now keeps itself loaded whatever that setting says.

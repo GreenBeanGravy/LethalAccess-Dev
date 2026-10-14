@@ -128,9 +128,20 @@ namespace LethalAccess.Patches
         [HarmonyPatch("SwitchToItemSlot"), HarmonyPostfix]
         public static void SwitchToItemSlotPostfix(PlayerControllerB __instance, int slot)
         {
-            if (__instance.IsOwner && __instance.ItemSlots[slot] != null)
+            if (!__instance.IsOwner)
             {
-                GrabbableObject item = __instance.ItemSlots[slot];
+                return;
+            }
+
+            // Slot 50 is the utility slot, held in ItemOnlySlot rather than ItemSlots: any non-scrap,
+            // one-handed item (flashlight, belt bag) goes there first, so indexing ItemSlots[50]
+            // threw on every such pickup and the item was never announced.
+            GrabbableObject item = slot == 50
+                ? __instance.ItemOnlySlot
+                : (slot >= 0 && slot < __instance.ItemSlots.Length ? __instance.ItemSlots[slot] : null);
+
+            if (item != null)
+            {
                 string itemName = item.itemProperties.itemName;
                 int scrapValue = item.scrapValue;
 
