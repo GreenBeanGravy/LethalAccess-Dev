@@ -44,27 +44,6 @@ namespace LethalAccess
         private static string[] replacementOrder;
 
         /// <summary>
-        /// Installs the barge-in hook so AnnouncementPolicy.Speak(text, interrupt: true) actually
-        /// cancels the backlog instead of logging that it cannot. Idempotent, and called by
-        /// AnnouncementPolicy.BargeInHook's getter, so the hook is installed by the act of reading
-        /// it: no startup ordering to get wrong and no call site in Plugin.cs to forget.
-        ///
-        /// This was a static constructor, which is what made the first interrupt of every session
-        /// silently ordinary: AnnouncementPolicy.Speak read BargeInHook before it ever touched this
-        /// type, an explicit static constructor is not beforefieldinit, so the initializer had not
-        /// run and the hook was null. The first interrupt in the codebase is the keybind rebind
-        /// prompt.
-        ///
-        /// Still deliberately does nothing else. Touching the Unity API during type initialisation
-        /// is the exact failure SpeechSynthesizer.cs documents: a throwing type initializer is
-        /// cached by the CLR forever and would silence the mod for the whole session.
-        /// </summary>
-        public static void InstallBargeInHook()
-        {
-            AnnouncementPolicy.BargeInHook = CancelQueued;
-        }
-
-        /// <summary>
         /// Primary speech function with text processing.
         ///
         /// The old implementation returned early (silently dropping the utterance) if ANY

@@ -35,55 +35,6 @@ namespace LethalAccess
         private static float suppressStartedAt;
 
         /// <summary>
-        /// Barge-in. READING this installs SpeechUtils's implementation if nothing has assigned one
-        /// yet, so the hook can never be observed null merely because of static-initialisation
-        /// order.
-        ///
-        /// It used to be a plain field, assigned from SpeechUtils's static constructor, and Speak
-        /// below reads it BEFORE it first touches SpeechUtils. An explicit static constructor makes
-        /// a type non-beforefieldinit, so its initializer does not run until the first static
-        /// access: on the FIRST interrupt of every session the field was still null, the interrupt
-        /// was silently downgraded to an ordinary queued utterance, and the log said "no
-        /// BargeInHook is installed". The first interrupt in the codebase is the keybind rebind
-        /// prompt, the one announcement that most needs to cut through. Reordering the two lines
-        /// inside Speak would have fixed that single call site and left the same trap for the next
-        /// reader, so the guarantee lives on the property, where every reader gets it.
-        ///
-        /// TODO: drop the hook and call the queue directly once SpeechQueue grows a public
-        /// "drop everything pending" entry point. SpeechUtils.CancelQueued reaches its private
-        /// backlog reflectively until then.
-        /// </summary>
-        public static Action BargeInHook
-        {
-            get
-            {
-                if (!bargeInHookResolved)
-                {
-                    // Set BEFORE the call: InstallBargeInHook assigns through the setter below, so
-                    // the flag has to be true already or that write could re-enter this branch.
-                    // A direct method call (rather than RuntimeHelpers.RunClassConstructor) is
-                    // deliberate: if SpeechUtils ever loses the installer this stops compiling
-                    // instead of quietly becoming a no-op and restoring the original bug.
-                    bargeInHookResolved = true;
-                    SpeechUtils.InstallBargeInHook();
-                }
-
-                return bargeInHook;
-            }
-            set
-            {
-                // An explicit assignment wins and is never overwritten by the lazy install above.
-                bargeInHookResolved = true;
-                bargeInHook = value;
-            }
-        }
-
-        private static Action bargeInHook;
-        private static bool bargeInHookResolved;
-
-        private static bool warnedNoBargeIn;
-
-        /// <summary>
         /// True while an intentional suppression scope is open. Reading this force-releases a
         /// scope that has been held implausibly long (see MaxSuppressionSeconds).
         /// </summary>
@@ -169,17 +120,7 @@ namespace LethalAccess
 
             if (interrupt)
             {
-                Action hook = BargeInHook;
-                if (hook != null)
-                {
-                    hook();
-                }
-                else if (!warnedNoBargeIn)
-                {
-                    warnedNoBargeIn = true;
-                    Debug.Log("[LethalAccess] Barge-in was requested but no BargeInHook is installed; this " +
-                              "utterance is queued behind whatever is already speaking.");
-                }
+                SpeechUtils.CancelQueued();
             }
 
             SpeechUtils.SpeakText(text);
