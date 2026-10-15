@@ -1,6 +1,6 @@
 # LethalAccess: Lethal Company accessibility for blind and visually impaired players
 
-LethalAccess is a BepInEx mod that makes Lethal Company playable with a screen reader. It works with most screen readers, and with SAPI when none is running.
+LethalAccess is a BepInEx mod that makes Lethal Company playable with a screen reader.
 
 ## What it does
 
