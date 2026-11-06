@@ -669,8 +669,34 @@ namespace LethalAccess
         /// separate failures with identical symptoms (silence) and telling them apart by
         /// staring at node content is hopeless, so the counters say which one it is.
         /// </summary>
+        [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+        private static extern int GetClassName(IntPtr hWnd, System.Text.StringBuilder text, int maxCount);
+
+        /// <summary>Window class of the HWND the bridge subclassed (read from its private field).</summary>
+        private static string BridgeWindowClass(AccessKitBridge bridge)
+        {
+            try
+            {
+                FieldInfo field = typeof(AccessKitBridge).GetField("_hwnd",
+                    BindingFlags.Instance | BindingFlags.NonPublic);
+                if (field == null)
+                {
+                    return "<unknown>";
+                }
+                IntPtr hwnd = (IntPtr)field.GetValue(bridge);
+                var name = new System.Text.StringBuilder(256);
+                return GetClassName(hwnd, name, name.Capacity) > 0 ? name.ToString() : "<none>";
+            }
+            catch (Exception ex)
+            {
+                return "<error " + ex.GetType().Name + ">";
+            }
+        }
+
         private IEnumerator ReportTreeReachability(A11yRuntime runtime)
         {
+            int startFrame = Time.frameCount;
+            float startTime = Time.realtimeSinceStartup;
             yield return new WaitForSecondsRealtime(10f);
 
             AccessKitBridge bridge = runtime != null ? runtime.Bridge : null;
@@ -679,11 +705,17 @@ namespace LethalAccess
                 yield break;
             }
 
+            // Which window the tree is on (UnityWndClass expected) and how fast the game ran
+            // while the screen reader was being served: both decide how long menus take to read.
+            float elapsed = Time.realtimeSinceStartup - startTime;
+            float fps = elapsed > 0f ? (Time.frameCount - startFrame) / elapsed : 0f;
+
             Logger.LogInfo(string.Format(
                 "Tree reachability after 10s: wndProc={0} wmGetObject={1} activations={2} " +
-                "updateFactory={3} lastGetObject={4}",
+                "updateFactory={3} lastGetObject={4} windowClass={5} avgFps={6:F1}",
                 bridge.WndProcMessages, bridge.WmGetObject, bridge.Activations,
-                bridge.UpdateFactoryCalls, bridge.LastGetObjectOutcome ?? "<none>"));
+                bridge.UpdateFactoryCalls, bridge.LastGetObjectOutcome ?? "<none>",
+                BridgeWindowClass(bridge), fps));
 
             if (bridge.WndProcMessages == 0)
             {
